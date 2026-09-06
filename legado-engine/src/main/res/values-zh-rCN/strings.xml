@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="all">全部</string>
+    <string name="audio">音频</string>
+    <string name="chapter_list_empty">目录列表为空</string>
+    <string name="copy_complete">已拷贝</string>
+    <string name="error_get_web_content">访问网站失败: %s</string>
+    <string name="get_storage_per">需要存储权限</string>
+    <string name="intro_show">简介：%s</string>
+    <string name="intro_show_null">简介：暂无简介</string>
+    <string name="is_read_finished">已读</string>
+    <string name="is_read_finished_complete">完本已读</string>
+    <string name="is_read_finished_update">连载已读</string>
+    <string name="is_reading">在读</string>
+    <string name="is_unread">未读</string>
+    <string name="local">本地</string>
+    <string name="local_no_group">本地未分组</string>
+    <string name="manga">漫画</string>
+    <string name="net_no_group">网络未分组</string>
+    <string name="noval">小说</string>
+    <string name="replace_rule_invalid">替换规则为空或者不满足正则表达式要求</string>
+    <string name="share">分享</string>
+    <string name="share_selected_source">分享选中源</string>
+    <string name="text_too_long_qr_error">文字太多，生成二维码失败</string>
+    <string name="update_book_fail">更新失败</string>
+</resources>

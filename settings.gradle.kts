@@ -20,3 +20,5 @@ dependencyResolutionManagement {
 rootProject.name = "EBookReader"
 include(":app")
 include(":benchmark")
+include(":modules:rhino")
+include(":legado-engine")

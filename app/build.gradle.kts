@@ -109,7 +109,8 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     // Faithful, sandboxed EPUB HTML/CSS rendering
     implementation("androidx.webkit:webkit:1.16.0")
-    implementation("org.jsoup:jsoup:1.22.2")
+    // 与 Legado 书源解析引擎统一版本，避免选择器/空白处理行为分裂
+    implementation("org.jsoup:jsoup:1.16.2")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
@@ -123,7 +124,10 @@ dependencies {
     // MinerU Markdown results -> safe local EPUB
     implementation("org.commonmark:commonmark:0.24.0")
     // Direct dependency: MinerU signed-URL uploads use OkHttp's streaming request body.
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // 与 Legado 引擎统一使用 OkHttp 5 API
+    implementation("com.squareup.okhttp3:okhttp:5.4.0")
+    // Legado 书源抓取/解析核心
+    implementation(project(":legado-engine"))
 
     // Coil (Image Loading)
     implementation("io.coil-kt:coil:2.7.0")

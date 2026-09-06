@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="all">All</string>
+    <string name="audio">Audio</string>
+    <string name="chapter_list_empty">Chapters is empty</string>
+    <string name="copy_complete">Copied successfully</string>
+    <string name="error_get_web_content">Failed to access website:%s</string>
+    <string name="get_storage_per">Requires storage permission</string>
+    <string name="intro_show">Description:%s</string>
+    <string name="intro_show_null">Description: no introduction</string>
+    <string name="is_read_finished">Finished</string>
+    <string name="is_read_finished_complete">Finished (Completed)</string>
+    <string name="is_read_finished_update">Finished (Serial)</string>
+    <string name="is_reading">Reading</string>
+    <string name="is_unread">Unread</string>
+    <string name="local">Local</string>
+    <string name="local_no_group">Local ungrouped</string>
+    <string name="manga">Manga</string>
+    <string name="net_no_group">Network ungrouped</string>
+    <string name="noval">Novel</string>
+    <string name="replace_rule_invalid">Pattern rule is empty or does not conform the regex specification.</string>
+    <string name="share">Share</string>
+    <string name="share_selected_source">Share selected sources</string>
+    <string name="text_too_long_qr_error">There are too many words to create a QR code</string>
+    <string name="update_book_fail">Update failed</string>
+</resources>
