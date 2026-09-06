@@ -9,6 +9,20 @@ import java.io.File
  * 自动获取文件的编码
  * */
 @Suppress("MemberVisibilityCanBePrivate", "unused")
+private fun ByteArray.indexOfSubArray(needle: ByteArray, startIndex: Int = 0): Int {
+    if (needle.isEmpty()) return startIndex.coerceIn(0, size)
+    val lastStart = size - needle.size
+    if (lastStart < startIndex) return -1
+    for (index in startIndex.coerceAtLeast(0)..lastStart) {
+        var matched = true
+        for (offset in needle.indices) {
+            if (this[index + offset] != needle[offset]) { matched = false; break }
+        }
+        if (matched) return index
+    }
+    return -1
+}
+
 object EncodingDetect {
 
     private val headTagRegex = "(?i)<head>[\\s\\S]*?</head>".toRegex()
@@ -18,9 +32,9 @@ object EncodingDetect {
     fun getHtmlEncode(bytes: ByteArray): String {
         try {
             var head: String? = null
-            val startIndex = bytes.indexOf(headOpenBytes)
+            val startIndex = bytes.indexOfSubArray(headOpenBytes)
             if (startIndex > -1) {
-                val endIndex = bytes.indexOf(headCloseBytes, startIndex)
+                val endIndex = bytes.indexOfSubArray(headCloseBytes, startIndex)
                 if (endIndex > -1) {
                     head = String(bytes.copyOfRange(startIndex, endIndex + headCloseBytes.size))
                 }
