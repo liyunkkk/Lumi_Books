@@ -4458,11 +4458,13 @@ private fun ChangeSourceDialog(
                                         fontSize = 15.sp,
                                         color = AppColors.TextPrimary
                                     )
-                                    Text(
-                                        text = book.type ?: "",
-                                        fontSize = 11.sp,
-                                        color = AppColors.TextSecondary
-                                    )
+                                    if (book.author.isNotBlank()) {
+                                        Text(
+                                            text = book.author,
+                                            fontSize = 12.sp,
+                                            color = AppColors.TextSecondary
+                                        )
+                                    }
                                 }
                                 if (!book.latestChapterTitle.isNullOrBlank()) {
                                     Spacer(Modifier.height(4.dp))
@@ -4489,6 +4491,7 @@ private fun ChangeSourceDialog(
     )
 }
 
+@Composable
 private fun TxtEncodingDialog(
     currentEncoding: TxtEncoding,
     activeCharsetName: String,
