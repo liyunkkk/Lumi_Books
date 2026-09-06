@@ -96,7 +96,7 @@ import com.huangder.lumibooks.ui.components.LiquidGlassMenuItem
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
 import com.huangder.lumibooks.ui.theme.AppColors
-io.legado.app.data.entities.SearchBook
+import io.legado.app.data.entities.SearchBook
 
 /**
  * 发现页：书源选择（液态玻璃菜单）+ 布局切换（标准网格/紧凑网格/列表）+ 跨源搜索 + 图书详情操作弹窗与在线阅读打通
@@ -360,8 +360,7 @@ fun DiscoveryScreen(
                     contentAlignment = Alignment.TopCenter
                 ) {
                     Text(
-                        text = if (exploreSources.isEmpty()) "暂无启用发现的书源
-请在书源管理中导入并启用" else "暂无书籍内容",
+                        text = if (exploreSources.isEmpty()) "暂无启用发现的书源\n请在书源管理中导入并启用" else "暂无书籍内容",
                         fontSize = 14.sp,
                         color = AppColors.TextSecondary,
                         lineHeight = 22.sp,
@@ -701,10 +700,8 @@ private fun DiscoveryBookActionDialog(
                         .clip(RoundedCornerShape(10.dp))
                         .clickable {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("Book Info", "${book.name}
-作者：${book.author}
-书源：${book.originName}
-${book.bookUrl}")
+                            val info = "${book.name}\n作者：${book.author}\n书源：${book.originName}\n${book.bookUrl}"
+                            val clip = ClipData.newPlainText("Book Info", info)
                             clipboard.setPrimaryClip(clip)
                             Toast.makeText(context, "已复制书籍信息", Toast.LENGTH_SHORT).show()
                         }
