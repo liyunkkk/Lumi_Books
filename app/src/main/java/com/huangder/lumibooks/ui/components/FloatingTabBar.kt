@@ -38,6 +38,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.outlined.Settings
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Leaderboard
@@ -200,8 +204,12 @@ fun FloatingTabBar(
     val animationScope = rememberCoroutineScope()
     // Compensate the light glass' neutral overlay so the sampled result matches Lumi pink.
     val glassShape = CircleShape
-    val horizontalPadding = if (isLiquidGlass) 24.dp else 80.dp
-    val endPadding = if (isLiquidGlass && reserveImportButtonSpace) 108.dp else horizontalPadding
+    val horizontalPadding = if (isLiquidGlass) 24.dp else (if (reserveImportButtonSpace) 20.dp else 80.dp)
+    val endPadding = if (reserveImportButtonSpace) {
+        if (isLiquidGlass) 108.dp else 88.dp
+    } else {
+        horizontalPadding
+    }
     val glassBrush = if (isLiquidGlass && isDark) {
         val alpha = 0.42f - transparency * 0.24f
         Brush.verticalGradient(
@@ -696,27 +704,92 @@ internal fun equalEdgePrismScaleX(
 }
 
 @Composable
+fun NavSettingsButton(
+    onClick: () -> Unit,
+    avatarUri: String? = null,
+    isLiquidGlass: Boolean = false,
+    liquidGlassBackdrop: Backdrop? = null,
+    modifier: Modifier = Modifier
+) {
+    val isDark = LocalIsDarkTheme.current
+    val buttonSize = if (isLiquidGlass) 72.dp else 56.dp
+    val iconSize = if (isLiquidGlass) 32.dp else 26.dp
+
+    if (isLiquidGlass && liquidGlassBackdrop != null) {
+        LiquidGlassSurface(
+            shape = CircleShape,
+            fallbackColor = Color.Black,
+            backdrop = liquidGlassBackdrop,
+            contentScrimColor = Color.Black.copy(alpha = 0.85f),
+            modifier = modifier.size(buttonSize),
+            onClick = onClick,
+            contentAlignment = Alignment.Center
+        ) {
+            if (!avatarUri.isNullOrBlank()) {
+                AsyncImage(
+                    model = java.io.File(avatarUri),
+                    contentDescription = stringResource(R.string.avatar),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(4.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Outlined.AccountCircle,
+                    contentDescription = stringResource(R.string.settings),
+                    tint = Color.White,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
+    } else {
+        val bgColor = if (isDark) Color(0xFF242426).copy(alpha = 0.88f) else Color.White.copy(alpha = 0.94f)
+        val tintColor = if (isDark) Color.White.copy(alpha = 0.9f) else AppColors.TextPrimary
+        Box(
+            modifier = modifier
+                .size(buttonSize)
+                .shadow(elevation = 6.dp, shape = CircleShape, ambientColor = AppColors.Shadow)
+                .clip(CircleShape)
+                .background(bgColor)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!avatarUri.isNullOrBlank()) {
+                AsyncImage(
+                    model = java.io.File(avatarUri),
+                    contentDescription = stringResource(R.string.avatar),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(4.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Outlined.AccountCircle,
+                    contentDescription = stringResource(R.string.settings),
+                    tint = tintColor,
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun LiquidGlassSettingsButton(
     onClick: () -> Unit,
     liquidGlassBackdrop: Backdrop,
     modifier: Modifier = Modifier
 ) {
-    LiquidGlassSurface(
-        shape = CircleShape,
-        fallbackColor = Color.Black,
-        backdrop = liquidGlassBackdrop,
-        contentScrimColor = Color.Black.copy(alpha = 0.85f),
-        modifier = modifier.size(72.dp),
+    NavSettingsButton(
         onClick = onClick,
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = Icons.Outlined.Settings,
-            contentDescription = stringResource(R.string.settings),
-            tint = Color.White,
-            modifier = Modifier.size(28.dp)
-        )
-    }
+        isLiquidGlass = true,
+        liquidGlassBackdrop = liquidGlassBackdrop,
+        modifier = modifier
+    )
 }
 
 @Composable

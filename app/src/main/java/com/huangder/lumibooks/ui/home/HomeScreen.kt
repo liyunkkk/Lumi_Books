@@ -258,51 +258,6 @@ fun HomeScreen(
             )
         }
 
-        if (showImportButton) {
-            // 非液态主题沿用原有导入 FAB；液态按钮由导航层与 Tab 同排绘制。
-            PageEntranceItem(
-                play = playEntranceAnimation,
-                index = 5,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .then(
-                        if (isMaterial3) {
-                            Modifier
-                                .navigationBarsPadding()
-                                .padding(end = 24.dp, bottom = 96.dp)
-                        } else {
-                            Modifier.padding(end = 24.dp, bottom = 100.dp)
-                        }
-                    )
-            ) {
-                if (isMaterial3) {
-                    FloatingActionButton(
-                        onClick = onImportClick,
-                        modifier = Modifier.size(56.dp),
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = stringResource(R.string.import_books),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(56.dp)
-                            .shadow(8.dp, CircleShape, ambientColor = AppColors.Shadow)
-                            .clip(CircleShape)
-                            .background(Color.Black)
-                            .clickable(onClick = onImportClick),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.Add, stringResource(R.string.import_books), tint = Color.White, modifier = Modifier.size(24.dp))
-                    }
-                }
-            }
-        }
     } // 外层 Box 结束
 }
 

@@ -9,6 +9,9 @@ import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.entities.rule.ExploreKind
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -146,17 +149,49 @@ class DiscoveryViewModel @Inject constructor(
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             _searching.value = true
-            BookSourceRepositoryHolder.enabledSources()
-                .onSuccess { sources ->
-                    if (sources.isEmpty()) {
-                        _searchResults.value = emptyList()
-                        _message.value = "没有启用的书源，请先导入书源"
-                    } else {
-                        _searchResults.value = BookDiscoveryRepository.search(key, sources)
-                    }
+            _searchResults.value = emptyList()
+
+            val sources = withContext(Dispatchers.IO) {
+                val current = _selectedSource.value
+                val enabled = runCatching { io.legado.app.data.appDb.bookSourceDao.allEnabled() }.getOrDefault(emptyList())
+                val allSources = runCatching { io.legado.app.data.appDb.bookSourceDao.all() }.getOrDefault(emptyList())
+
+                val candidates = mutableListOf<BookSource>()
+                if (current != null && !current.searchUrl.isNullOrBlank()) {
+                    candidates.add(current)
                 }
-                .onFailure { _message.value = "搜索失败: ${it.message}" }
-            _searching.value = false
+                candidates.addAll(enabled)
+                if (candidates.none { !it.searchUrl.isNullOrBlank() }) {
+                    candidates.addAll(allSources)
+                }
+                candidates.filter { !it.searchUrl.isNullOrBlank() }.distinctBy { it.bookSourceUrl }
+            }
+
+            if (sources.isEmpty()) {
+                _message.value = "没有可搜索的书源，请先导入书源"
+                _searching.value = false
+                return@launch
+            }
+
+            try {
+                BookDiscoveryRepository.searchStreaming(
+                    keyword = key,
+                    sources = sources,
+                    maxConcurrency = 6,
+                    sourceTimeoutMs = 8000L
+                ) { batch ->
+                    _searchResults.value = batch
+                }
+                if (_searchResults.value.isEmpty()) {
+                    _message.value = "未找到「$key」相关网络书籍"
+                }
+            } catch (e: Exception) {
+                if (e !is CancellationException) {
+                    _message.value = "搜索异常: ${e.message}"
+                }
+            } finally {
+                _searching.value = false
+            }
         }
     }
 

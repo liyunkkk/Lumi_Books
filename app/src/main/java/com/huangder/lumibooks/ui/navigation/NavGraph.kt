@@ -51,6 +51,7 @@ import com.huangder.lumibooks.ui.components.BookTransitionOverlay
 import com.huangder.lumibooks.ui.components.FloatingTabBar
 import com.huangder.lumibooks.ui.components.Material3BottomNavigationBar
 import com.huangder.lumibooks.ui.components.LiquidGlassSettingsButton
+import com.huangder.lumibooks.ui.components.NavSettingsButton
 import com.huangder.lumibooks.ui.components.LiquidGlassImportButton
 import com.huangder.lumibooks.ui.components.LiquidGlassDialogHost
 import com.huangder.lumibooks.ui.components.ImmersiveMode
@@ -604,7 +605,7 @@ fun MainNavGraph(
                         showImportActions = true
                         showImportConfirmation = false
                     },
-                    showImportButton = !isLiquidGlass,
+                    showImportButton = false,
                     showReadingGoalSheet = homeGoalSheetVisible,
                     onReadingGoalSheetVisibleChange = { visible -> homeGoalSheetVisible = visible },
                     renderReadingGoalSheet = false,
@@ -845,28 +846,31 @@ fun MainNavGraph(
                             max = if (isLiquidGlass) 480.dp else 430.dp
                         )
                     ) {
-                        if (showLiquidImport) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .navigationBarsPadding()
-                                    .padding(end = 24.dp, bottom = 10.dp)
-                            ) {
-                                LiquidGlassSettingsButton(
-                                    onClick = {
-                                        context.startActivity(
-                                            android.content.Intent(context, com.huangder.lumibooks.ui.settings.SettingsActivity::class.java)
-                                        )
-                                    },
-                                    liquidGlassBackdrop = liquidGlassBackdrop
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .navigationBarsPadding()
+                                .padding(
+                                    end = if (isLiquidGlass) 24.dp else 20.dp,
+                                    bottom = if (isLiquidGlass) 10.dp else 14.dp
                                 )
-                            }
+                        ) {
+                            NavSettingsButton(
+                                onClick = {
+                                    context.startActivity(
+                                        android.content.Intent(context, com.huangder.lumibooks.ui.settings.SettingsActivity::class.java)
+                                    )
+                                },
+                                avatarUri = homeUiState.avatarUri,
+                                isLiquidGlass = isLiquidGlass,
+                                liquidGlassBackdrop = liquidGlassBackdrop
+                            )
                         }
                         FloatingTabBar(
                             selectedIndex = selectedTab,
                             hazeState = hazeState,
                             liquidGlassBackdrop = liquidGlassBackdrop,
-                            reserveImportButtonSpace = showLiquidImport,
+                            reserveImportButtonSpace = true,
                             onTabSelected = selectTab
                         )
                     }
