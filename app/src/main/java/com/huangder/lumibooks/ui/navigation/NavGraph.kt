@@ -673,7 +673,11 @@ fun MainNavGraph(
                 popEnterTransition = { if (eInkMode) EnterTransition.None else null },
                 popExitTransition = { if (eInkMode) ExitTransition.None else null }
             ) { _ ->
-                DiscoveryScreen()
+                DiscoveryScreen(
+                    onOpenBook = { bookId ->
+                        requestOpenBook(bookId, null, "")
+                    }
+                )
             }
 
             composable(
