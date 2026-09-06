@@ -264,6 +264,7 @@
 
     <!-- 本棚 -->
     <string name="bookshelf_title">ライブラリ</string>
+    <string name="discover_title">発見</string>
     <string name="filter_all">すべて</string>
     <string name="filter_downloaded">EPUB &amp; MOBI</string>
     <string name="filter_pdf">PDF</string>
