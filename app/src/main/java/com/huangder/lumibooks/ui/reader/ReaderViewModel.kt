@@ -2395,7 +2395,7 @@ class ReaderViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true)
             try {
                 if (book != null) {
-                    val activeParser = BookParserFactory.createParser(book.format, context)
+                    val activeParser = BookParserFactory.createParser(book.format, context, book.filePath)
                     parser = activeParser
 
                     val isEpub = book.format.name == "EPUB"
