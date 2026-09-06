@@ -714,14 +714,19 @@ fun NavSettingsButton(
     val isDark = LocalIsDarkTheme.current
     val buttonSize = if (isLiquidGlass) 72.dp else 56.dp
     val iconSize = if (isLiquidGlass) 32.dp else 26.dp
+    val strokeColor = if (isDark) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.1f)
 
     if (isLiquidGlass && liquidGlassBackdrop != null) {
+        val fallback = if (isDark) Color.Black else Color.White
+        val scrim = if (isDark) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f)
         LiquidGlassSurface(
             shape = CircleShape,
-            fallbackColor = Color.Black,
+            fallbackColor = fallback,
             backdrop = liquidGlassBackdrop,
-            contentScrimColor = Color.Black.copy(alpha = 0.85f),
-            modifier = modifier.size(buttonSize),
+            contentScrimColor = scrim,
+            modifier = modifier
+                .size(buttonSize)
+                .border(1.dp, strokeColor, CircleShape),
             onClick = onClick,
             contentAlignment = Alignment.Center
         ) {
@@ -731,7 +736,6 @@ fun NavSettingsButton(
                     contentDescription = stringResource(R.string.avatar),
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(4.dp)
                         .clip(CircleShape),
                     contentScale = ContentScale.Crop
                 )
@@ -739,7 +743,7 @@ fun NavSettingsButton(
                 Icon(
                     imageVector = Icons.Outlined.AccountCircle,
                     contentDescription = stringResource(R.string.settings),
-                    tint = Color.White,
+                    tint = if (isDark) Color.White else AppColors.TextPrimary,
                     modifier = Modifier.size(iconSize)
                 )
             }
@@ -753,6 +757,7 @@ fun NavSettingsButton(
                 .shadow(elevation = 6.dp, shape = CircleShape, ambientColor = AppColors.Shadow)
                 .clip(CircleShape)
                 .background(bgColor)
+                .border(1.dp, strokeColor, CircleShape)
                 .clickable(onClick = onClick),
             contentAlignment = Alignment.Center
         ) {
@@ -762,7 +767,6 @@ fun NavSettingsButton(
                     contentDescription = stringResource(R.string.avatar),
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(4.dp)
                         .clip(CircleShape),
                     contentScale = ContentScale.Crop
                 )

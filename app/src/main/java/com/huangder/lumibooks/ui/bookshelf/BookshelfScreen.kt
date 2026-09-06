@@ -175,6 +175,7 @@ fun BookshelfScreen(
     initialSearchQuery: String? = null,
     onInitialSearchQueryConsumed: () -> Unit = {},
     onSearchInDiscover: ((String) -> Unit)? = null,
+    onNavigateToSearch: ((String?) -> Unit)? = null,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -813,10 +814,14 @@ fun BookshelfScreen(
                             )
                         },
                         onSearchClick = {
-                            isEditing = false
-                            selectedBookIds = emptySet()
-                            expandedSearchBookId = null
-                            isSearchActive = true
+                            if (onNavigateToSearch != null) {
+                                onNavigateToSearch(null)
+                            } else {
+                                isEditing = false
+                                selectedBookIds = emptySet()
+                                expandedSearchBookId = null
+                                isSearchActive = true
+                            }
                         },
                         onSyncClick = { viewModel.syncWebdavNow() },
                         onRefreshClick = onRefreshAuthorizedDirectories,
@@ -931,10 +936,14 @@ fun BookshelfScreen(
                         )
                     },
                     onSearchClick = {
-                        isEditing = false
-                        selectedBookIds = emptySet()
-                        expandedSearchBookId = null
-                        isSearchActive = true
+                        if (onNavigateToSearch != null) {
+                            onNavigateToSearch(null)
+                        } else {
+                            isEditing = false
+                            selectedBookIds = emptySet()
+                            expandedSearchBookId = null
+                            isSearchActive = true
+                        }
                     },
                     onSyncClick = { viewModel.syncWebdavNow() },
                     onRefreshClick = onRefreshAuthorizedDirectories,

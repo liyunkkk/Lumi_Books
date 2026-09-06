@@ -122,15 +122,56 @@ class DiscoveryViewModel @Inject constructor(
         loadBooks(source, kind)
     }
 
+    private var currentExplorePage = 1
+    private val _isLoadingMore = MutableStateFlow(false)
+    val isLoadingMore: StateFlow<Boolean> = _isLoadingMore
+
+    private val _hasMore = MutableStateFlow(true)
+    val hasMore: StateFlow<Boolean> = _hasMore
+
     private fun loadBooks(source: BookSource, kind: ExploreKind) {
         val url = kind.url ?: return
         loadJob?.cancel()
+        currentExplorePage = 1
+        _hasMore.value = true
         loadJob = viewModelScope.launch {
             _loading.value = true
-            runCatching { BookDiscoveryRepository.explore(source, url) }
-                .onSuccess { books -> _books.value = books }
+            runCatching { BookDiscoveryRepository.explore(source, url, page = 1) }
+                .onSuccess { books ->
+                    _books.value = books
+                    if (books.isEmpty()) _hasMore.value = false
+                }
                 .onFailure { _message.value = "加载失败: ${it.message}" }
             _loading.value = false
+        }
+    }
+
+    fun loadMore() {
+        val source = _selectedSource.value ?: return
+        val kind = _selectedKind.value ?: return
+        val url = kind.url ?: return
+        if (_loading.value || _isLoadingMore.value || !_hasMore.value) return
+
+        viewModelScope.launch {
+            _isLoadingMore.value = true
+            val nextPage = currentExplorePage + 1
+            runCatching { BookDiscoveryRepository.explore(source, url, page = nextPage) }
+                .onSuccess { newBooks ->
+                    if (newBooks.isEmpty()) {
+                        _hasMore.value = false
+                    } else {
+                        val currentList = _books.value
+                        val toAdd = newBooks.filter { nb -> currentList.none { it.bookUrl == nb.bookUrl } }
+                        if (toAdd.isEmpty()) {
+                            _hasMore.value = false
+                        } else {
+                            currentExplorePage = nextPage
+                            _books.value = currentList + toAdd
+                        }
+                    }
+                }
+                .onFailure { }
+            _isLoadingMore.value = false
         }
     }
 

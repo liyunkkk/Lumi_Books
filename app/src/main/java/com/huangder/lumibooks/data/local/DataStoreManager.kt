@@ -183,6 +183,10 @@ class DataStoreManager @Inject constructor(
         private val BRIGHTNESS = floatPreferencesKey("brightness")
         private val CUSTOM_FONT_PATH = stringPreferencesKey("custom_font_path")
         private val CUSTOM_FONTS = stringPreferencesKey("custom_fonts")
+        private val SEARCH_HISTORY = stringPreferencesKey("search_history_json")
+        private val SEARCH_EXACT_ENABLED = booleanPreferencesKey("search_exact_enabled")
+        private val SEARCH_MODE = intPreferencesKey("search_mode")
+        private val SEARCH_TYPE_FILTER = intPreferencesKey("search_type_filter")
         private val REMOTE_FONT_VERSIONS = stringPreferencesKey("remote_font_versions")
         private val READER_BACKGROUND_SELECTION = stringPreferencesKey("reader_background_selection")
         private val READER_BACKGROUND_COLOR_SELECTION = stringPreferencesKey("reader_background_color_selection")
@@ -2682,6 +2686,72 @@ class DataStoreManager @Inject constructor(
     }
 
     /** 清除所有偏好设置 */
+    val searchHistory: Flow<List<String>> = context.dataStore.data.map { preferences ->
+        val json = preferences[SEARCH_HISTORY] ?: return@map emptyList<String>()
+        runCatching {
+            val arr = org.json.JSONArray(json)
+            (0 until arr.length()).map { arr.getString(it) }
+        }.getOrDefault(emptyList())
+    }
+
+    suspend fun addSearchHistory(keyword: String) {
+        val trimmed = keyword.trim()
+        if (trimmed.isEmpty()) return
+        context.dataStore.edit { preferences ->
+            val current = runCatching {
+                val json = preferences[SEARCH_HISTORY] ?: "[]"
+                val arr = org.json.JSONArray(json)
+                (0 until arr.length()).map { arr.getString(it) }.toMutableList()
+            }.getOrDefault(mutableListOf())
+            current.remove(trimmed)
+            current.add(0, trimmed)
+            val limited = current.take(20)
+            preferences[SEARCH_HISTORY] = org.json.JSONArray(limited).toString()
+        }
+    }
+
+    suspend fun removeSearchHistory(keyword: String) {
+        context.dataStore.edit { preferences ->
+            val current = runCatching {
+                val json = preferences[SEARCH_HISTORY] ?: "[]"
+                val arr = org.json.JSONArray(json)
+                (0 until arr.length()).map { arr.getString(it) }.toMutableList()
+            }.getOrDefault(mutableListOf())
+            current.remove(keyword)
+            preferences[SEARCH_HISTORY] = org.json.JSONArray(current).toString()
+        }
+    }
+
+    suspend fun clearSearchHistory() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(SEARCH_HISTORY)
+        }
+    }
+
+    val exactSearchEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[SEARCH_EXACT_ENABLED] ?: false
+    }
+
+    suspend fun saveExactSearchEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[SEARCH_EXACT_ENABLED] = enabled }
+    }
+
+    val searchMode: Flow<Int> = context.dataStore.data.map { preferences ->
+        preferences[SEARCH_MODE] ?: 0
+    }
+
+    suspend fun saveSearchMode(mode: Int) {
+        context.dataStore.edit { it[SEARCH_MODE] = mode }
+    }
+
+    val searchTypeFilter: Flow<Int> = context.dataStore.data.map { preferences ->
+        preferences[SEARCH_TYPE_FILTER] ?: 0
+    }
+
+    suspend fun saveSearchTypeFilter(type: Int) {
+        context.dataStore.edit { it[SEARCH_TYPE_FILTER] = type }
+    }
+
     suspend fun clearAll() {
         context.dataStore.edit { it.clear() }
         LaunchThemeController.updateWelcomeSnapshot(

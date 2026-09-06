@@ -61,6 +61,7 @@ import com.huangder.lumibooks.ui.components.CloudBookDownloadDialog
 import com.huangder.lumibooks.ui.components.LocalPredictiveBackEnabled
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuHost
 import com.huangder.lumibooks.ui.discover.DiscoveryScreen
+import com.huangder.lumibooks.ui.search.SearchScreen
 import com.huangder.lumibooks.ui.home.HomeScreen
 import com.huangder.lumibooks.ui.home.ImportBooksActionSheet
 import com.huangder.lumibooks.ui.home.ImportBooksConfirmationSheet
@@ -490,7 +491,7 @@ fun MainNavGraph(
         if (currentRoute != Screen.Bookshelf.route) {
             bookshelfOverlayProgress = 0f
         }
-        if (currentRoute == Screen.Reader.route || showTransition) {
+        if (currentRoute == Screen.Reader.route || currentRoute == Screen.Search.route || showTransition) {
             tabBarVisible = false
             useMainReturnTabBarTransition = false
         } else if (returningFromReader) {
@@ -662,6 +663,9 @@ fun MainNavGraph(
                     },
                     initialSearchQuery = pendingBookshelfSearchQuery,
                     onInitialSearchQueryConsumed = { pendingBookshelfSearchQuery = null },
+                    onNavigateToSearch = { initialQuery ->
+                        navController.navigate(Screen.Search.createRoute(initialQuery))
+                    },
                     onSearchInDiscover = { query ->
                         selectedTab = 2
                         pendingDiscoverSearchQuery = query
@@ -685,6 +689,9 @@ fun MainNavGraph(
                 DiscoveryScreen(
                     initialSearchQuery = pendingDiscoverSearchQuery,
                     onInitialSearchQueryConsumed = { pendingDiscoverSearchQuery = null },
+                    onNavigateToSearch = { initialQuery ->
+                        navController.navigate(Screen.Search.createRoute(initialQuery))
+                    },
                     onSearchInBookshelf = { query ->
                         selectedTab = 1
                         pendingBookshelfSearchQuery = query
@@ -694,6 +701,29 @@ fun MainNavGraph(
                             restoreState = true
                         }
                     },
+                    onOpenBook = { bookId, coverUrl, title ->
+                        requestOpenBook(bookId, coverUrl, title)
+                    }
+                )
+            }
+            composable(
+                route = Screen.Search.route,
+                arguments = listOf(
+                    navArgument("initialQuery") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                ),
+                enterTransition = { if (eInkMode) EnterTransition.None else null },
+                exitTransition = { if (eInkMode) ExitTransition.None else null },
+                popEnterTransition = { if (eInkMode) EnterTransition.None else null },
+                popExitTransition = { if (eInkMode) ExitTransition.None else null }
+            ) { backStackEntry ->
+                val initialQuery = backStackEntry.arguments?.getString("initialQuery")
+                SearchScreen(
+                    initialQuery = initialQuery,
+                    onBack = { navController.popBackStack() },
                     onOpenBook = { bookId, coverUrl, title ->
                         requestOpenBook(bookId, coverUrl, title)
                     }
