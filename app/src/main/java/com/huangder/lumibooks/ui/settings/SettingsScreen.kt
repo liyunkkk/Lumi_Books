@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.Brightness6
@@ -322,6 +323,14 @@ fun ThirdPartyServicesDetail(viewModel: SettingsViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
+    CategoryItem(
+        icon = Icons.Outlined.AutoStories,
+        label = "书源管理",
+        supportingText = "导入 Legado 书源 JSON"
+    ) {
+        context.startActivity(Intent(context, com.huangder.lumibooks.ui.sources.BookSourcesActivity::class.java))
+    }
+    Spacer(Modifier.height(AppSpace.sm))
     CategoryItem(
         icon = Icons.Outlined.Cloud,
         label = stringResource(R.string.category_mineru),
