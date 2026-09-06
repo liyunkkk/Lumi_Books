@@ -171,14 +171,7 @@ fun HomeScreen(
                 item(key = "header") {
                     Spacer(Modifier.height(statusBarTopPadding + AppSpace.md))
                     PageEntranceItem(play = playEntranceAnimation, index = 0) {
-                        HomeHeader(
-                            avatarUri = uiState.avatarUri,
-                            onAvatarClick = {
-                                context.startActivity(
-                                    android.content.Intent(context, com.huangder.lumibooks.ui.settings.SettingsActivity::class.java)
-                                )
-                            }
-                        )
+                        HomeHeader()
                     }
                     Spacer(Modifier.height(AppSpace.lg))
                 }
@@ -316,10 +309,7 @@ fun HomeScreen(
 // ─── Header ──────────────────────────────────────────────────────
 
 @Composable
-private fun HomeHeader(
-    avatarUri: String? = null,
-    onAvatarClick: () -> Unit = {}
-) {
+private fun HomeHeader() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -334,37 +324,6 @@ private fun HomeHeader(
             letterSpacing = (-0.02).sp,
             color = AppColors.TextPrimary
         )
-        Spacer(Modifier.weight(1f))
-        // 头像（点击进入设置页）
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(AppColors.BgGray)
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() }
-                ) { onAvatarClick() },
-            contentAlignment = Alignment.Center
-        ) {
-            if (avatarUri != null) {
-                AsyncImage(
-                    model = java.io.File(avatarUri),
-                    contentDescription = stringResource(R.string.avatar),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Outlined.AccountCircle,
-                    contentDescription = stringResource(R.string.settings),
-                    tint = AppColors.TextSecondary,
-                    modifier = Modifier.size(36.dp)
-                )
-            }
-        }
     }
 }
 

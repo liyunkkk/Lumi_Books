@@ -256,6 +256,8 @@ class DataStoreManager @Inject constructor(
         private val SPLASH_ENABLED = booleanPreferencesKey("splash_enabled")
         private val LAST_READ_BOOK = stringPreferencesKey("last_read_book")
         private val BOOKSHELF_LAYOUT_MODE = intPreferencesKey("bookshelf_layout_mode")
+        private val DISCOVER_LAYOUT_MODE = intPreferencesKey("discover_layout_mode")
+        private val DISCOVER_SELECTED_SOURCE_URL = stringPreferencesKey("discover_selected_source_url")
         private val BOOKSHELF_SORT_MODE = stringPreferencesKey("bookshelf_sort_mode")
         private val IMPORT_BOOKS_LAYOUT_MODE = intPreferencesKey("import_books_layout_mode")
         private val HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")
@@ -957,6 +959,27 @@ class DataStoreManager @Inject constructor(
     }
 
     // 保存方法
+    val discoverLayoutMode: Flow<Int> = context.dataStore.data.map { preferences ->
+        (preferences[DISCOVER_LAYOUT_MODE] ?: 2).coerceIn(1, 3)
+    }
+
+    suspend fun saveDiscoverLayoutMode(mode: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[DISCOVER_LAYOUT_MODE] = mode.coerceIn(1, 3)
+        }
+    }
+
+    val discoverSelectedSourceUrl: Flow<String?> = context.dataStore.data.map { preferences ->
+        preferences[DISCOVER_SELECTED_SOURCE_URL]
+    }
+
+    suspend fun saveDiscoverSelectedSourceUrl(url: String?) {
+        context.dataStore.edit { preferences ->
+            if (url == null) preferences.remove(DISCOVER_SELECTED_SOURCE_URL)
+            else preferences[DISCOVER_SELECTED_SOURCE_URL] = url
+        }
+    }
+
     suspend fun saveBookshelfLayoutMode(mode: Int) {
         context.dataStore.edit { preferences ->
             preferences[BOOKSHELF_LAYOUT_MODE] = mode.coerceIn(1, 3)

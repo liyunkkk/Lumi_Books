@@ -2,6 +2,7 @@ package com.huangder.lumibooks.ui.discover
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.domain.repository.BookRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.legado.app.data.entities.BookSource
@@ -11,13 +12,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class DiscoveryViewModel @Inject constructor(
-    private val bookRepository: BookRepository
+    private val bookRepository: BookRepository,
+    private val dataStoreManager: DataStoreManager
 ) : ViewModel() {
 
     /** 启用发现的书源列表 */
@@ -48,7 +52,7 @@ class DiscoveryViewModel @Inject constructor(
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
 
-    /** 布局模式：1 列表, 2 标准网格, 3 紧凑网格 */
+    /** 布局模式：1 列表, 2 标准网格, 3 紧凑网格（持久化存储） */
     private val _layoutMode = MutableStateFlow(2)
     val layoutMode: StateFlow<Int> = _layoutMode
 
@@ -62,8 +66,20 @@ class DiscoveryViewModel @Inject constructor(
     private var loadJob: Job? = null
     private var searchJob: Job? = null
 
+    init {
+        viewModelScope.launch {
+            dataStoreManager.discoverLayoutMode.collectLatest {
+                _layoutMode.value = it
+            }
+        }
+    }
+
     fun setLayoutMode(mode: Int) {
-        _layoutMode.value = mode.coerceIn(1, 3)
+        val normalized = mode.coerceIn(1, 3)
+        _layoutMode.value = normalized
+        viewModelScope.launch {
+            dataStoreManager.saveDiscoverLayoutMode(normalized)
+        }
     }
 
     fun selectSource(source: BookSource?) {
@@ -74,6 +90,7 @@ class DiscoveryViewModel @Inject constructor(
         _books.value = emptyList()
         if (source != null) {
             viewModelScope.launch {
+                dataStoreManager.saveDiscoverSelectedSourceUrl(source.bookSourceUrl)
                 runCatching { BookDiscoveryRepository.exploreKinds(source) }
                     .onSuccess { kinds ->
                         _exploreKinds.value = kinds.filter { it.type == ExploreKind.Type.url && !it.url.isNullOrBlank() }
@@ -85,10 +102,14 @@ class DiscoveryViewModel @Inject constructor(
         }
     }
 
-    /** 自动选中第一个可用书源 */
+    /** 自动恢复上次选中的书源或选中第一个可用书源 */
     fun maybeAutoSelect(sources: List<BookSource>) {
         if (_selectedSource.value == null && sources.isNotEmpty()) {
-            selectSource(sources.first())
+            viewModelScope.launch {
+                val savedUrl = dataStoreManager.discoverSelectedSourceUrl.first()
+                val matched = sources.firstOrNull { it.bookSourceUrl == savedUrl } ?: sources.first()
+                selectSource(matched)
+            }
         }
     }
 
@@ -118,7 +139,10 @@ class DiscoveryViewModel @Inject constructor(
 
     fun search(keyword: String) {
         val key = keyword.trim()
-        if (key.isEmpty()) return
+        if (key.isEmpty()) {
+            clearSearch()
+            return
+        }
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
             _searching.value = true
@@ -167,14 +191,14 @@ class DiscoveryViewModel @Inject constructor(
         }
     }
 
-    fun prepareReadBook(book: SearchBook, onReady: (String) -> Unit) {
+    fun prepareReadBook(book: SearchBook, onReady: (lumiBookId: String, coverUrl: String?, title: String) -> Unit) {
         viewModelScope.launch {
             _loading.value = true
             OnlineBookRepository.ensureInLibrary(bookRepository, book)
                 .onSuccess { lumiId ->
                     _loading.value = false
                     dismissBookActions()
-                    onReady(lumiId)
+                    onReady(lumiId, book.coverUrl, book.name)
                 }
                 .onFailure { error ->
                     _loading.value = false

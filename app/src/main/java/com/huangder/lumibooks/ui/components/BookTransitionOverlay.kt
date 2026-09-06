@@ -120,15 +120,14 @@ fun BookTransitionOverlay(
     // so a ready signal during the grace period can transition directly to visible content.
     LaunchedEffect(isReady) {
         if (!isReady) {
-            delay(BookTransitionTiming.OVERLAY_REVEAL_DELAY_MS)
             if (!isClosing.value) {
                 overlayShownAtMs.value = SystemClock.elapsedRealtime()
                 showLoadingDetails.value = true
+                scrimAlpha.snapTo(1f)
                 coroutineScope {
-                    launch { scrimAlpha.animateTo(1f, tween(300)) }
-                    launch { sheetAlpha.animateTo(1f, tween(300)) }
+                    launch { sheetAlpha.animateTo(1f, tween(240)) }
                     launch {
-                        sheetScale.animateTo(1f, tween(400, easing = FastOutSlowInEasing))
+                        sheetScale.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
                     }
                 }
             }
@@ -176,13 +175,19 @@ fun BookTransitionOverlay(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 深色半透明遮罩（不用 blur，避免卡顿）
-
+        // 完全不透明底盘，彻底杜绝底层阅读器在排版未完成时的背景提前漏底
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .alpha(scrimAlpha.value * (1f - predictiveBackProgress))
-                .background(Color.Black.copy(alpha = 0.55f))
+                .background(AppColors.WindowBg)
+        )
+        // 深色遮罩叠层
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(scrimAlpha.value * (1f - predictiveBackProgress))
+                .background(Color.Black.copy(alpha = 0.45f))
         )
 
         // 白色加载页（居中淡入 + 放大，大圆角）
@@ -233,6 +238,7 @@ fun BookTransitionOverlay(
                 ) {
 
                     // 封面占位
+                    var coverLoadFailed by remember(coverPath) { mutableStateOf(coverPath.isNullOrBlank()) }
                     Box(
                         modifier = Modifier
                             .width(200.dp)
@@ -241,15 +247,42 @@ fun BookTransitionOverlay(
                             .background(AppColors.BgGray),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (coverPath != null) {
+                        if (!coverPath.isNullOrBlank() && !coverLoadFailed) {
+                            val imageModel: Any = if (coverPath.startsWith("http://") || coverPath.startsWith("https://") || coverPath.startsWith("content://")) {
+                                coverPath
+                            } else {
+                                File(coverPath)
+                            }
                             AsyncImage(
-                                model = File(coverPath),
+                                model = imageModel,
                                 contentDescription = null,
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .clip(RoundedCornerShape(AppRadius.md)),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.Crop,
+                                onError = { coverLoadFailed = true }
                             )
+                        }
+                        if (coverLoadFailed || coverPath.isNullOrBlank()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color(0xFFE2E2EC))
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = title.ifBlank { stringResource(R.string.reading) },
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = resolveAppFontFamily(KaiTi),
+                                    color = AppColors.TextPrimary,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 4,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
 
@@ -319,7 +352,7 @@ private fun BookTransitionLoadingDetails(visible: Boolean) {
 }
 
 internal object BookTransitionTiming {
-    const val OVERLAY_REVEAL_DELAY_MS = 500L
+    const val OVERLAY_REVEAL_DELAY_MS = 0L
     const val MIN_OVERLAY_VISIBLE_MS = 300L
     const val LOADING_DETAILS_FADE_IN_MS = 140
     const val LOADING_DETAILS_FADE_OUT_MS = 100

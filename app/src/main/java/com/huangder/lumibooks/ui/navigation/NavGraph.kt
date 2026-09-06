@@ -50,6 +50,7 @@ import com.huangder.lumibooks.ui.bookshelf.BookshelfScreen
 import com.huangder.lumibooks.ui.components.BookTransitionOverlay
 import com.huangder.lumibooks.ui.components.FloatingTabBar
 import com.huangder.lumibooks.ui.components.Material3BottomNavigationBar
+import com.huangder.lumibooks.ui.components.LiquidGlassSettingsButton
 import com.huangder.lumibooks.ui.components.LiquidGlassImportButton
 import com.huangder.lumibooks.ui.components.LiquidGlassDialogHost
 import com.huangder.lumibooks.ui.components.ImmersiveMode
@@ -212,6 +213,8 @@ fun MainNavGraph(
             }
         )
     }
+        var pendingDiscoverSearchQuery by remember { mutableStateOf<String?>(null) }
+    var pendingBookshelfSearchQuery by remember { mutableStateOf<String?>(null) }
     var showTransition by remember { mutableStateOf(false) }
     var transitionCover by remember { mutableStateOf<String?>(null) }
     var transitionTitle by remember { mutableStateOf("") }
@@ -396,13 +399,7 @@ fun MainNavGraph(
                 pendingCloudBook = book
             }
         } else {
-            if (homeUiState.books.any { it.id == bookId }) {
-                openLocalBook(book, animated)
-            } else if (!animated) {
-                // External open intents can arrive before HomeViewModel emits its first list.
-                // ReaderViewModel resolves the authoritative local record by ID.
-                openBookRouteWithoutBook(bookId)
-            }
+            openLocalBook(book, animated)
         }
     }
     val snackbarMessage = transientMessage
@@ -662,6 +659,17 @@ fun MainNavGraph(
                     onOverlayProgressChange = { progress ->
                         bookshelfOverlayProgress = progress.coerceIn(0f, 1f)
                     },
+                    initialSearchQuery = pendingBookshelfSearchQuery,
+                    onInitialSearchQueryConsumed = { pendingBookshelfSearchQuery = null },
+                    onSearchInDiscover = { query ->
+                        selectedTab = 2
+                        pendingDiscoverSearchQuery = query
+                        navController.navigate(Screen.Discover.route) {
+                            popUpTo(Screen.Home.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
                     viewModel = homeViewModel
                 )
             }
@@ -674,8 +682,19 @@ fun MainNavGraph(
                 popExitTransition = { if (eInkMode) ExitTransition.None else null }
             ) { _ ->
                 DiscoveryScreen(
-                    onOpenBook = { bookId ->
-                        requestOpenBook(bookId, null, "")
+                    initialSearchQuery = pendingDiscoverSearchQuery,
+                    onInitialSearchQueryConsumed = { pendingDiscoverSearchQuery = null },
+                    onSearchInBookshelf = { query ->
+                        selectedTab = 1
+                        pendingBookshelfSearchQuery = query
+                        navController.navigate(Screen.Bookshelf.route) {
+                            popUpTo(Screen.Home.route) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    onOpenBook = { bookId, coverUrl, title ->
+                        requestOpenBook(bookId, coverUrl, title)
                     }
                 )
             }
@@ -833,8 +852,12 @@ fun MainNavGraph(
                                     .navigationBarsPadding()
                                     .padding(end = 24.dp, bottom = 10.dp)
                             ) {
-                                LiquidGlassImportButton(
-                                    onClick = requestImport,
+                                LiquidGlassSettingsButton(
+                                    onClick = {
+                                        context.startActivity(
+                                            android.content.Intent(context, com.huangder.lumibooks.ui.settings.SettingsActivity::class.java)
+                                        )
+                                    },
                                     liquidGlassBackdrop = liquidGlassBackdrop
                                 )
                             }

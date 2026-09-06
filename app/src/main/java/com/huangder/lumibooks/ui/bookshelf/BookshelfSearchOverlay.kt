@@ -51,6 +51,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Favorite
@@ -200,6 +201,7 @@ internal fun BookshelfSearchOverlay(
     onTags: (Book) -> Unit,
     onBookmarksNotes: (Book) -> Unit,
     launcherBounds: Rect,
+    onSearchInDiscover: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -342,17 +344,42 @@ internal fun BookshelfSearchOverlay(
                     )
 
                     if (results.isEmpty()) {
-                        Box(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 48.dp),
-                            contentAlignment = Alignment.Center
+                                .padding(top = 48.dp, start = 20.dp, end = 20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
                                 text = stringResource(R.string.search_no_results),
                                 color = AppColors.TextSecondary,
                                 fontSize = AppType.Body
                             )
+                            if (onSearchInDiscover != null) {
+                                Spacer(Modifier.height(20.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(AppColors.CardBg)
+                                        .clickable { onSearchInDiscover(query) }
+                                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.TravelExplore,
+                                        contentDescription = null,
+                                        tint = AppColors.Accent,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = "在发现页网络书源中搜索「$query」",
+                                        color = AppColors.Accent,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
                         }
                     } else {
                         LazyColumn(
@@ -386,6 +413,35 @@ internal fun BookshelfSearchOverlay(
                                     onTags = { onTags(book) },
                                     onBookmarksNotes = { onBookmarksNotes(book) }
                                 )
+                            }
+                            if (onSearchInDiscover != null) {
+                                item(key = "search_discover_footer") {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 8.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(AppColors.CardBg)
+                                            .clickable { onSearchInDiscover(query) }
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.TravelExplore,
+                                            contentDescription = null,
+                                            tint = AppColors.Accent,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = "在发现页网络书源中搜索「$query」",
+                                            color = AppColors.Accent,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
