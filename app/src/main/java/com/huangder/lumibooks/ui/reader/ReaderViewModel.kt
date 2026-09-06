@@ -1,4 +1,11 @@
 package com.huangder.lumibooks.ui.reader
+import io.legado.app.data.appDb
+import io.legado.app.data.entities.SearchBook
+import io.legado.app.model.webBook.WebBook
+import com.huangder.lumibooks.util.parser.OnlineBookParser
+import com.huangder.lumibooks.ui.discover.BookDiscoveryRepository
+import android.widget.Toast
+import android.util.Log
 
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -3944,6 +3951,110 @@ class ReaderViewModel @Inject constructor(
             sessionStartTime = System.currentTimeMillis()
         } catch (e: Exception) {
             android.util.Log.e("READING", "Save failed: ${e.message}")
+        }
+    }
+
+    
+    // ─── 在线书籍：换源与刷新 ──────────────────────────────────────────
+
+    private val _isRefreshingOnlineBook = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val isRefreshingOnlineBook: kotlinx.coroutines.flow.StateFlow<Boolean> = _isRefreshingOnlineBook
+
+    private val _changeSourceList = kotlinx.coroutines.flow.MutableStateFlow<List<SearchBook>>(emptyList())
+    val changeSourceList: kotlinx.coroutines.flow.StateFlow<List<SearchBook>> = _changeSourceList
+
+    private val _isSearchingSources = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val isSearchingSources: kotlinx.coroutines.flow.StateFlow<Boolean> = _isSearchingSources
+
+    fun refreshCurrentOnlineBook() {
+        val currentBook = _uiState.value.book ?: return
+        if (!currentBook.filePath.startsWith(OnlineBookParser.SCHEME)) return
+        viewModelScope.launch {
+            _isRefreshingOnlineBook.value = true
+            try {
+                val engineBookUrl = currentBook.filePath.removePrefix(OnlineBookParser.SCHEME)
+                withContext(Dispatchers.IO) {
+                    (parser as? OnlineBookParser)?.releaseCache()
+                    val engineBook = appDb.bookDao.getBook(engineBookUrl)
+                    if (engineBook != null) {
+                        val source = appDb.bookSourceDao.getBookSource(engineBook.origin)
+                        if (source != null) {
+                            val newChapters = WebBook.getChapterListAwait(source, engineBook).getOrNull()
+                            if (newChapters != null) {
+                                appDb.bookChapterDao.delByBook(engineBookUrl)
+                                appDb.bookChapterDao.insert(*newChapters.toTypedArray())
+                            }
+                        }
+                    }
+                }
+                reloadContent()
+                Toast.makeText(context, "数据源已刷新", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Log.w("ReaderViewModel", "刷新失败: ${e.message}")
+                Toast.makeText(context, "刷新失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                _isRefreshingOnlineBook.value = false
+            }
+        }
+    }
+
+    fun searchOtherSourcesForCurrentBook() {
+        val currentBook = _uiState.value.book ?: return
+        val title = currentBook.title.trim()
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            _isSearchingSources.value = true
+            _changeSourceList.value = emptyList()
+            try {
+                val allSources = withContext(Dispatchers.IO) {
+                    val enabled = runCatching { appDb.bookSourceDao.allEnabled() }.getOrDefault(emptyList())
+                    val all = runCatching { appDb.bookSourceDao.all() }.getOrDefault(emptyList())
+                    val candidates = (if (enabled.isNotEmpty()) enabled else all).filter { !it.searchUrl.isNullOrBlank() }
+                    candidates.distinctBy { it.bookSourceUrl }
+                }
+                BookDiscoveryRepository.searchStreaming(
+                    keyword = title,
+                    sources = allSources,
+                    maxConcurrency = 6,
+                    sourceTimeoutMs = 8000L
+                ) { batch ->
+                    val matched = batch.filter { it.name.trim() == title }
+                    _changeSourceList.value = matched
+                }
+            } catch (e: Exception) {
+                Log.w("ReaderViewModel", "换源搜索异常: ${e.message}")
+            } finally {
+                _isSearchingSources.value = false
+            }
+        }
+    }
+
+    fun switchOnlineSource(targetSearchBook: SearchBook) {
+        val currentBook = _uiState.value.book ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true)
+            try {
+                val newEngineBookUrl = targetSearchBook.bookUrl
+                val newFilePath = OnlineBookParser.SCHEME + newEngineBookUrl
+                withContext(Dispatchers.IO) {
+                    val engineBook = appDb.bookDao.getBook(newEngineBookUrl)
+                        ?: targetSearchBook.toBook().also { appDb.bookDao.insert(it) }
+                    val updatedBook = currentBook.copy(
+                        filePath = newFilePath,
+                        coverPath = engineBook.coverUrl ?: currentBook.coverPath
+                    )
+                    bookRepository.updateBook(updatedBook)
+                    _uiState.value = _uiState.value.copy(book = updatedBook)
+                    parser = OnlineBookParser(newEngineBookUrl)
+                }
+                reloadContent()
+                Toast.makeText(context, "已换源至「${targetSearchBook.originName}」", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Log.w("ReaderViewModel", "换源失败: ${e.message}")
+                Toast.makeText(context, "换源失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                _uiState.value = _uiState.value.copy(isLoading = false)
+            }
         }
     }
 

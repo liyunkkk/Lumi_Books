@@ -1,4 +1,6 @@
 package com.huangder.lumibooks.ui.reader
+import androidx.compose.material.icons.outlined.Sync
+import io.legado.app.data.entities.SearchBook
 
 import android.Manifest
 import android.content.ActivityNotFoundException
@@ -1291,6 +1293,15 @@ fun ReaderScreen(
     var showAdvancedSheet by remember { mutableStateOf(false) }
     var openAdvancedAfterThemeClose by remember { mutableStateOf(false) }
     var showTxtEncodingDialog by remember(bookId) { mutableStateOf(false) }
+    var showChangeSourceDialog by remember(bookId) { mutableStateOf(false) }
+    val changeSourceList by viewModel.changeSourceList.collectAsState()
+    val isSearchingSources by viewModel.isSearchingSources.collectAsState()
+    val isRefreshingOnlineBook by viewModel.isRefreshingOnlineBook.collectAsState()
+    LaunchedEffect(showChangeSourceDialog) {
+        if (showChangeSourceDialog) {
+            viewModel.searchOtherSourcesForCurrentBook()
+        }
+    }
     var showTxtTocDialog by remember(bookId) { mutableStateOf(false) }
 
     // 搜索状态
@@ -1305,7 +1316,7 @@ fun ReaderScreen(
 
     // 处理返回键：触发退出动画，而不是直接关闭
     val isAnySheetOpen = showNotesList || showNoteInput || showToc || showThemeSheet ||
-        showAdvancedSheet || showSearch || showTxtEncodingDialog || showTxtTocDialog || showReplaceInput
+        showAdvancedSheet || showSearch || showTxtEncodingDialog || showTxtTocDialog || showReplaceInput || showChangeSourceDialog
     val bookmarkPullSupported = (isBookLayout && !isBookLayoutContinuousScroll) ||
         (uiState.useNewEngine && !renderedContinuousScrollMode && !isVerticalWriting)
     val bookmarkPullEnabled = bookmarkPullSupported &&
@@ -2631,7 +2642,10 @@ fun ReaderScreen(
                 modifier = Modifier.align(Alignment.TopCenter)
             ) {
                 val bookTitle = uiState.book?.title ?: ""
-                val isTxtBook = uiState.book?.format?.name == "TXT"
+                val isOnlineBook = remember(uiState.book?.filePath) {
+                    uiState.book?.filePath?.startsWith(com.huangder.lumibooks.util.parser.OnlineBookParser.SCHEME) == true
+                }
+                val isTxtBook = !isOnlineBook && uiState.book?.format?.name == "TXT"
                 ReaderTopBar(
                     title = bookTitle,
                     onBack = exitReader,
@@ -2653,6 +2667,16 @@ fun ReaderScreen(
                     isBookmarked = isCurrentPageBookmarked,
                     onBookmarkToggle = { toggleBookmarkForCurrentPage(true) },
                     isTxtBook = isTxtBook,
+                    isOnlineBook = isOnlineBook,
+                    isRefreshingOnlineBook = isRefreshingOnlineBook,
+                    onChangeSource = {
+                        viewModel.hideMenu()
+                        showChangeSourceDialog = true
+                    },
+                    onRefreshSource = {
+                        viewModel.hideMenu()
+                        viewModel.refreshCurrentOnlineBook()
+                    },
                     onEditClick = {
                         viewModel.hideMenu()
                         val readerAnchor = readViewRef.value?.getCurrentPageTextAnchor()
@@ -3675,6 +3699,20 @@ fun ReaderScreen(
         )
     }
 
+    
+    if (showChangeSourceDialog) {
+        ChangeSourceDialog(
+            sources = changeSourceList,
+            isSearching = isSearchingSources,
+            backdrop = activeReaderGlassBackdrop,
+            onSelectSource = { book ->
+                showChangeSourceDialog = false
+                viewModel.switchOnlineSource(book)
+            },
+            onDismiss = { showChangeSourceDialog = false }
+        )
+    }
+
     if (showTxtEncodingDialog) {
         TxtEncodingDialog(
             currentEncoding = uiState.txtEncoding,
@@ -4330,6 +4368,127 @@ private fun ReaderFirstOpenHintDialog(
 }
 
 @Composable
+private fun ChangeSourceDialog(
+    sources: List<SearchBook>,
+    isSearching: Boolean,
+    backdrop: Backdrop?,
+    onSelectSource: (SearchBook) -> Unit,
+    onDismiss: () -> Unit
+) {
+    LiquidGlassAlertDialog(
+        onDismissRequest = onDismiss,
+        backdrop = backdrop,
+        contentScrimColor = AppColors.CardBg.copy(alpha = 0.88f),
+        backgroundScrimColor = Color.Black.copy(alpha = 0.15f),
+        backgroundBlurRadius = 0.dp,
+        transparencyOverride = 0.24f,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "换源",
+                    color = AppColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                if (isSearching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = AppColors.Accent
+                    )
+                }
+            }
+        },
+        text = {
+            if (sources.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isSearching) {
+                        Text(
+                            text = "正在检索可用书源...",
+                            color = AppColors.TextSecondary,
+                            fontSize = 14.sp
+                        )
+                    } else {
+                        Text(
+                            text = "未检索到同名书源书籍",
+                            color = AppColors.TextSecondary,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    sources.forEach { book ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = AppColors.CardBg,
+                            border = BorderStroke(1.dp, AppColors.Divider.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectSource(book) }
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = book.originName.ifBlank { "未知书源" },
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = AppColors.TextPrimary
+                                    )
+                                    Text(
+                                        text = book.type ?: "",
+                                        fontSize = 11.sp,
+                                        color = AppColors.TextSecondary
+                                    )
+                                }
+                                if (!book.latestChapterTitle.isNullOrBlank()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = "最新: ${book.latestChapterTitle}",
+                                        fontSize = 12.sp,
+                                        color = AppColors.TextSecondary,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            LiquidGlassTextButton(
+                text = "关闭",
+                onClick = onDismiss
+            )
+        }
+    )
+}
+
 private fun TxtEncodingDialog(
     currentEncoding: TxtEncoding,
     activeCharsetName: String,
@@ -4490,6 +4649,10 @@ private fun ReaderTopBar(
     isBookmarked: Boolean = false,
     onBookmarkToggle: () -> Unit = {},
     isTxtBook: Boolean = false,
+    isOnlineBook: Boolean = false,
+    isRefreshingOnlineBook: Boolean = false,
+    onChangeSource: () -> Unit = {},
+    onRefreshSource: () -> Unit = {},
     onEditClick: () -> Unit = {},
     onEncodingClick: () -> Unit = {},
     onTocRuleClick: () -> Unit = {}
@@ -4505,7 +4668,7 @@ private fun ReaderTopBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (isTxtBook) 250.dp else 140.dp)
+            .height(if (isTxtBook || isOnlineBook) 250.dp else 140.dp)
     ) {
         if (!isLiquidGlass) {
             Box(
@@ -4575,6 +4738,26 @@ private fun ReaderTopBar(
                     forceSolid = forceSolidButtons,
                         onClick = onBookmarkToggle
                     )
+                    if (isOnlineBook) {
+                        ReaderTopBarButton(
+                            icon = Icons.Outlined.Sync,
+                            contentDescription = "换源",
+                            tint = contentColor,
+                            backgroundColor = controlBackground,
+                            contentScrimColor = glassContentScrimColor,
+                            forceSolid = forceSolidButtons,
+                            onClick = onChangeSource
+                        )
+                        ReaderTopBarButton(
+                            icon = Icons.Default.Refresh,
+                            contentDescription = "刷新当前源",
+                            tint = if (isRefreshingOnlineBook) AppColors.Accent else contentColor,
+                            backgroundColor = controlBackground,
+                            contentScrimColor = glassContentScrimColor,
+                            forceSolid = forceSolidButtons,
+                            onClick = onRefreshSource
+                        )
+                    }
                     if (isTxtBook) {
                         ReaderTopBarButton(
                             icon = Icons.Default.Edit,
