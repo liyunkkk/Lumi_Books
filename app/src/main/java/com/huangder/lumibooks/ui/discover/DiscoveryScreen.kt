@@ -26,6 +26,10 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -103,6 +107,7 @@ fun DiscoveryScreen(
     onInitialSearchQueryConsumed: () -> Unit = {},
     onSearchInBookshelf: ((String) -> Unit)? = null,
     onOpenBook: (bookId: String, coverUrl: String?, title: String) -> Unit = { _, _, _ -> },
+    onNavigateToSearch: (String?) -> Unit = {},
     viewModel: DiscoveryViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -118,6 +123,8 @@ fun DiscoveryScreen(
     val searching by viewModel.searching.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val message by viewModel.message.collectAsState()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsState()
+    val hasMore by viewModel.hasMore.collectAsState()
     val layoutMode by viewModel.layoutMode.collectAsState()
     val activeBook by viewModel.activeBook.collectAsState()
     val isInLibrary by viewModel.isInLibrary.collectAsState()
@@ -133,6 +140,36 @@ fun DiscoveryScreen(
 
     var sourceAnchorBounds by remember { mutableStateOf(Rect.Zero) }
     var layoutAnchorBounds by remember { mutableStateOf(Rect.Zero) }
+
+    val listState = rememberLazyListState()
+    val gridState2 = rememberLazyGridState()
+    val gridState3 = rememberLazyGridState()
+
+    val shouldLoadMore = remember {
+        derivedStateOf {
+            val (total, last) = when (layoutMode) {
+                1 -> {
+                    val info = listState.layoutInfo
+                    info.totalItemsCount to (info.visibleItemsInfo.lastOrNull()?.index ?: 0)
+                }
+                2 -> {
+                    val info = gridState2.layoutInfo
+                    info.totalItemsCount to (info.visibleItemsInfo.lastOrNull()?.index ?: 0)
+                }
+                else -> {
+                    val info = gridState3.layoutInfo
+                    info.totalItemsCount to (info.visibleItemsInfo.lastOrNull()?.index ?: 0)
+                }
+            }
+            total > 0 && last >= total - 3
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore.value) {
+        if (shouldLoadMore.value && hasMore && !isLoadingMore && !loading) {
+            viewModel.loadMore()
+        }
+    }
 
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 96.dp
@@ -298,44 +335,36 @@ fun DiscoveryScreen(
                 }
             }
 
-            // 跨源搜索框（增加键盘 Search 动作，回车或软键盘搜索即刻触发）
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = {
-                    searchQuery = it
-                    if (it.isBlank()) viewModel.clearSearch()
-                },
+            // 跨源搜索入口（点击直接导航至统一二级搜索界面）
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = AppColors.CardBg,
+                border = BorderStroke(1.dp, AppColors.Divider.copy(alpha = 0.5f)),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = AppSpace.lg, vertical = 4.dp),
-                placeholder = { Text("跨书源搜索书名或作者", fontSize = 14.sp) },
-                leadingIcon = {
+                    .padding(horizontal = AppSpace.lg, vertical = 4.dp)
+                    .clickable { onNavigateToSearch(null) }
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                ) {
                     Icon(
-                        imageVector = Icons.Rounded.Search,
+                        imageVector = Icons.Default.Search,
                         contentDescription = null,
-                        tint = AppColors.TextSecondary
+                        tint = AppColors.TextSecondary,
+                        modifier = Modifier.size(20.dp)
                     )
-                },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = {
-                            searchQuery = ""
-                            viewModel.clearSearch()
-                        }) {
-                            Icon(Icons.Rounded.Close, contentDescription = "清除", tint = AppColors.TextSecondary)
-                        }
-                    }
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(
-                    onSearch = {
-                        keyboardController?.hide()
-                        viewModel.search(searchQuery)
-                    }
-                ),
-                shape = RoundedCornerShape(24.dp)
-            )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = "搜索书名、作者",
+                        fontSize = 14.sp,
+                        color = AppColors.TextSecondary
+                    )
+                }
+            }
 
             val displayBooks = if (searchResults.isNotEmpty()) searchResults else books
 
@@ -423,6 +452,7 @@ fun DiscoveryScreen(
                 layoutMode == 1 -> {
                     // 列表布局
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(start = AppSpace.lg, end = AppSpace.lg, top = 6.dp, bottom = bottomPadding),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -430,11 +460,22 @@ fun DiscoveryScreen(
                         items(displayBooks, key = { it.bookUrl }) {
                             DiscoveryBookListItem(book = it, onClick = { viewModel.showBookActions(it) })
                         }
+                        if (isLoadingMore) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = AppColors.Accent)
+                                }
+                            }
+                        }
                     }
                 }
                 layoutMode == 2 -> {
                     // 标准网格布局（2列）
                     LazyVerticalGrid(
+                        state = gridState2,
                         columns = GridCells.Fixed(2),
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(start = AppSpace.lg, end = AppSpace.lg, top = 6.dp, bottom = bottomPadding),
@@ -448,11 +489,22 @@ fun DiscoveryScreen(
                                 onClick = { viewModel.showBookActions(it) }
                             )
                         }
+                        if (isLoadingMore) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = AppColors.Accent)
+                                }
+                            }
+                        }
                     }
                 }
                 else -> {
                     // 紧凑网格布局（3列）
                     LazyVerticalGrid(
+                        state = gridState3,
                         columns = GridCells.Fixed(3),
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = bottomPadding),
@@ -465,6 +517,16 @@ fun DiscoveryScreen(
                                 compact = true,
                                 onClick = { viewModel.showBookActions(it) }
                             )
+                        }
+                        if (isLoadingMore) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = AppColors.Accent)
+                                }
+                            }
                         }
                     }
                 }

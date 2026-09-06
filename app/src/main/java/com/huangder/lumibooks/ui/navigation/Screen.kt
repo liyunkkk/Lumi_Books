@@ -13,4 +13,8 @@ sealed class Screen(val route: String) {
     object Notes : Screen("notes/{bookId}") {
         fun createRoute(bookId: String) = "notes/$bookId"
     }
+    object Search : Screen("search?initialQuery={initialQuery}") {
+        fun createRoute(initialQuery: String? = null) =
+            if (initialQuery.isNullOrBlank()) "search" else "search?initialQuery=$initialQuery"
+    }
 }
