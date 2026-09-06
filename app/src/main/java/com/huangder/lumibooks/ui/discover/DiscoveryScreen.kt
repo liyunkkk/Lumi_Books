@@ -519,8 +519,8 @@ private fun DiscoveryBookCover(
                     .fillMaxSize()
                     .background(Color(0xFFE2E2EC))
                     .padding(horizontal = 6.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
                     text = name,

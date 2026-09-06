@@ -35,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -273,7 +274,7 @@ fun BookTransitionOverlay(
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 Text(
-                                    text = title.ifBlank { stringResource(R.string.reading) },
+                                    text = title.ifBlank { "阅读" },
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = resolveAppFontFamily(KaiTi),
