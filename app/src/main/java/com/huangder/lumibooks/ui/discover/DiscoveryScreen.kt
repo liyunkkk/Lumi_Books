@@ -4,11 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -24,7 +19,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,10 +31,11 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Refresh
@@ -55,13 +50,11 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -75,20 +68,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.huangder.lumibooks.R
@@ -96,18 +88,25 @@ import com.huangder.lumibooks.ui.components.LiquidGlassMenuItem
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
 import com.huangder.lumibooks.ui.theme.AppColors
+import com.huangder.lumibooks.ui.theme.AppSpace
+import com.huangder.lumibooks.ui.theme.AppType
+import com.huangder.lumibooks.ui.theme.KaiTi
+import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
 import io.legado.app.data.entities.SearchBook
 
 /**
- * 发现页：书源选择（液态玻璃菜单）+ 布局切换（标准网格/紧凑网格/列表）+ 跨源搜索 + 图书详情操作弹窗与在线阅读打通
+ * 发现页：移除 Material TopAppBar 消除色差 + 数据持久化 + 键盘搜索优化 + 封面网络加载与平滑阅读进入
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscoveryScreen(
-    onOpenBook: (String) -> Unit = {},
+    initialSearchQuery: String? = null,
+    onInitialSearchQueryConsumed: () -> Unit = {},
+    onSearchInBookshelf: ((String) -> Unit)? = null,
+    onOpenBook: (bookId: String, coverUrl: String?, title: String) -> Unit = { _, _, _ -> },
     viewModel: DiscoveryViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val menuHost = LocalLiquidGlassMenuHost.current
 
     val exploreSources by viewModel.exploreSources.collectAsState()
@@ -124,6 +123,14 @@ fun DiscoveryScreen(
     val isInLibrary by viewModel.isInLibrary.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
+    LaunchedEffect(initialSearchQuery) {
+        if (!initialSearchQuery.isNullOrBlank()) {
+            searchQuery = initialSearchQuery
+            viewModel.search(initialSearchQuery)
+            onInitialSearchQueryConsumed()
+        }
+    }
+
     var sourceAnchorBounds by remember { mutableStateOf(Rect.Zero) }
     var layoutAnchorBounds by remember { mutableStateOf(Rect.Zero) }
 
@@ -140,161 +147,175 @@ fun DiscoveryScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppColors.WindowBg)
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AppColors.WindowBg)
                 .padding(top = statusBarTop)
         ) {
-            // 顶栏：标题 + 状态/刷新/布局切换 + 书源胶囊（液态玻璃菜单）
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "发现",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = AppColors.TextPrimary
-                    )
-                },
-                actions = {
-                    if (loading || searching) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = AppColors.Accent
-                        )
-                    }
+            // 顶栏：自绘 Row 彻底消除状态栏与页面色差（对齐主页与书库）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = AppSpace.lg, end = AppSpace.sm, top = AppSpace.sm, bottom = AppSpace.xs),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "发现",
+                    fontSize = AppType.Display,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = resolveAppFontFamily(KaiTi),
+                    letterSpacing = (-0.02).sp,
+                    color = AppColors.TextPrimary
+                )
 
-                    // 刷新按钮
-                    IconButton(onClick = { viewModel.refresh() }) {
-                        Icon(
-                            imageVector = Icons.Outlined.Refresh,
-                            contentDescription = "刷新",
-                            tint = AppColors.TextPrimary
-                        )
-                    }
+                Spacer(Modifier.weight(1f))
 
-                    // 布局切换按钮（液态玻璃菜单）
-                    IconButton(
-                        onClick = {
-                            if (menuHost != null && layoutAnchorBounds != Rect.Zero) {
-                                menuHost.show(
-                                    LiquidGlassMenuSpec(
-                                        anchorBounds = layoutAnchorBounds,
-                                        width = 180.dp,
-                                        items = listOf(
-                                            LiquidGlassMenuItem(
-                                                label = context.getString(R.string.bookshelf_standard_grid),
-                                                icon = Icons.Outlined.GridView,
-                                                selected = layoutMode == 2,
-                                                onClick = {
-                                                    menuHost.dismiss()
-                                                    viewModel.setLayoutMode(2)
-                                                }
-                                            ),
-                                            LiquidGlassMenuItem(
-                                                label = context.getString(R.string.bookshelf_compact_grid),
-                                                icon = Icons.Outlined.ViewModule,
-                                                selected = layoutMode == 3,
-                                                onClick = {
-                                                    menuHost.dismiss()
-                                                    viewModel.setLayoutMode(3)
-                                                }
-                                            ),
-                                            LiquidGlassMenuItem(
-                                                label = context.getString(R.string.bookshelf_list_layout),
-                                                icon = Icons.Outlined.ViewList,
-                                                selected = layoutMode == 1,
-                                                onClick = {
-                                                    menuHost.dismiss()
-                                                    viewModel.setLayoutMode(1)
-                                                }
-                                            )
-                                        )
-                                    )
-                                )
-                            }
-                        },
-                        modifier = Modifier.onGloballyPositioned { layoutAnchorBounds = it.boundsInRoot() }
-                    ) {
-                        Icon(
-                            imageVector = when (layoutMode) {
-                                1 -> Icons.Outlined.ViewList
-                                3 -> Icons.Outlined.ViewModule
-                                else -> Icons.Outlined.GridView
-                            },
-                            contentDescription = "切换布局",
-                            tint = AppColors.TextPrimary
-                        )
-                    }
-
-                    // 书源选择胶囊（统一液态玻璃弹窗）
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
+                if (loading || searching) {
+                    CircularProgressIndicator(
                         modifier = Modifier
-                            .padding(end = 12.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(AppColors.CardBg)
-                            .clickable {
-                                if (menuHost != null && sourceAnchorBounds != Rect.Zero && exploreSources.isNotEmpty()) {
-                                    menuHost.show(
-                                        LiquidGlassMenuSpec(
-                                            anchorBounds = sourceAnchorBounds,
-                                            width = 220.dp,
-                                            maxVisibleItems = 8,
-                                            items = exploreSources.map { source ->
-                                                LiquidGlassMenuItem(
-                                                    label = source.bookSourceName,
-                                                    selected = source.bookSourceUrl == selectedSource?.bookSourceUrl,
-                                                    onClick = {
-                                                        menuHost.dismiss()
-                                                        viewModel.selectSource(source)
-                                                    }
-                                                )
+                            .padding(end = 8.dp)
+                            .size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = AppColors.Accent
+                    )
+                }
+
+                // 刷新按钮
+                IconButton(onClick = { viewModel.refresh() }) {
+                    Icon(
+                        imageVector = Icons.Outlined.Refresh,
+                        contentDescription = "刷新",
+                        tint = AppColors.TextPrimary
+                    )
+                }
+
+                // 布局切换按钮（液态玻璃菜单）
+                IconButton(
+                    onClick = {
+                        if (menuHost != null && layoutAnchorBounds != Rect.Zero) {
+                            menuHost.show(
+                                LiquidGlassMenuSpec(
+                                    anchorBounds = layoutAnchorBounds,
+                                    width = 180.dp,
+                                    items = listOf(
+                                        LiquidGlassMenuItem(
+                                            label = context.getString(R.string.bookshelf_standard_grid),
+                                            icon = Icons.Outlined.GridView,
+                                            selected = layoutMode == 2,
+                                            onClick = {
+                                                menuHost.dismiss()
+                                                viewModel.setLayoutMode(2)
+                                            }
+                                        ),
+                                        LiquidGlassMenuItem(
+                                            label = context.getString(R.string.bookshelf_compact_grid),
+                                            icon = Icons.Outlined.ViewModule,
+                                            selected = layoutMode == 3,
+                                            onClick = {
+                                                menuHost.dismiss()
+                                                viewModel.setLayoutMode(3)
+                                            }
+                                        ),
+                                        LiquidGlassMenuItem(
+                                            label = context.getString(R.string.bookshelf_list_layout),
+                                            icon = Icons.Outlined.ViewList,
+                                            selected = layoutMode == 1,
+                                            onClick = {
+                                                menuHost.dismiss()
+                                                viewModel.setLayoutMode(1)
                                             }
                                         )
                                     )
-                                }
-                            }
-                            .onGloballyPositioned { sourceAnchorBounds = it.boundsInRoot() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = selectedSource?.bookSourceName ?: "选择书源",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = AppColors.TextPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 110.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Icon(
-                            imageVector = Icons.Outlined.KeyboardArrowDown,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = AppColors.TextSecondary
-                        )
-                    }
+                                )
+                            )
+                        }
+                    },
+                    modifier = Modifier.onGloballyPositioned { layoutAnchorBounds = it.boundsInRoot() }
+                ) {
+                    Icon(
+                        imageVector = when (layoutMode) {
+                            1 -> Icons.Outlined.ViewList
+                            3 -> Icons.Outlined.ViewModule
+                            else -> Icons.Outlined.GridView
+                        },
+                        contentDescription = "切换布局",
+                        tint = AppColors.TextPrimary
+                    )
                 }
-            )
 
-            // 跨源搜索框
+                // 书源选择胶囊（液态玻璃菜单）
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(AppColors.CardBg)
+                        .clickable {
+                            if (menuHost != null && sourceAnchorBounds != Rect.Zero && exploreSources.isNotEmpty()) {
+                                menuHost.show(
+                                    LiquidGlassMenuSpec(
+                                        anchorBounds = sourceAnchorBounds,
+                                        width = 220.dp,
+                                        maxVisibleItems = 8,
+                                        items = exploreSources.map { source ->
+                                            LiquidGlassMenuItem(
+                                                label = source.bookSourceName,
+                                                selected = source.bookSourceUrl == selectedSource?.bookSourceUrl,
+                                                onClick = {
+                                                    menuHost.dismiss()
+                                                    viewModel.selectSource(source)
+                                                }
+                                            )
+                                        }
+                                    )
+                                )
+                            }
+                        }
+                        .onGloballyPositioned { sourceAnchorBounds = it.boundsInRoot() }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = selectedSource?.bookSourceName ?: "选择书源",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = AppColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 110.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.KeyboardArrowDown,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = AppColors.TextSecondary
+                    )
+                }
+            }
+
+            // 跨源搜索框（增加键盘 Search 动作，回车或软键盘搜索即刻触发）
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = {
                     searchQuery = it
                     if (it.isBlank()) viewModel.clearSearch()
-                    else viewModel.search(it)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = AppSpace.lg, vertical = 4.dp),
                 placeholder = { Text("跨书源搜索书名或作者", fontSize = 14.sp) },
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = AppColors.TextSecondary) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = null,
+                        tint = AppColors.TextSecondary
+                    )
+                },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = {
@@ -306,6 +327,13 @@ fun DiscoveryScreen(
                     }
                 },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = {
+                        keyboardController?.hide()
+                        viewModel.search(searchQuery)
+                    }
+                ),
                 shape = RoundedCornerShape(24.dp)
             )
 
@@ -317,13 +345,13 @@ fun DiscoveryScreen(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                     color = AppColors.TextSecondary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                    modifier = Modifier.padding(horizontal = AppSpace.lg, vertical = 6.dp)
                 )
             } else if (exploreKinds.isNotEmpty()) {
                 // 分类标签栏
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    contentPadding = PaddingValues(horizontal = AppSpace.lg, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(exploreKinds, key = { it.title + (it.url ?: "") }) {
@@ -343,7 +371,7 @@ fun DiscoveryScreen(
                 }
             }
 
-            // 内容展示区：按 layoutMode 分流
+            // 内容展示区：按 layoutMode 分流（持久化）
             when {
                 loading && displayBooks.isEmpty() -> Box(
                     modifier = Modifier
@@ -353,25 +381,50 @@ fun DiscoveryScreen(
                 ) {
                     CircularProgressIndicator(color = AppColors.Accent)
                 }
-                displayBooks.isEmpty() -> Box(
+                displayBooks.isEmpty() -> Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = 120.dp),
-                    contentAlignment = Alignment.TopCenter
+                        .padding(top = 120.dp, start = 20.dp, end = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = if (exploreSources.isEmpty()) "暂无启用发现的书源\n请在书源管理中导入并启用" else "暂无书籍内容",
+                        text = if (exploreSources.isEmpty()) "暂无启用发现的书源\n请在书源管理中导入并启用" else if (searchQuery.isNotBlank()) "未搜索到相关网络书籍\n请更换关键词或切换书源" else "暂无书籍内容",
                         fontSize = 14.sp,
                         color = AppColors.TextSecondary,
                         lineHeight = 22.sp,
                         textAlign = TextAlign.Center
                     )
+                    if (onSearchInBookshelf != null && searchQuery.isNotBlank()) {
+                        Spacer(Modifier.height(20.dp))
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(AppColors.CardBg)
+                                .clickable { onSearchInBookshelf(searchQuery) }
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.AutoStories,
+                                contentDescription = null,
+                                tint = AppColors.Accent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "在书库本地藏书中搜索「$searchQuery」",
+                                color = AppColors.Accent,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
                 }
                 layoutMode == 1 -> {
                     // 列表布局
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = bottomPadding),
+                        contentPadding = PaddingValues(start = AppSpace.lg, end = AppSpace.lg, top = 6.dp, bottom = bottomPadding),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         items(displayBooks, key = { it.bookUrl }) {
@@ -380,11 +433,11 @@ fun DiscoveryScreen(
                     }
                 }
                 layoutMode == 2 -> {
-                    // 标准网格布局（2列，对齐书库标准网格）
+                    // 标准网格布局（2列）
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = bottomPadding),
+                        contentPadding = PaddingValues(start = AppSpace.lg, end = AppSpace.lg, top = 6.dp, bottom = bottomPadding),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
@@ -398,7 +451,7 @@ fun DiscoveryScreen(
                     }
                 }
                 else -> {
-                    // 紧凑网格布局（3列，对齐书库紧凑网格）
+                    // 紧凑网格布局（3列）
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         modifier = Modifier.fillMaxSize(),
@@ -418,19 +471,78 @@ fun DiscoveryScreen(
             }
         }
 
-        // 图书操作与详情浮层（需求 3：对齐书库操作体验）
+        // 图书操作与详情浮层（对齐书库图 3 操作浮层）
         activeBook?.let { book ->
             DiscoveryBookActionDialog(
                 book = book,
                 isInLibrary = isInLibrary,
                 onDismiss = { viewModel.dismissBookActions() },
                 onReadNow = {
-                    viewModel.prepareReadBook(book) { lumiBookId ->
-                        onOpenBook(lumiBookId)
+                    viewModel.prepareReadBook(book) { lumiBookId, coverUrl, title ->
+                        onOpenBook(lumiBookId, coverUrl, title)
                     }
                 },
                 onAddToBookshelf = { viewModel.addToBookshelf(book) }
             )
+        }
+    }
+}
+
+/** 统一图书封面组件：支持高清网络图加载与失败/空白时的书名纸张拟真卡片兜底，彻底杜绝灰块 */
+@Composable
+private fun DiscoveryBookCover(
+    coverUrl: String?,
+    name: String,
+    author: String,
+    modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = RoundedCornerShape(8.dp)
+) {
+    var loadFailed by remember(coverUrl) { mutableStateOf(coverUrl.isNullOrBlank()) }
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(Color(0xFFEAEAF0)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!coverUrl.isNullOrBlank() && !loadFailed) {
+            AsyncImage(
+                model = coverUrl,
+                contentDescription = name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                onError = { loadFailed = true }
+            )
+        }
+        if (loadFailed || coverUrl.isNullOrBlank()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFE2E2EC))
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = name,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AppColors.TextPrimary,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+                if (author.isNotBlank()) {
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = author,
+                        fontSize = 9.sp,
+                        color = AppColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
         }
     }
 }
@@ -450,14 +562,12 @@ private fun DiscoveryBookListItem(
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        AsyncImage(
-            model = book.coverUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .size(width = 56.dp, height = 76.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFFE8E8EC))
+        DiscoveryBookCover(
+            coverUrl = book.coverUrl,
+            name = book.name,
+            author = book.author,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.size(width = 56.dp, height = 76.dp)
         )
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -520,15 +630,14 @@ private fun DiscoveryBookGridItem(
             .clickable(onClick = onClick)
             .padding(4.dp)
     ) {
-        AsyncImage(
-            model = book.coverUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
+        DiscoveryBookCover(
+            coverUrl = book.coverUrl,
+            name = book.name,
+            author = book.author,
+            shape = RoundedCornerShape(if (compact) 8.dp else 12.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.72f)
-                .clip(RoundedCornerShape(if (compact) 8.dp else 12.dp))
-                .background(Color(0xFFE8E8EC))
                 .shadow(elevation = 2.dp, shape = RoundedCornerShape(if (compact) 8.dp else 12.dp))
         )
         Spacer(Modifier.height(6.dp))
@@ -551,7 +660,7 @@ private fun DiscoveryBookGridItem(
     }
 }
 
-/** 图书操作与详情对话框（需求 3：对齐书库图 3 操作浮层） */
+/** 图书操作与详情对话框 */
 @Composable
 private fun DiscoveryBookActionDialog(
     book: SearchBook,
@@ -588,14 +697,12 @@ private fun DiscoveryBookActionDialog(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    AsyncImage(
-                        model = book.coverUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(width = 68.dp, height = 92.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFFE8E8EC))
+                    DiscoveryBookCover(
+                        coverUrl = book.coverUrl,
+                        name = book.name,
+                        author = book.author,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.size(width = 68.dp, height = 92.dp)
                     )
                     Spacer(Modifier.width(14.dp))
                     Column(modifier = Modifier.weight(1f)) {
@@ -657,12 +764,11 @@ private fun DiscoveryBookActionDialog(
 
                 Spacer(Modifier.height(20.dp))
 
-                // 动作按钮组：立即阅读 + 加入书架 + 复制信息
+                // 动作按钮组：立即阅读 + 加入书架
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // 立即阅读（主按钮）
                     Button(
                         onClick = onReadNow,
                         modifier = Modifier.weight(1f).height(46.dp),
@@ -674,7 +780,6 @@ private fun DiscoveryBookActionDialog(
                         Text("立即阅读", fontWeight = FontWeight.SemiBold)
                     }
 
-                    // 加入书架（次按钮）
                     OutlinedButton(
                         onClick = onAddToBookshelf,
                         enabled = !isInLibrary,

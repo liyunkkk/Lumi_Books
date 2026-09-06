@@ -172,6 +172,9 @@ fun BookshelfScreen(
     onMessage: (String) -> Unit = {},
     onRefreshAuthorizedDirectories: () -> Unit = {},
     onOverlayProgressChange: (Float) -> Unit = {},
+    initialSearchQuery: String? = null,
+    onInitialSearchQueryConsumed: () -> Unit = {},
+    onSearchInDiscover: ((String) -> Unit)? = null,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -209,6 +212,14 @@ fun BookshelfScreen(
     var booksPendingDeletion by remember { mutableStateOf(emptyList<Book>()) }
     var pendingDeleteMode by remember { mutableStateOf(BookDeleteMode.LOCAL_ONLY) }
     var isSearchActive by remember { mutableStateOf(false) }
+    LaunchedEffect(initialSearchQuery) {
+        if (!initialSearchQuery.isNullOrBlank()) {
+            searchQuery = initialSearchQuery
+            isSearchActive = true
+            onInitialSearchQueryConsumed()
+        }
+    }
+
     var searchQuery by remember { mutableStateOf("") }
     var expandedSearchBookId by remember { mutableStateOf<String?>(null) }
     var expandedListBookId by remember { mutableStateOf<String?>(null) }
@@ -809,6 +820,7 @@ fun BookshelfScreen(
                         },
                         onSyncClick = { viewModel.syncWebdavNow() },
                         onRefreshClick = onRefreshAuthorizedDirectories,
+                        onAddBook = { onAddBook(currentFolderId) },
                         layoutMode = effectiveLayoutMode,
                         isWebdavSyncing = uiState.isWebdavSyncing,
                         onSelectAll = toggleSelectAll,
@@ -926,6 +938,7 @@ fun BookshelfScreen(
                     },
                     onSyncClick = { viewModel.syncWebdavNow() },
                     onRefreshClick = onRefreshAuthorizedDirectories,
+                    onAddBook = { onAddBook(currentFolderId) },
                     layoutMode = effectiveLayoutMode,
                     isWebdavSyncing = uiState.isWebdavSyncing,
                     onSelectAll = toggleSelectAll,
@@ -1013,6 +1026,10 @@ fun BookshelfScreen(
                     openBookNotes(book)
                 },
                 launcherBounds = searchLauncherBounds,
+                onSearchInDiscover = { query ->
+                    isSearchActive = false
+                    onSearchInDiscover?.invoke(query)
+                },
                 modifier = Modifier.zIndex(2.6f)
             )
         }
@@ -1387,7 +1404,7 @@ internal fun BookshelfCollection(
     onFolderSetCover: (LibraryFolder) -> Unit = {},
     onFolderRemoveCover: (LibraryFolder) -> Unit = {},
     onFolderMove: (LibraryFolder) -> Unit = {},
-    showAddBook: Boolean = true,
+    showAddBook: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val targetMode = layoutMode.coerceIn(1, 3)
@@ -1796,6 +1813,7 @@ private fun BookshelfCapsuleHeader(
     onSyncClick: () -> Unit,
     onRefreshClick: () -> Unit,
     onSelectAll: () -> Unit,
+    onAddBook: () -> Unit = {},
     layoutMode: Int,
     isWebdavSyncing: Boolean,
     onLayoutModeChange: (Int) -> Unit,
@@ -2052,6 +2070,19 @@ private fun BookshelfCapsuleHeader(
                         path = folderPath,
                         onNavigateToFolder = onNavigateToFolder,
                         modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    LiquidGlassIconButton(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = stringResource(R.string.import_books),
+                        onClick = onAddBook,
+                        size = 32.dp,
+                        iconSize = 18.dp,
+                        pressFeedbackEnabled = false,
+                        contentColor = if (isLiquidGlass) AppColors.TextPrimary else Color.White,
+                        normalContainerColor = AppColors.Accent,
+                        liquidContainerColor = AppColors.CardBg,
+                        liquidScrimColor = AppColors.CardBg.copy(alpha = 0.58f)
                     )
                     Spacer(Modifier.width(8.dp))
                     BookshelfHeaderActions(

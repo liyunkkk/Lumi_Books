@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Leaderboard
@@ -692,6 +693,30 @@ internal fun equalEdgePrismScaleX(
 ): Float {
     if (widthPx <= 0f) return 1f
     return 1f + (scaleY - 1f) * (heightPx / widthPx)
+}
+
+@Composable
+fun LiquidGlassSettingsButton(
+    onClick: () -> Unit,
+    liquidGlassBackdrop: Backdrop,
+    modifier: Modifier = Modifier
+) {
+    LiquidGlassSurface(
+        shape = CircleShape,
+        fallbackColor = Color.Black,
+        backdrop = liquidGlassBackdrop,
+        contentScrimColor = Color.Black.copy(alpha = 0.85f),
+        modifier = modifier.size(72.dp),
+        onClick = onClick,
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Settings,
+            contentDescription = stringResource(R.string.settings),
+            tint = Color.White,
+            modifier = Modifier.size(28.dp)
+        )
+    }
 }
 
 @Composable
