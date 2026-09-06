@@ -306,6 +306,7 @@
 
     <!-- 书架 -->
     <string name="bookshelf_title">书库</string>
+    <string name="discover_title">发现</string>
     <string name="filter_all">全部</string>
     <string name="filter_downloaded">EPUB &amp; MOBI</string>
     <string name="filter_pdf">PDF</string>

@@ -58,6 +58,7 @@ import com.huangder.lumibooks.ui.components.ConfigurableNavigationBack
 import com.huangder.lumibooks.ui.components.CloudBookDownloadDialog
 import com.huangder.lumibooks.ui.components.LocalPredictiveBackEnabled
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuHost
+import com.huangder.lumibooks.ui.discover.DiscoveryScreen
 import com.huangder.lumibooks.ui.home.HomeScreen
 import com.huangder.lumibooks.ui.home.ImportBooksActionSheet
 import com.huangder.lumibooks.ui.home.ImportBooksConfirmationSheet
@@ -205,7 +206,8 @@ fun MainNavGraph(
         mutableIntStateOf(
             when (mainStartDestination) {
                 Screen.Bookshelf.route -> 1
-                Screen.Statistics.route -> 2
+                Screen.Discover.route -> 2
+                Screen.Statistics.route -> 3
                 else -> 0
             }
         )
@@ -480,7 +482,8 @@ fun MainNavGraph(
         selectedTab = when (currentRoute) {
             Screen.Home.route -> 0
             Screen.Bookshelf.route -> 1
-            Screen.Statistics.route -> 2
+            Screen.Discover.route -> 2
+            Screen.Statistics.route -> 3
             else -> selectedTab
         }
         if (currentRoute != Screen.Home.route) {
@@ -579,7 +582,7 @@ fun MainNavGraph(
                     },
                     onTabBarVisibleChange = { visible -> tabBarVisible = visible },
                     onNavigateToStatistics = {
-                        selectedTab = 2
+                        selectedTab = 3
                         navController.navigate(Screen.Statistics.route) {
                             popUpTo(mainStartDestination) { saveState = true }
                             launchSingleTop = true
@@ -661,6 +664,16 @@ fun MainNavGraph(
                     },
                     viewModel = homeViewModel
                 )
+            }
+
+            composable(
+                route = Screen.Discover.route,
+                enterTransition = { if (eInkMode) EnterTransition.None else null },
+                exitTransition = { if (eInkMode) ExitTransition.None else null },
+                popEnterTransition = { if (eInkMode) EnterTransition.None else null },
+                popExitTransition = { if (eInkMode) ExitTransition.None else null }
+            ) { _ ->
+                DiscoveryScreen()
             }
 
             composable(
@@ -774,7 +787,8 @@ fun MainNavGraph(
                 val route = when (index) {
                     0 -> Screen.Home.route
                     1 -> Screen.Bookshelf.route
-                    2 -> Screen.Statistics.route
+                    2 -> Screen.Discover.route
+                    3 -> Screen.Statistics.route
                     else -> Screen.Home.route
                 }
                 navController.navigate(route) {

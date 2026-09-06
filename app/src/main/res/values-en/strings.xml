@@ -363,6 +363,7 @@
 
     <!-- Bookshelf -->
     <string name="bookshelf_title">Library</string>
+    <string name="discover_title">Discover</string>
     <string name="filter_all">All</string>
     <string name="filter_downloaded">EPUB &amp; MOBI</string>
     <string name="filter_pdf">PDF</string>

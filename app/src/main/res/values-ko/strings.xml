@@ -264,6 +264,7 @@
 
     <!-- 서재 -->
     <string name="bookshelf_title">서재</string>
+    <string name="discover_title">탐색</string>
     <string name="filter_all">전체</string>
     <string name="filter_downloaded">EPUB &amp; MOBI</string>
     <string name="filter_pdf">PDF</string>
