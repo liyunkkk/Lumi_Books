@@ -63,6 +63,8 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            // hutool-core / hutool-crypto 均打包 INDEX.LIST，排除避免 mergeDebugJavaResource 冲突
+            excludes += "/META-INF/INDEX.LIST"
             // pdfbox-android 捆绑的 BouncyCastle PQC 参数文件为死资源（全项目无 import），省 ~4MB
             excludes += "org/bouncycastle/**"
         }
