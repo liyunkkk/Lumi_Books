@@ -212,6 +212,7 @@ fun BookshelfScreen(
     var booksPendingDeletion by remember { mutableStateOf(emptyList<Book>()) }
     var pendingDeleteMode by remember { mutableStateOf(BookDeleteMode.LOCAL_ONLY) }
     var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
     LaunchedEffect(initialSearchQuery) {
         if (!initialSearchQuery.isNullOrBlank()) {
             searchQuery = initialSearchQuery
@@ -220,7 +221,6 @@ fun BookshelfScreen(
         }
     }
 
-    var searchQuery by remember { mutableStateOf("") }
     var expandedSearchBookId by remember { mutableStateOf<String?>(null) }
     var expandedListBookId by remember { mutableStateOf<String?>(null) }
     var expandedListFolderId by remember { mutableStateOf<String?>(null) }
@@ -2073,7 +2073,7 @@ private fun BookshelfCapsuleHeader(
                     )
                     Spacer(Modifier.width(8.dp))
                     LiquidGlassIconButton(
-                        imageVector = Icons.Rounded.Add,
+                        imageVector = Icons.Default.Add,
                         contentDescription = stringResource(R.string.import_books),
                         onClick = onAddBook,
                         size = 32.dp,
