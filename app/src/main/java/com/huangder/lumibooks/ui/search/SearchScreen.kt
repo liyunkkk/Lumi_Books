@@ -204,7 +204,7 @@ fun SearchScreen(
                 }
             }
         },
-        containerColor = AppColors.Background
+        containerColor = AppColors.WindowBg
     ) { innerPadding ->
         Box(
             modifier = Modifier
