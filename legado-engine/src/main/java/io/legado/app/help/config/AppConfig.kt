@@ -69,6 +69,10 @@ object AppConfig {
         get() = appCtx.getPrefString("episodeExportFileName")
         set(value) = appCtx.putPrefString("episodeExportFileName", value)
 
+    var bookshelfSort: Int
+        get() = appCtx.getPrefInt(PreferKey.bookshelfSort, 0)
+        set(value) = appCtx.putPrefInt(PreferKey.bookshelfSort, value)
+
     var bookshelfLayoutModePortrait: Int
         get() = appCtx.getPrefInt("bookshelfLayoutModePortrait", 0)
         set(value) = appCtx.putPrefInt("bookshelfLayoutModePortrait", value)

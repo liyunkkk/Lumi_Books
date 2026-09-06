@@ -15,6 +15,7 @@ import okio.BufferedSink
 import okio.source
 import splitties.init.appCtx
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.OutputStream

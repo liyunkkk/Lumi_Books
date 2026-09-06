@@ -48,21 +48,6 @@ val cookieJar by lazy {
     }
 }
 
-/**
- * 强制缓存拦截器，对于封面请求（由CoverFetcher标记），强制缓存30天
- */
-private val cacheControlInterceptor = Interceptor { chain ->
-    val request = chain.request()
-    val response = chain.proceed(request)
-    if (request.tag() === io.legado.app.help.coil.CoverFetcher.COVER_REQUEST_TAG) {
-        response.newBuilder()
-            .header("Cache-Control", "public, max-age=2592000")
-            .removeHeader("Pragma")
-            .build()
-    } else {
-        response
-    }
-}
 
 val okHttpClient: OkHttpClient by lazy {
     val specs = arrayListOf(
@@ -100,7 +85,6 @@ val okHttpClient: OkHttpClient by lazy {
             builder.addHeader("Connection", "Keep-Alive")
             chain.proceed(builder.build())
         }
-        .addNetworkInterceptor(cacheControlInterceptor) // 添加强制缓存拦截器
         .addNetworkInterceptor { chain ->
             var request = chain.request()
             val enableCookieJar = request.header(cookieJarHeader) != null

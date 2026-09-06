@@ -8,6 +8,7 @@ import android.os.Debug
 import android.os.Looper
 import android.os.Process
 import android.webkit.WebSettings
+import io.legado.app.constant.AppConst
 import io.legado.app.constant.AppLog
 import io.legado.app.exception.NoStackTraceException
 import io.legado.app.help.config.AppConfig
