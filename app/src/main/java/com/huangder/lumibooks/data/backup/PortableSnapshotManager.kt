@@ -1,4 +1,10 @@
 package com.huangder.lumibooks.data.backup
+import com.google.gson.reflect.TypeToken
+import appDb
+import io.legado.app.data.entities.Book as EngineBook
+import io.legado.app.data.entities.BookSource
+import io.legado.app.data.entities.ReplaceRule
+import GSON
 
 import android.content.Context
 import androidx.room.withTransaction
@@ -118,13 +124,13 @@ class PortableSnapshotManager @Inject constructor(
             )
         }
 
-        val bookSources = runCatching { io.legado.app.data.appDb.bookSourceDao.all() }.getOrDefault(emptyList())
-        val legadoBooks = runCatching { io.legado.app.data.appDb.bookDao.all() }.getOrDefault(emptyList())
-        val replaceRules = runCatching { io.legado.app.data.appDb.replaceRuleDao.all() }.getOrDefault(emptyList())
+        val bookSources = runCatching { appDb.bookSourceDao.all() }.getOrDefault(emptyList())
+        val legadoBooks = runCatching { appDb.bookDao.all() }.getOrDefault(emptyList())
+        val replaceRules = runCatching { appDb.replaceRuleDao.all() }.getOrDefault(emptyList())
 
-        val bookSourcesJson = if (bookSources.isNotEmpty()) io.legado.app.utils.GSON.toJson(bookSources) else null
-        val legadoBooksJson = if (legadoBooks.isNotEmpty()) io.legado.app.utils.GSON.toJson(legadoBooks) else null
-        val replaceRulesJson = if (replaceRules.isNotEmpty()) io.legado.app.utils.GSON.toJson(replaceRules) else null
+        val bookSourcesJson = if (bookSources.isNotEmpty()) GSON.toJson(bookSources) else null
+        val legadoBooksJson = if (legadoBooks.isNotEmpty()) GSON.toJson(legadoBooks) else null
+        val replaceRulesJson = if (replaceRules.isNotEmpty()) GSON.toJson(replaceRules) else null
 
         PortableSnapshotBundle(
             snapshot = PortableSnapshot(
@@ -239,25 +245,28 @@ class PortableSnapshotManager @Inject constructor(
 
                 if (!snapshot.bookSourcesJson.isNullOrBlank()) {
                     runCatching {
-                        val sources = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.BookSource>(snapshot.bookSourcesJson).getOrNull()
-                        if (!sources.isNullOrEmpty()) {
-                            io.legado.app.data.appDb.bookSourceDao.insert(*sources.toTypedArray())
+                        val type = object : TypeToken<List<BookSource>>() {}.type
+                        val sources = GSON.fromJson<List<BookSource>>(snapshot.bookSourcesJson, type).orEmpty()
+                        if (sources.isNotEmpty()) {
+                            appDb.bookSourceDao.insert(*sources.toTypedArray())
                         }
                     }
                 }
                 if (!snapshot.legadoBooksJson.isNullOrBlank()) {
                     runCatching {
-                        val engineBooks = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.Book>(snapshot.legadoBooksJson).getOrNull()
-                        if (!engineBooks.isNullOrEmpty()) {
-                            io.legado.app.data.appDb.bookDao.insert(*engineBooks.toTypedArray())
+                        val type = object : TypeToken<List<EngineBook>>() {}.type
+                        val books = GSON.fromJson<List<EngineBook>>(snapshot.legadoBooksJson, type).orEmpty()
+                        if (books.isNotEmpty()) {
+                            appDb.bookDao.insert(*books.toTypedArray())
                         }
                     }
                 }
                 if (!snapshot.replaceRulesJson.isNullOrBlank()) {
                     runCatching {
-                        val rules = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.ReplaceRule>(snapshot.replaceRulesJson).getOrNull()
-                        if (!rules.isNullOrEmpty()) {
-                            io.legado.app.data.appDb.replaceRuleDao.insert(*rules.toTypedArray())
+                        val type = object : TypeToken<List<ReplaceRule>>() {}.type
+                        val rules = GSON.fromJson<List<ReplaceRule>>(snapshot.replaceRulesJson, type).orEmpty()
+                        if (rules.isNotEmpty()) {
+                            appDb.replaceRuleDao.insert(*rules.toTypedArray())
                         }
                     }
                 }
