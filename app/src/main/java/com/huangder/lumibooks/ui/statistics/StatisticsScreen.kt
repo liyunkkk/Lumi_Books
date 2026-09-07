@@ -136,12 +136,12 @@ fun StatisticsScreen(
                     .align(Alignment.TopCenter)
             ) {
                 item(key = "header") {
-                    Spacer(Modifier.height(statusBarTopPadding + AppSpace.xs))
+                    Spacer(Modifier.height(statusBarTopPadding + AppSpace.sm))
                     PageEntranceItem(play = playEntranceAnimation, index = 0) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = AppSpace.md, vertical = AppSpace.xs),
+                                .padding(start = AppSpace.md, end = AppSpace.lg, top = AppSpace.sm, bottom = AppSpace.xs),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (onBack != null) {

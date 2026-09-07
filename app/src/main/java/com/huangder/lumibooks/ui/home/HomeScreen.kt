@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.rounded.Leaderboard
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Book
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.MoreVert
@@ -177,7 +178,7 @@ fun HomeScreen(
                     .then(if (isTablet) Modifier.align(Alignment.TopCenter) else Modifier)
             ) {
                 item(key = "header") {
-                    Spacer(Modifier.height(statusBarTopPadding + 2.dp))
+                    Spacer(Modifier.height(statusBarTopPadding + AppSpace.sm))
                     PageEntranceItem(play = playEntranceAnimation, index = 0) {
                         HomeHeader(onNavigateToStatistics = onNavigateToStatistics)
                     }
@@ -269,13 +270,13 @@ private fun HomeHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpace.lg, vertical = 2.dp),
+            .padding(start = AppSpace.lg, end = AppSpace.sm, top = AppSpace.sm, bottom = AppSpace.xs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
             text = stringResource(R.string.home_page),
-            fontSize = 28.sp,
+            fontSize = AppType.Display,
             fontWeight = FontWeight.Bold,
             fontFamily = resolveAppFontFamily(KaiTi),
             letterSpacing = (-0.02).sp,
@@ -284,12 +285,13 @@ private fun HomeHeader(
         if (onNavigateToStatistics != null) {
             IconButton(
                 onClick = onNavigateToStatistics,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(40.dp)
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Leaderboard,
                     contentDescription = stringResource(R.string.statistics_title),
-                    tint = AppColors.TextPrimary
+                    tint = AppColors.TextPrimary,
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
@@ -399,14 +401,14 @@ private fun ContinueReadingCard(
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 封面（与书架完全一致的标准网格大封面 104dp x 138.7dp）
+        // 封面（与书架完全一致的标准网格大封面 108dp x 144dp）
         Box(
             modifier = Modifier
-                .width(104.dp)
+                .width(108.dp)
                 .aspectRatio(0.75f)
                 .onGloballyPositioned { coverBounds.set(it.boundsInRoot()) }
-                .shadow(8.dp, RoundedCornerShape(8.dp), ambientColor = Color(0x14000000), spotColor = Color(0x14000000))
-                .clip(RoundedCornerShape(8.dp))
+                .shadow(6.dp, RoundedCornerShape(10.dp), ambientColor = Color(0x14000000), spotColor = Color(0x14000000))
+                .clip(RoundedCornerShape(10.dp))
                 .background(AppColors.BgGray)
         ) {
             if (book.coverPath == null) {
@@ -429,11 +431,11 @@ private fun ContinueReadingCard(
                 compact = true
             )
         }
-        Spacer(Modifier.width(14.dp))
+        Spacer(Modifier.width(16.dp))
         Column(
             modifier = Modifier
                 .weight(1f)
-                .height(138.dp),
+                .height(144.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
@@ -443,7 +445,7 @@ private fun ContinueReadingCard(
                 ) {
                     Text(
                         text = book.title,
-                        fontSize = 15.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = resolveAppFontFamily(KaiTi),
                         color = AppColors.TextPrimary,
@@ -533,16 +535,16 @@ private fun ContinueReadingCard(
                         }
                     }
                 }
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(4.dp))
                 Text(
                     text = book.author.ifBlank { "未知作者" },
-                    fontSize = 12.sp,
+                    fontSize = 13.sp,
                     color = AppColors.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (book.isMissing) {
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(3.dp))
                     Text(
                         text = stringResource(R.string.book_file_unavailable),
                         fontSize = 11.sp,
@@ -551,14 +553,13 @@ private fun ContinueReadingCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(Modifier.height(4.dp))
-                val introText = rememberBookIntro(book)
+                Spacer(Modifier.height(6.dp))
+                val progressPercent = (book.readingProgress * 100).toInt().coerceIn(0, 100)
                 Text(
-                    text = introText,
-                    fontSize = 11.5.sp,
-                    lineHeight = 15.sp,
+                    text = "已读 $progressPercent% · 点击继续阅读",
+                    fontSize = 12.sp,
                     color = AppColors.TextSecondary.copy(alpha = 0.85f),
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
@@ -576,26 +577,26 @@ private fun ContinueReadingCard(
                                 (downloadState.progress * 100f).toInt().coerceIn(0, 100)
                             )
                         } else {
-                            stringResource(R.string.book_progress, progressPercent)
+                            "章节 · $progressPercent%"
                         },
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
                         color = AppColors.Accent
                     )
                 }
-                Spacer(Modifier.height(3.dp))
+                Spacer(Modifier.height(5.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(1.5.dp))
-                        .background(AppColors.BgGray)
+                        .height(3.5.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(0xFFEEEEEE))
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(book.readingProgress.coerceIn(0f, 1f))
-                            .height(3.dp)
-                            .clip(RoundedCornerShape(1.5.dp))
+                            .height(3.5.dp)
+                            .clip(RoundedCornerShape(2.dp))
                             .background(AppColors.Accent)
                     )
                 }
@@ -619,15 +620,30 @@ private fun ContinueReadingCard(
 // ─── 区块标题 ──────────────────────────────────────────────────
 
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        fontSize = AppType.Section,
-        fontWeight = FontWeight.Bold,
-        fontFamily = resolveAppFontFamily(KaiTi),
-        color = AppColors.TextPrimary,
-        modifier = Modifier.padding(horizontal = AppSpace.lg)
-    )
+private fun SectionHeader(title: String, onMoreClick: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppSpace.lg),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = title,
+            fontSize = AppType.Section,
+            fontWeight = FontWeight.Bold,
+            fontFamily = resolveAppFontFamily(KaiTi),
+            color = AppColors.TextPrimary
+        )
+        Icon(
+            imageVector = Icons.Outlined.ChevronRight,
+            contentDescription = "更多",
+            tint = AppColors.TextSecondary,
+            modifier = Modifier
+                .size(22.dp)
+                .clickable(enabled = onMoreClick != null) { onMoreClick?.invoke() }
+        )
+    }
 }
 
 // ─── 最近阅读卡片 ──────────────────────────────────────────────
@@ -717,20 +733,20 @@ private fun ReadingGoalCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg)
-            .shadow(8.dp, RoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
+            .shadow(6.dp, RoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
             .cardOutline(RoundedCornerShape(AppRadius.lg))
             .clip(RoundedCornerShape(AppRadius.lg))
             .background(AppColors.CardBg)
             .cardPressEffect()
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onCardClick)
-            .padding(horizontal = AppSpace.md, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (hasGoal) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(90.dp),
+                    .height(96.dp),
                 contentAlignment = Alignment.BottomCenter
             ) {
                 ArcProgressBar(
@@ -739,17 +755,18 @@ private fun ReadingGoalCard(
                 )
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(bottom = 4.dp)
+                    modifier = Modifier.padding(bottom = 6.dp)
                 ) {
                     Text(
                         text = TimeUtils.formatDurationShort(readingTime),
-                        fontSize = 22.sp,
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.Bold,
                         color = AppColors.TextPrimary
                     )
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        text = stringResource(R.string.goal_label, dailyGoal),
-                        fontSize = 11.sp,
+                        text = "(目标 $dailyGoal 分钟)",
+                        fontSize = 12.sp,
                         color = AppColors.TextSecondary
                     )
                 }
@@ -782,8 +799,8 @@ private fun ReadingGoalCard(
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        // 星期打卡
+        Spacer(Modifier.height(14.dp))
+        // 星期打卡（严格对齐设计稿 7 天圆圈布局）
         WeeklyCheckIn(weeklyData = weeklyData, dailyGoal = dailyGoal)
     }
 }
@@ -793,7 +810,7 @@ private fun ReadingGoalCard(
 private fun ArcProgressBar(progress: Float, modifier: Modifier = Modifier) {
     val accentColor = AppColors.Accent
     Canvas(modifier = modifier) {
-        val stroke = 5.dp.toPx()
+        val stroke = 6.5.dp.toPx()
         val maxRadius = minOf((size.width - stroke) / 2f, size.height - stroke)
         val radius = maxOf(0f, maxRadius)
         val diameter = radius * 2f
@@ -802,7 +819,7 @@ private fun ArcProgressBar(progress: Float, modifier: Modifier = Modifier) {
         val topLeft = Offset(cx - radius, cy - radius)
         val arcSize = Size(diameter, diameter)
         drawArc(
-            color = Color(0xFFE5E5EA).copy(alpha = 0.6f),
+            color = Color(0xFFE5E5EA),
             startAngle = 180f,
             sweepAngle = 180f,
             useCenter = false,
@@ -828,57 +845,35 @@ private fun ArcProgressBar(progress: Float, modifier: Modifier = Modifier) {
 
 @Composable
 private fun WeeklyCheckIn(weeklyData: List<DailyReading> = emptyList(), dailyGoal: Int = 30) {
-    // weeklyData 是固定日历周 [日, 一, 二, 三, 四, 五, 六]
     val todayIndex = Calendar.getInstance().get(Calendar.DAY_OF_WEEK) - 1  // 0=周日
-    val hasGoal = dailyGoal > 0
-    val goalMs = dailyGoal * 60 * 1000L
     val accentColor = AppColors.Accent
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
         weeklyData.forEachIndexed { index, data ->
-            val isPast = index < todayIndex
             val isToday = index == todayIndex
-            val isFuture = index > todayIndex
-            val goalMet = if (hasGoal) data.duration >= goalMs else data.duration > 0L
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(
-                    modifier = Modifier.size(30.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isPast || isToday) {
-                        if (goalMet || (hasGoal && isToday)) {
-                            Box(
-                                modifier = Modifier
-                                    .size(26.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isToday) accentColor else accentColor.copy(alpha = 0.8f))
-                            )
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .then(
+                        if (isToday) {
+                            Modifier.background(accentColor)
                         } else {
-                            Canvas(modifier = Modifier.size(26.dp)) {
-                                val stroke = 1.2.dp.toPx()
-                                val r = (size.minDimension - stroke) / 2
-                                drawCircle(
-                                    color = accentColor.copy(alpha = 0.4f),
-                                    radius = r,
-                                    style = Stroke(width = stroke)
-                                )
-                            }
+                            Modifier
+                                .background(Color.White)
+                                .border(1.dp, Color(0xFFE5E5EA), CircleShape)
                         }
-                    }
-                    Text(
-                        text = data.dayLabel,
-                        fontSize = 11.sp,
-                        color = when {
-                            isToday -> Color.White
-                            goalMet && (isPast || !hasGoal) -> Color.White
-                            isPast -> AppColors.TextSecondary
-                            else -> AppColors.TextSecondary
-                        },
-                        fontWeight = if ((goalMet && (isPast || !hasGoal)) || (hasGoal && isToday)) FontWeight.Bold else FontWeight.Normal
-                    )
-                }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = data.dayLabel,
+                    fontSize = 12.sp,
+                    fontWeight = if (isToday) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isToday) Color.White else AppColors.TextPrimary
+                )
             }
         }
     }
@@ -893,55 +888,77 @@ private fun BooksReadGrid(
     isTablet: Boolean = false,
     onBookClick: (Book, Rect?) -> Unit
 ) {
-    val coverShape = RoundedCornerShape(
-        if (LocalAppTheme.current == "liquid_glass") 16.dp else AppRadius.md
-    )
+    val coverShape = RoundedCornerShape(AppRadius.md)
     val bookBounds = remember { mutableMapOf<String, Rect>() }
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(AppSpace.md)
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         items(books, key = { it.id }) { book ->
-            Box(
+            val itemWidth = if (isTablet) 120.dp else 104.dp
+            Column(
                 modifier = Modifier
-                    .width(if (isTablet) 120.dp else 104.dp)
-                    .aspectRatio(0.75f)
-                    .shadow(
-                        elevation = 8.dp,
-                        shape = coverShape,
-                        ambientColor = AppColors.CardShadow,
-                        spotColor = AppColors.CardShadow
-                    )
-                    .clip(coverShape)
-                    .background(AppColors.BgGray)
-                    .border(1.dp, AppColors.Divider, coverShape)
-                    .cardPressEffect()
-                    .onGloballyPositioned { coordinates ->
-                        bookBounds[book.id] = coordinates.boundsInRoot()
-                    }
+                    .width(itemWidth)
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
-                    ) { onBookClick(book, bookBounds[book.id]) },
-                contentAlignment = Alignment.Center
+                    ) { onBookClick(book, bookBounds[book.id]) }
             ) {
-                if (book.coverPath == null) {
-                    DefaultBookCoverTitle(
-                        title = book.title,
-                        fontSize = AppType.BodySmall
-                    )
-                } else {
-                    AsyncImage(
-                        model = book.coverPath,
-                        contentDescription = book.title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(0.75f)
+                        .shadow(
+                            elevation = 6.dp,
+                            shape = coverShape,
+                            ambientColor = AppColors.CardShadow,
+                            spotColor = AppColors.CardShadow
+                        )
+                        .clip(coverShape)
+                        .background(AppColors.BgGray)
+                        .border(1.dp, AppColors.Divider, coverShape)
+                        .cardPressEffect()
+                        .onGloballyPositioned { coordinates ->
+                            bookBounds[book.id] = coordinates.boundsInRoot()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (book.coverPath == null) {
+                        DefaultBookCoverTitle(
+                            title = book.title,
+                            fontSize = AppType.BodySmall
+                        )
+                    } else {
+                        AsyncImage(
+                            model = book.coverPath,
+                            contentDescription = book.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    BookCoverProgressOverlay(
+                        book = book,
+                        downloadState = downloadStates[book.id],
+                        compact = true
                     )
                 }
-                BookCoverProgressOverlay(
-                    book = book,
-                    downloadState = downloadStates[book.id],
-                    compact = true
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = book.title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = resolveAppFontFamily(KaiTi),
+                    color = AppColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = book.author.ifBlank { "未知作者" },
+                    fontSize = 11.sp,
+                    color = AppColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
