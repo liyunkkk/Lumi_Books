@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,7 +44,6 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.UploadFile
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -62,8 +62,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -88,11 +86,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
+import com.huangder.lumibooks.ui.components.LiquidGlassDialog
+import com.huangder.lumibooks.ui.components.LiquidGlassSwitch
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppSpace
 import com.huangder.lumibooks.ui.theme.AppType
+import com.huangder.lumibooks.ui.theme.LocalAppTheme
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.rule.BookInfoRule
 import io.legado.app.data.entities.rule.ContentRule
@@ -104,10 +105,13 @@ import io.legado.app.utils.fromJsonObject
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookSourcesScreen(
-    onNavigateBack: () -> Unit,
-    viewModel: BookSourcesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    viewModel: BookSourcesViewModel,
+    onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val appTheme = LocalAppTheme.current
+    val isLiquidGlass = appTheme == "liquid_glass"
+
     val allSources by viewModel.allSources.collectAsState()
     val filteredSources by viewModel.filteredSources.collectAsState()
     val groups by viewModel.groups.collectAsState()
@@ -115,8 +119,7 @@ fun BookSourcesScreen(
     val filterStatus by viewModel.filterStatus.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val loading by viewModel.loading.collectAsState()
-    val message by viewModel.operationMessage.collectAsState()
-
+    val message by viewModel.message.collectAsState()
     val debuggingSource by viewModel.debuggingSource.collectAsState()
     val editingSource by viewModel.editingSource.collectAsState()
 
@@ -169,14 +172,17 @@ fun BookSourcesScreen(
                                     }
                                 }
                             },
+                            shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color.Transparent,
-                                unfocusedBorderColor = Color.Transparent
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                                unfocusedContainerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.04f) else Color.Transparent
                             )
                         )
                     } else {
                         Column {
-                            Text("书源管理", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text("书源管理", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary)
                             Text(
                                 "共 ${allSources.size} 个书源 (当前显示 ${filteredSources.size})",
                                 fontSize = 11.sp,
@@ -194,7 +200,7 @@ fun BookSourcesScreen(
                             onNavigateBack()
                         }
                     }) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回", tint = AppColors.TextPrimary)
                     }
                 },
                 actions = {
@@ -211,13 +217,13 @@ fun BookSourcesScreen(
                             isSearchActive = !isSearchActive
                             if (!isSearchActive) viewModel.setSearchQuery("")
                         }) {
-                            Icon(Icons.Outlined.Search, contentDescription = "搜索书源")
+                            Icon(Icons.Outlined.Search, contentDescription = "搜索书源", tint = AppColors.TextPrimary)
                         }
 
                         // 筛选按钮
                         Box {
                             IconButton(onClick = { showFilterMenu = true }) {
-                                Icon(Icons.Outlined.FilterList, contentDescription = "筛选书源")
+                                Icon(Icons.Outlined.FilterList, contentDescription = "筛选书源", tint = AppColors.TextPrimary)
                             }
                             DropdownMenu(
                                 expanded = showFilterMenu,
@@ -257,14 +263,14 @@ fun BookSourcesScreen(
                         // 导入菜单
                         Box {
                             IconButton(onClick = { showImportMenu = true }) {
-                                Icon(Icons.Outlined.Add, contentDescription = "导入书源")
+                                Icon(Icons.Outlined.Add, contentDescription = "导入书源", tint = AppColors.TextPrimary)
                             }
                             DropdownMenu(
                                 expanded = showImportMenu,
                                 onDismissRequest = { showImportMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    leadingIcon = { Icon(Icons.Outlined.Language, contentDescription = null) },
+                                    leadingIcon = { Icon(Icons.Outlined.Language, contentDescription = null, tint = AppColors.Accent) },
                                     text = { Text("网络链接导入 (URL)") },
                                     onClick = {
                                         showImportMenu = false
@@ -272,7 +278,7 @@ fun BookSourcesScreen(
                                     }
                                 )
                                 DropdownMenuItem(
-                                    leadingIcon = { Icon(Icons.Outlined.UploadFile, contentDescription = null) },
+                                    leadingIcon = { Icon(Icons.Outlined.UploadFile, contentDescription = null, tint = AppColors.Accent) },
                                     text = { Text("本地文件导入 (JSON)") },
                                     onClick = {
                                         showImportMenu = false
@@ -284,7 +290,7 @@ fun BookSourcesScreen(
 
                         // 清空按钮
                         IconButton(onClick = { showDeleteAllConfirm = true }) {
-                            Icon(Icons.Outlined.DeleteSweep, contentDescription = "清空书源")
+                            Icon(Icons.Outlined.DeleteSweep, contentDescription = "清空书源", tint = AppColors.TextSecondary)
                         }
                     }
                 }
@@ -309,8 +315,9 @@ fun BookSourcesScreen(
                         selected = selectedGroup == null,
                         onClick = { viewModel.setSelectedGroup(null) },
                         label = { Text("全部 (${allSources.size})") },
+                        shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 8.dp),
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = AppColors.Accent.copy(alpha = 0.16f),
+                            selectedContainerColor = AppColors.Accent.copy(alpha = if (isLiquidGlass) 0.20f else 0.16f),
                             selectedLabelColor = AppColors.Accent
                         )
                     )
@@ -324,8 +331,9 @@ fun BookSourcesScreen(
                                 viewModel.setSelectedGroup(if (selectedGroup == group) null else group)
                             },
                             label = { Text("$group ($count)") },
+                            shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 8.dp),
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = AppColors.Accent.copy(alpha = 0.16f),
+                                selectedContainerColor = AppColors.Accent.copy(alpha = if (isLiquidGlass) 0.20f else 0.16f),
                                 selectedLabelColor = AppColors.Accent
                             )
                         )
@@ -378,8 +386,7 @@ fun BookSourcesScreen(
         }
     }
 
-    // ─── 弹窗部分 ──────────────────────────────────────────────────
-
+    // ─── 弹窗部分（三大主题统一规范） ────────────────────────────────────
     // 网络 URL 导入弹窗
     if (showUrlImportDialog) {
         ImportUrlDialog(
@@ -391,25 +398,40 @@ fun BookSourcesScreen(
         )
     }
 
-    // 清空确认弹窗
+    // 清空确认弹窗（主题感知弹窗）
     if (showDeleteAllConfirm) {
-        AlertDialog(
+        LiquidGlassAlertDialog(
             onDismissRequest = { showDeleteAllConfirm = false },
-            title = { Text("清空全部书源") },
-            text = { Text("确定要删除本地保存的所有书源吗？此操作不可逆。") },
+            title = {
+                Text(
+                    text = "清空全部书源",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = AppColors.TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "确定要删除本地保存的所有书源吗？此操作不可逆。",
+                    fontSize = 14.sp,
+                    color = AppColors.TextSecondary
+                )
+            },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         showDeleteAllConfirm = false
                         viewModel.deleteAll()
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
+                    shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 10.dp)
                 ) {
-                    Text("确认清空", color = Color.Red)
+                    Text("确认清空", color = Color.White)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteAllConfirm = false }) {
-                    Text("取消")
+                    Text("取消", color = AppColors.TextSecondary)
                 }
             }
         )
@@ -441,7 +463,6 @@ fun BookSourcesScreen(
 }
 
 // ─── 单个书源卡片 ──────────────────────────────────────────────────
-
 @Composable
 private fun SourceItemCard(
     source: BookSource,
@@ -452,13 +473,22 @@ private fun SourceItemCard(
     onDelete: () -> Unit
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val appTheme = LocalAppTheme.current
+    val isLiquidGlass = appTheme == "liquid_glass"
+
+    val cardShape = RoundedCornerShape(if (isLiquidGlass) 20.dp else 14.dp)
+    val cardBg = if (isLiquidGlass) AppColors.CardBg.copy(alpha = 0.82f) else AppColors.CardBg
+    val cardBorder = if (isLiquidGlass) {
+        BorderStroke(0.6.dp, Color.White.copy(alpha = 0.16f))
+    } else null
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp)),
-        colors = CardDefaults.cardColors(containerColor = AppColors.CardBg),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .clip(cardShape)
+            .then(if (cardBorder != null) Modifier.border(cardBorder, cardShape) else Modifier),
+        colors = CardDefaults.cardColors(containerColor = cardBg),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isLiquidGlass) 0.dp else 2.dp)
     ) {
         Column(
             modifier = Modifier
@@ -484,7 +514,7 @@ private fun SourceItemCard(
                             Spacer(Modifier.width(6.dp))
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .clip(RoundedCornerShape(6.dp))
                                     .background(AppColors.Accent.copy(alpha = 0.12f))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
@@ -507,21 +537,25 @@ private fun SourceItemCard(
                     )
                 }
 
-                // 发现/探索独立开关
+                // 发现/探索独立开关（微晶体胶囊）
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onToggleExplore() }
-                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                        .background(
+                            if (source.enabledExplore) AppColors.Accent.copy(alpha = 0.12f)
+                            else Color.Transparent
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Explore,
                         contentDescription = "发现开关",
                         tint = if (source.enabledExplore) AppColors.Accent else AppColors.TextSecondary.copy(alpha = 0.4f),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
-                    Spacer(Modifier.width(2.dp))
+                    Spacer(Modifier.width(3.dp))
                     Text(
                         text = if (source.enabledExplore) "发现" else "无发现",
                         fontSize = 11.sp,
@@ -532,51 +566,114 @@ private fun SourceItemCard(
 
                 Spacer(Modifier.width(8.dp))
 
-                // 启用总开关
-                Switch(
+                // 启用总开关（采用三大主题原生自适应的 LiquidGlassSwitch）
+                LiquidGlassSwitch(
                     checked = source.enabled,
-                    onCheckedChange = { onToggleEnabled() },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = AppColors.Accent
-                    )
+                    onCheckedChange = { onToggleEnabled() }
                 )
             }
 
             Spacer(Modifier.height(8.dp))
 
-            // 底部分隔线与操作行
+            // 中部：规则概况指示徽章
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RuleBadge(
+                    label = "搜索",
+                    hasRule = !source.searchUrl.isNullOrBlank() || source.ruleSearch != null
+                )
+                RuleBadge(
+                    label = "详情",
+                    hasRule = source.ruleBookInfo != null && !source.ruleBookInfo?.tocUrl.isNullOrBlank()
+                )
+                RuleBadge(
+                    label = "目录",
+                    hasRule = source.ruleToc != null && !source.ruleToc?.chapterList.isNullOrBlank()
+                )
+                RuleBadge(
+                    label = "正文",
+                    hasRule = source.ruleContent != null && !source.ruleContent?.content.isNullOrBlank()
+                )
+                RuleBadge(
+                    label = "发现",
+                    hasRule = !source.exploreUrl.isNullOrBlank()
+                )
+
+                Spacer(Modifier.weight(1f))
+
+                // 权重展示
+                Text(
+                    text = "权重: ${source.weight}",
+                    fontSize = 11.sp,
+                    color = AppColors.TextSecondary.copy(alpha = 0.7f)
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // 底部：操作按钮栏
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // 调试按钮
-                TextButton(
-                    onClick = onDebug,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onDebug() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Icon(Icons.Outlined.BugReport, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.BugReport,
+                        contentDescription = "调试",
+                        tint = AppColors.Accent,
+                        modifier = Modifier.size(16.dp)
+                    )
                     Spacer(Modifier.width(4.dp))
-                    Text("调试", fontSize = 13.sp)
+                    Text("调试", fontSize = 13.sp, color = AppColors.Accent)
                 }
+
+                Spacer(Modifier.width(4.dp))
 
                 // 编辑按钮
-                TextButton(
-                    onClick = onEdit,
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onEdit() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.Edit,
+                        contentDescription = "编辑",
+                        tint = AppColors.TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
                     Spacer(Modifier.width(4.dp))
-                    Text("编辑", fontSize = 13.sp)
+                    Text("编辑", fontSize = 13.sp, color = AppColors.TextSecondary)
                 }
 
+                Spacer(Modifier.width(4.dp))
+
                 // 删除按钮
-                TextButton(
-                    onClick = { showDeleteDialog = true },
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showDeleteDialog = true }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
-                    Icon(Icons.Outlined.Delete, contentDescription = null, tint = AppColors.TextSecondary, modifier = Modifier.size(16.dp))
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = "删除",
+                        tint = AppColors.TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
                     Spacer(Modifier.width(4.dp))
                     Text("删除", fontSize = 13.sp, color = AppColors.TextSecondary)
                 }
@@ -584,32 +681,70 @@ private fun SourceItemCard(
         }
     }
 
+    // 单项删除弹窗（主题感知弹窗）
     if (showDeleteDialog) {
-        AlertDialog(
+        LiquidGlassAlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("确认删除书源") },
-            text = { Text("确定要删除「${source.bookSourceName}」吗？") },
+            title = {
+                Text(
+                    text = "确认删除书源",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = AppColors.TextPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "确定要删除「${source.bookSourceName}」吗？",
+                    fontSize = 14.sp,
+                    color = AppColors.TextSecondary
+                )
+            },
             confirmButton = {
-                TextButton(
+                Button(
                     onClick = {
                         showDeleteDialog = false
                         onDelete()
-                    }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
+                    shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 10.dp)
                 ) {
-                    Text("删除", color = Color.Red)
+                    Text("删除", color = Color.White)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("取消")
+                    Text("取消", color = AppColors.TextSecondary)
                 }
             }
         )
     }
 }
 
-// ─── 网络 URL 导入弹窗 ───────────────────────────────────────────
+// ─── 规则概况徽章组件 ──────────────────────────────────────────────
+@Composable
+private fun RuleBadge(label: String, hasRule: Boolean) {
+    val appTheme = LocalAppTheme.current
+    val isLiquidGlass = appTheme == "liquid_glass"
 
+    val bg = if (hasRule) {
+        AppColors.Accent.copy(alpha = if (isLiquidGlass) 0.16f else 0.12f)
+    } else {
+        AppColors.Divider.copy(alpha = if (isLiquidGlass) 0.20f else 0.40f)
+    }
+    val textColor = if (hasRule) AppColors.Accent else AppColors.TextSecondary.copy(alpha = 0.5f)
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(bg)
+            .padding(horizontal = 5.dp, vertical = 2.dp)
+    ) {
+        Text(text = label, fontSize = 10.sp, color = textColor, fontWeight = if (hasRule) FontWeight.Medium else FontWeight.Normal)
+    }
+}
+
+// ─── 网络 URL 导入弹窗 ───────────────────────────────────────────
 @Composable
 private fun ImportUrlDialog(
     onDismiss: () -> Unit,
@@ -617,33 +752,58 @@ private fun ImportUrlDialog(
 ) {
     var urlText by remember { mutableStateOf("") }
     val clipboardManager = LocalClipboardManager.current
+    val appTheme = LocalAppTheme.current
+    val isLiquidGlass = appTheme == "liquid_glass"
 
-    AlertDialog(
+    LiquidGlassAlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("网络链接导入书源") },
+        title = {
+            Text(
+                text = "网络链接导入书源",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = AppColors.TextPrimary
+            )
+        },
         text = {
             Column {
                 Text(
-                    "支持直接粘贴在线 Raw JSON 链接（如 GitHub、Gitee 或私有服务器书源地址）：",
+                    text = "支持直接粘贴在线 Raw JSON 链接（如 GitHub、Gitee 或私有服务器书源地址）：",
                     fontSize = 13.sp,
-                    color = AppColors.TextSecondary
+                    color = AppColors.TextSecondary,
+                    lineHeight = 18.sp
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = urlText,
                     onValueChange = { urlText = it },
-                    placeholder = { Text("https://example.com/sources.json", fontSize = 13.sp) },
+                    placeholder = {
+                        Text(
+                            "https://example.com/sources.json",
+                            fontSize = 13.sp,
+                            color = AppColors.TextSecondary.copy(alpha = 0.6f)
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AppColors.Accent,
+                        unfocusedBorderColor = if (isLiquidGlass) Color.White.copy(alpha = 0.2f) else AppColors.Divider,
+                        focusedContainerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.08f) else Color.Transparent,
+                        unfocusedContainerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.04f) else Color.Transparent
+                    ),
                     singleLine = false,
                     maxLines = 3,
                     trailingIcon = {
-                        TextButton(onClick = {
-                            val clip = clipboardManager.getText()?.text
-                            if (!clip.isNullOrBlank()) {
-                                urlText = clip.trim()
+                        TextButton(
+                            onClick = {
+                                val clip = clipboardManager.getText()?.text
+                                if (!clip.isNullOrBlank()) {
+                                    urlText = clip.trim()
+                                }
                             }
-                        }) {
-                            Text("粘贴", fontSize = 12.sp)
+                        ) {
+                            Text("粘贴", fontSize = 12.sp, color = AppColors.Accent)
                         }
                     }
                 )
@@ -653,21 +813,24 @@ private fun ImportUrlDialog(
             Button(
                 onClick = { if (urlText.isNotBlank()) onConfirm(urlText.trim()) },
                 enabled = urlText.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AppColors.Accent,
+                    disabledContainerColor = AppColors.Accent.copy(alpha = 0.35f)
+                )
             ) {
                 Text("开始导入", color = Color.White)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("取消")
+                Text("取消", color = AppColors.TextSecondary)
             }
         }
     )
 }
 
 // ─── 在线实时调试终端弹窗 ───────────────────────────────────────────
-
 @Composable
 private fun SourceDebugDialog(
     source: BookSource,
@@ -681,6 +844,8 @@ private fun SourceDebugDialog(
     var testKeyword by remember { mutableStateOf("完美世界") }
     val clipboardManager = LocalClipboardManager.current
     val listState = rememberLazyListState()
+    val appTheme = LocalAppTheme.current
+    val isLiquidGlass = appTheme == "liquid_glass"
 
     LaunchedEffect(debugLogs.size) {
         if (debugLogs.isNotEmpty()) {
@@ -688,16 +853,22 @@ private fun SourceDebugDialog(
         }
     }
 
-    Dialog(
+    val dialogShape = RoundedCornerShape(if (isLiquidGlass) 28.dp else 20.dp)
+    val dialogBg = if (isLiquidGlass) AppColors.CardBg.copy(alpha = 0.90f) else AppColors.CardBg
+    val dialogBorder = if (isLiquidGlass) BorderStroke(0.6.dp, Color.White.copy(alpha = 0.20f)) else null
+
+    LiquidGlassDialog(
         onDismissRequest = onDismiss,
+        shape = dialogShape,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Card(
+        Box(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
                 .height(580.dp)
-                .clip(RoundedCornerShape(20.dp)),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                .clip(dialogShape)
+                .background(dialogBg)
+                .then(if (dialogBorder != null) Modifier.border(dialogBorder, dialogShape) else Modifier)
         ) {
             Column(
                 modifier = Modifier
@@ -714,6 +885,7 @@ private fun SourceDebugDialog(
                             text = "调试: ${source.bookSourceName}",
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
+                            color = AppColors.TextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -726,7 +898,7 @@ private fun SourceDebugDialog(
                         )
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Outlined.Close, contentDescription = "关闭")
+                        Icon(Icons.Outlined.Close, contentDescription = "关闭", tint = AppColors.TextSecondary)
                     }
                 }
 
@@ -742,13 +914,21 @@ private fun SourceDebugDialog(
                         onValueChange = { testKeyword = it },
                         label = { Text("测试关键词或书籍/目录URL", fontSize = 12.sp) },
                         singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AppColors.Accent,
+                            unfocusedBorderColor = if (isLiquidGlass) Color.White.copy(alpha = 0.2f) else AppColors.Divider,
+                            focusedContainerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.06f) else Color.Transparent,
+                            unfocusedContainerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.03f) else Color.Transparent
+                        )
                     )
                     Spacer(Modifier.width(8.dp))
                     if (isDebugging) {
                         Button(
                             onClick = onStopDebug,
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD92D3A))
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
                         ) {
                             Icon(Icons.Outlined.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
@@ -757,6 +937,7 @@ private fun SourceDebugDialog(
                     } else {
                         Button(
                             onClick = { onStartDebug(testKeyword) },
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
                         ) {
                             Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -768,13 +949,14 @@ private fun SourceDebugDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // 终端日志视窗（黑底终端高亮）
+                // 终端日志视窗（黑底极客终端高亮）
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(Color(0xFF141416))
+                        .border(1.dp, Color(0xFF2C2C2E), RoundedCornerShape(14.dp))
                         .padding(10.dp)
                 ) {
                     if (debugLogs.isEmpty()) {
@@ -832,13 +1014,19 @@ private fun SourceDebugDialog(
                         ) {
                             Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("复制全部日志")
+                            Text(
+                                "复制全部日志",
+                                color = if (debugLogs.isNotEmpty()) AppColors.Accent else AppColors.TextSecondary.copy(alpha = 0.4f)
+                            )
                         }
                         TextButton(
                             onClick = onClearLogs,
                             enabled = debugLogs.isNotEmpty()
                         ) {
-                            Text("清空")
+                            Text(
+                                "清空",
+                                color = if (debugLogs.isNotEmpty()) AppColors.TextSecondary else AppColors.TextSecondary.copy(alpha = 0.4f)
+                            )
                         }
                     }
                 }
@@ -848,13 +1036,15 @@ private fun SourceDebugDialog(
 }
 
 // ─── 全量字段编辑器 ───────────────────────────────────────────────
-
 @Composable
 private fun EditSourceDialog(
     source: BookSource,
     onDismiss: () -> Unit,
     onSave: (BookSource) -> Unit
 ) {
+    val appTheme = LocalAppTheme.current
+    val isLiquidGlass = appTheme == "liquid_glass"
+
     var selectedTab by remember { mutableStateOf(0) } // 0: 表单, 1: JSON
 
     // 表单状态
@@ -896,16 +1086,22 @@ private fun EditSourceDialog(
     var jsonText by remember { mutableStateOf(GSON.toJson(source)) }
     var jsonError by remember { mutableStateOf<String?>(null) }
 
-    Dialog(
+    val dialogShape = RoundedCornerShape(if (isLiquidGlass) 28.dp else 20.dp)
+    val dialogBg = if (isLiquidGlass) AppColors.CardBg.copy(alpha = 0.92f) else AppColors.CardBg
+    val dialogBorder = if (isLiquidGlass) BorderStroke(0.6.dp, Color.White.copy(alpha = 0.20f)) else null
+
+    LiquidGlassDialog(
         onDismissRequest = onDismiss,
+        shape = dialogShape,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Card(
+        Box(
             modifier = Modifier
                 .fillMaxWidth(0.96f)
                 .height(640.dp)
-                .clip(RoundedCornerShape(20.dp)),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                .clip(dialogShape)
+                .background(dialogBg)
+                .then(if (dialogBorder != null) Modifier.border(dialogBorder, dialogShape) else Modifier)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // 顶部导航与保存
@@ -919,12 +1115,14 @@ private fun EditSourceDialog(
                     Text(
                         text = "编辑书源",
                         fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary
                     )
-                    Row {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = onDismiss) {
-                            Text("取消")
+                            Text("取消", color = AppColors.TextSecondary)
                         }
+                        Spacer(Modifier.width(4.dp))
                         Button(
                             onClick = {
                                 if (selectedTab == 0) {
@@ -973,6 +1171,7 @@ private fun EditSourceDialog(
                                     }
                                 }
                             },
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
                         ) {
                             Text("保存", color = Color.White)
@@ -983,7 +1182,7 @@ private fun EditSourceDialog(
                 // 模式切换 Tab
                 TabRow(
                     selectedTabIndex = selectedTab,
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    containerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 ) {
                     Tab(
                         selected = selectedTab == 0,
@@ -1039,45 +1238,50 @@ private fun EditSourceDialog(
                             value = name,
                             onValueChange = { name = it },
                             label = { Text("书源名称") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                         OutlinedTextField(
                             value = url,
                             onValueChange = { url = it },
                             label = { Text("书源 URL") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                         Row(modifier = Modifier.fillMaxWidth()) {
                             OutlinedTextField(
                                 value = group,
                                 onValueChange = { group = it },
                                 label = { Text("书源分组 (逗号分隔)") },
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                             OutlinedTextField(
                                 value = weight,
                                 onValueChange = { weight = it },
                                 label = { Text("排序权重") },
-                                modifier = Modifier.width(100.dp)
+                                modifier = Modifier.width(100.dp),
+                                shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                             )
                         }
 
+                        // 开关项（使用 LiquidGlassSwitch 自动适配三大主题）
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("启用书源", fontSize = 14.sp)
-                            Switch(checked = enabled, onCheckedChange = { enabled = it })
+                            Text("启用书源", fontSize = 14.sp, color = AppColors.TextPrimary)
+                            LiquidGlassSwitch(checked = enabled, onCheckedChange = { enabled = it })
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("在「发现」页呈现 (enabledExplore)", fontSize = 14.sp)
-                            Switch(checked = enabledExplore, onCheckedChange = { enabledExplore = it })
+                            Text("在「发现」页呈现 (enabledExplore)", fontSize = 14.sp, color = AppColors.TextPrimary)
+                            LiquidGlassSwitch(checked = enabledExplore, onCheckedChange = { enabledExplore = it })
                         }
 
                         Spacer(Modifier.height(8.dp))
@@ -1086,31 +1290,36 @@ private fun EditSourceDialog(
                             value = searchUrl,
                             onValueChange = { searchUrl = it },
                             label = { Text("搜索地址 (searchUrl)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                         OutlinedTextField(
                             value = ruleSearchBookList,
                             onValueChange = { ruleSearchBookList = it },
                             label = { Text("列表规则 (bookList)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                         OutlinedTextField(
                             value = ruleSearchName,
                             onValueChange = { ruleSearchName = it },
                             label = { Text("书名规则 (name)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                         OutlinedTextField(
                             value = ruleSearchAuthor,
                             onValueChange = { ruleSearchAuthor = it },
                             label = { Text("作者规则 (author)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                         OutlinedTextField(
                             value = ruleSearchNoteUrl,
                             onValueChange = { ruleSearchNoteUrl = it },
                             label = { Text("详情页地址 (bookUrl)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
 
                         Spacer(Modifier.height(8.dp))
@@ -1119,13 +1328,15 @@ private fun EditSourceDialog(
                             value = ruleInfoTocUrl,
                             onValueChange = { ruleInfoTocUrl = it },
                             label = { Text("目录页地址 (tocUrl)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                         OutlinedTextField(
                             value = ruleInfoIntro,
                             onValueChange = { ruleInfoIntro = it },
                             label = { Text("简介规则 (intro)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
 
                         Spacer(Modifier.height(8.dp))
@@ -1134,26 +1345,30 @@ private fun EditSourceDialog(
                             value = ruleTocChapterList,
                             onValueChange = { ruleTocChapterList = it },
                             label = { Text("目录列表规则 (chapterList)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                         OutlinedTextField(
                             value = ruleTocChapterName,
                             onValueChange = { ruleTocChapterName = it },
                             label = { Text("章节名规则 (chapterName)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                         OutlinedTextField(
                             value = ruleTocChapterUrl,
                             onValueChange = { ruleTocChapterUrl = it },
                             label = { Text("章节地址规则 (chapterUrl)") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                         OutlinedTextField(
                             value = ruleContentBody,
                             onValueChange = { ruleContentBody = it },
                             label = { Text("正文内容规则 (content)") },
                             modifier = Modifier.fillMaxWidth(),
-                            minLines = 2
+                            minLines = 2,
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
 
                         Spacer(Modifier.height(8.dp))
@@ -1163,7 +1378,8 @@ private fun EditSourceDialog(
                             onValueChange = { exploreUrl = it },
                             label = { Text("发现地址规则 (exploreUrl)") },
                             modifier = Modifier.fillMaxWidth(),
-                            minLines = 2
+                            minLines = 2,
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp)
                         )
                     }
                 } else {
@@ -1183,6 +1399,7 @@ private fun EditSourceDialog(
                                 jsonError = null
                             },
                             modifier = Modifier.fillMaxSize(),
+                            shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp),
                             textStyle = androidx.compose.ui.text.TextStyle(
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 12.sp
