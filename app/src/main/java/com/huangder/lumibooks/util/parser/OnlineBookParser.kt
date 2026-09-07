@@ -94,6 +94,16 @@ class OnlineBookParser(
         get() = false
         set(_) {}
 
+    fun isImageBook(): Boolean {
+        return try {
+            val book = requireEngineBook()
+            val source = requireBookSource()
+            source.bookSourceType == 2 || book.isType(io.legado.app.constant.BookType.image)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun releaseCache() {
         contentCache.clear()
     }
