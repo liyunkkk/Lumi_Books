@@ -81,6 +81,7 @@ data class HomeUiState(
     val isSearchActive: Boolean = false,
     val sortBy: SortBy = SortBy.LAST_READ,
     val isLoading: Boolean = true,
+    val homeScreenMode: String = DataStoreManager.DEFAULT_HOME_SCREEN_MODE,
     val bookshelfLayoutMode: Int = 2,
     val bookshelfLayoutModeLoaded: Boolean = false,
     val importBooksLayoutMode: Int = 2,
@@ -275,6 +276,11 @@ class HomeViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(showCoverProgress = showCoverProgress)
             }
         }
+        viewModelScope.launch {
+            dataStoreManager.homeScreenMode.collectLatest { mode ->
+                _uiState.value = _uiState.value.copy(homeScreenMode = mode)
+            }
+        }
     }
 
     private fun loadAuthorizedBookDirectories() {
@@ -330,6 +336,14 @@ class HomeViewModel @Inject constructor(
                     bookshelfLayoutModeLoaded = true
                 )
             }
+        }
+    }
+
+    fun saveHomeScreenMode(mode: String) {
+        val normalized = DataStoreManager.normalizeHomeScreenMode(mode)
+        _uiState.value = _uiState.value.copy(homeScreenMode = normalized)
+        viewModelScope.launch {
+            dataStoreManager.saveHomeScreenMode(normalized)
         }
     }
 

@@ -149,6 +149,9 @@
     <string name="highlight_pick_preset">Choose a preset color</string>
 
     <!-- Display & Appearance -->
+    <string name="label_home_screen_mode">Home screen mode</string>
+    <string name="home_screen_mode_classic">Classic</string>
+    <string name="home_screen_mode_card_flow">Featured (3D Cards)</string>
     <string name="label_startup_screen">Startup screen</string>
     <string name="startup_screen_home">Home</string>
     <string name="startup_screen_bookshelf">Library</string>

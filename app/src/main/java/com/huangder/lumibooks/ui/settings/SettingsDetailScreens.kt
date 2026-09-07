@@ -73,6 +73,7 @@ import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.HdrOn
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.ViewCarousel
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Landscape
 import androidx.compose.material.icons.outlined.LineWeight
@@ -1265,6 +1266,10 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
         DataStoreManager.STARTUP_SCREEN_BOOKSHELF to stringResource(R.string.startup_screen_bookshelf),
         DataStoreManager.STARTUP_SCREEN_STATISTICS to stringResource(R.string.startup_screen_statistics)
     )
+    val homeScreenModeOptions = listOf(
+        DataStoreManager.HOME_SCREEN_MODE_CLASSIC to stringResource(R.string.home_screen_mode_classic),
+        DataStoreManager.HOME_SCREEN_MODE_CARD_FLOW to stringResource(R.string.home_screen_mode_card_flow)
+    )
 
     DetailCard {
         DropdownSettingRow(
@@ -1273,6 +1278,14 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
             options = startupScreenOptions,
             selected = DataStoreManager.normalizeStartupScreen(uiState.startupScreen),
             onSelect = viewModel::saveStartupScreen
+        )
+        SettingsDivider()
+        DropdownSettingRow(
+            icon = Icons.Outlined.ViewCarousel,
+            label = stringResource(R.string.label_home_screen_mode),
+            options = homeScreenModeOptions,
+            selected = DataStoreManager.normalizeHomeScreenMode(uiState.homeScreenMode),
+            onSelect = viewModel::saveHomeScreenMode
         )
         SettingsDivider()
         DropdownSettingRow(

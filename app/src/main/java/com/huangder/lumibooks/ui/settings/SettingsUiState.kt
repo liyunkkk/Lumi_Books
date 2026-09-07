@@ -67,6 +67,7 @@ data class SettingsUiState(
     val appIconStyle: String = AppIconStyle.LUMI_2.storedValue,
     val appTheme: String = "lumi",         // "lumi" / "material3" / "liquid_glass"
     val startupScreen: String = DataStoreManager.DEFAULT_STARTUP_SCREEN,
+    val homeScreenMode: String = DataStoreManager.DEFAULT_HOME_SCREEN_MODE,
     val appAccentColor: String = DEFAULT_APP_ACCENT_HEX,
     val globalFontMode: String = "system", // "default" / "system"
     val liquidGlassTransparency: Float = 0.55f,

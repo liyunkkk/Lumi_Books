@@ -169,6 +169,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            dataStoreManager.homeScreenMode.collectLatest { mode ->
+                _uiState.value = _uiState.value.copy(homeScreenMode = mode)
+            }
+        }
+        viewModelScope.launch {
             dataStoreManager.appAccentColor.collectLatest { color ->
                 _uiState.value = _uiState.value.copy(appAccentColor = color)
             }
@@ -474,6 +479,15 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(startupScreen = normalized)
         viewModelScope.launch {
             dataStoreManager.saveStartupScreen(normalized)
+        }
+    }
+
+    fun saveHomeScreenMode(mode: String) {
+        val normalized = DataStoreManager.normalizeHomeScreenMode(mode)
+        if (_uiState.value.homeScreenMode == normalized) return
+        _uiState.value = _uiState.value.copy(homeScreenMode = normalized)
+        viewModelScope.launch {
+            dataStoreManager.saveHomeScreenMode(normalized)
         }
     }
 

@@ -158,6 +158,9 @@
     <string name="move_down">下移</string>
 
     <!-- 显示与外观 -->
+    <string name="label_home_screen_mode">首页显示模式</string>
+    <string name="home_screen_mode_classic">经典模式</string>
+    <string name="home_screen_mode_card_flow">在读精选 (3D卡片流)</string>
     <string name="label_startup_screen">设置主屏</string>
     <string name="startup_screen_home">首页</string>
     <string name="startup_screen_bookshelf">书库</string>

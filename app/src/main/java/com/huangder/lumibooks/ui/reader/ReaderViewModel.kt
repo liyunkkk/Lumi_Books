@@ -2147,7 +2147,7 @@ class ReaderViewModel @Inject constructor(
     fun saveComicMode(enabled: Boolean) {
         userExplicitComicMode = enabled
         _uiState.value = _uiState.value.copy(comicModeEnabled = enabled)
-        viewModelScope.launch { dataStoreManager.saveComicMode(enabled) }
+        viewModelScope.launch { dataStoreManager.saveComicMode(bookId, enabled) }
     }
 
     fun saveSelectionMenuItems(items: Map<String, Boolean>) {

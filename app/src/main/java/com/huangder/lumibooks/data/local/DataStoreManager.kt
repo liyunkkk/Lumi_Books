@@ -156,6 +156,15 @@ class DataStoreManager @Inject constructor(
         val SCREEN_SLEEP_TIMEOUT_SECONDS_OPTIONS = listOf(SCREEN_SLEEP_TIMEOUT_FOLLOW_SYSTEM, 30, 60, 300, 600, 1200, 1800, 2400, 3000, 3600, 5400, 7200)
         const val DEFAULT_SCREEN_SLEEP_TIMEOUT_SECONDS = SCREEN_SLEEP_TIMEOUT_FOLLOW_SYSTEM
 
+        const val HOME_SCREEN_MODE_CLASSIC = "classic"
+        const val HOME_SCREEN_MODE_CARD_FLOW = "card_flow"
+        const val DEFAULT_HOME_SCREEN_MODE = HOME_SCREEN_MODE_CLASSIC
+
+        fun normalizeHomeScreenMode(value: String?): String = when (value) {
+            HOME_SCREEN_MODE_CARD_FLOW -> HOME_SCREEN_MODE_CARD_FLOW
+            else -> HOME_SCREEN_MODE_CLASSIC
+        }
+
         const val STARTUP_SCREEN_HOME = "home"
         const val STARTUP_SCREEN_BOOKSHELF = "bookshelf"
         const val STARTUP_SCREEN_STATISTICS = "statistics"
@@ -246,6 +255,7 @@ class DataStoreManager @Inject constructor(
         // 应用设置
         private val APP_ICON_STYLE = stringPreferencesKey("app_icon_style")
         private val APP_THEME = stringPreferencesKey("app_theme")
+        private val HOME_SCREEN_MODE = stringPreferencesKey("home_screen_mode")
         private val STARTUP_SCREEN = stringPreferencesKey("startup_screen")
         private val APP_ACCENT_COLOR = stringPreferencesKey("app_accent_color")
         private val GLOBAL_FONT_MODE = stringPreferencesKey("global_font_mode")
@@ -424,7 +434,7 @@ class DataStoreManager @Inject constructor(
                 showReaderBattery = preferences[SHOW_READER_BATTERY] ?: true,
                 volumeKeyPageTurnEnabled = preferences[VOLUME_KEY_PAGE_TURN] ?: false,
                 bionicReadingEnabled = preferences[BIONIC_READING_ENABLED] ?: false,
-                comicModeEnabled = preferences[COMIC_MODE] ?: false,
+                comicModeEnabled = preferences[booleanPreferencesKey("comic_mode_$bookId")] ?: (preferences[COMIC_MODE] ?: false),
                 bodyFontWeight = preferences[BODY_FONT_WEIGHT] ?: 400,
                 eInkModeEnabled = preferences[E_INK_MODE_ENABLED] ?: false,
                 twoPageSpreadEnabled = preferences[TWO_PAGE_SPREAD_ENABLED] ?: true,
@@ -757,6 +767,9 @@ class DataStoreManager @Inject constructor(
         preferences[APP_THEME] ?: "lumi"
     }
 
+    val homeScreenMode: Flow<String> = context.dataStore.data.map { preferences ->
+        normalizeHomeScreenMode(preferences[HOME_SCREEN_MODE])
+    }
     val startupScreen: Flow<String> = context.dataStore.data.map { preferences ->
         normalizeStartupScreen(preferences[STARTUP_SCREEN])
     }
@@ -1319,10 +1332,17 @@ class DataStoreManager @Inject constructor(
         }
     }
 
-    suspend fun saveComicMode(enabled: Boolean) {
+    suspend fun saveComicMode(bookId: String?, enabled: Boolean) {
         context.dataStore.edit { preferences ->
+            if (!bookId.isNullOrBlank()) {
+                preferences[booleanPreferencesKey("comic_mode_$bookId")] = enabled
+            }
             preferences[COMIC_MODE] = enabled
         }
+    }
+
+    suspend fun saveComicMode(enabled: Boolean) {
+        saveComicMode(null, enabled)
     }
 
     suspend fun saveScreenSleepTimeoutSeconds(seconds: Int) {
@@ -1974,6 +1994,12 @@ class DataStoreManager @Inject constructor(
     suspend fun saveAppTheme(theme: String) {
         context.dataStore.edit { preferences ->
             preferences[APP_THEME] = theme
+        }
+    }
+
+    suspend fun saveHomeScreenMode(mode: String) {
+        context.dataStore.edit { preferences ->
+            preferences[HOME_SCREEN_MODE] = normalizeHomeScreenMode(mode)
         }
     }
 
