@@ -89,7 +89,7 @@ class BackupArchiveManager @Inject constructor(
             val manifestFile = File(extracted, MANIFEST_PATH)
             if (!manifestFile.isFile) {
                 if (legadoBackupImporter.isLegadoBackup(extracted)) {
-                    val result = legadoBackupImporter.importFromDirectory(extracted)
+                    val result = legadoBackupImporter.importFromExtracted(extracted)
                     return@withContext BackupArchiveResult(archive.length(), result.totalCount)
                 }
                 val legacy = legacyBackupImporter.convert(extracted)

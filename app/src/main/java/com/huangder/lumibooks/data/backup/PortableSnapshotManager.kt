@@ -125,7 +125,7 @@ class PortableSnapshotManager @Inject constructor(
         }
 
         val bookSources = runCatching { appDb.bookSourceDao.all() }.getOrDefault(emptyList())
-        val legadoBooks = runCatching { appDb.bookDao.all() }.getOrDefault(emptyList())
+        val legadoBooks = runCatching { appDb.bookDao.getAll() }.getOrDefault(emptyList())
         val replaceRules = runCatching { appDb.replaceRuleDao.all() }.getOrDefault(emptyList())
 
         val bookSourcesJson = if (bookSources.isNotEmpty()) GSON.toJson(bookSources) else null

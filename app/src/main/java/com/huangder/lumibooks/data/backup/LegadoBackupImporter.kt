@@ -8,6 +8,7 @@ import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book as EngineBook
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.ReplaceRule
+import io.legado.app.help.book.isLocal
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonArray
 import kotlinx.coroutines.Dispatchers
@@ -20,7 +21,9 @@ data class LegadoImportResult(
     val bookSourceCount: Int,
     val bookCount: Int,
     val replaceRuleCount: Int
-)
+) {
+    val totalCount: Int get() = bookSourceCount + bookCount + replaceRuleCount
+}
 
 @Singleton
 class LegadoBackupImporter @Inject constructor(
