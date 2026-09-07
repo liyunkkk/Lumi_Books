@@ -33,6 +33,9 @@ interface BookChapterDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insert(vararg bookChapter: BookChapter)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insert(bookChapters: List<BookChapter>)
+
     @Update
     fun update(vararg bookChapter: BookChapter)
 

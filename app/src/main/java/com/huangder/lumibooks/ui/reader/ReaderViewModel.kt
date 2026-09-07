@@ -2474,7 +2474,11 @@ class ReaderViewModel @Inject constructor(
                         bookId,
                         ReaderOpenStage.METADATA_PARSE
                     ) {
-                        withContext(Dispatchers.IO) { activeParser.parse(book.filePath) }
+                        withContext(Dispatchers.IO) {
+                            kotlinx.coroutines.withTimeout(20_000L) {
+                                activeParser.parse(book.filePath)
+                            }
+                        }
                     }
 
                     // 解析出更准确的作者时，静默回填数据库并用新值更新 UI
@@ -2578,9 +2582,14 @@ class ReaderViewModel @Inject constructor(
                     )
                 }
             } catch (e: Exception) {
+                val errorMsg = if (e is kotlinx.coroutines.TimeoutCancellationException) {
+                    "打开书籍超时，请检查网络或切换书源"
+                } else {
+                    e.message ?: "打开书籍失败"
+                }
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    error = e.message
+                    error = errorMsg
                 )
             }
     }
