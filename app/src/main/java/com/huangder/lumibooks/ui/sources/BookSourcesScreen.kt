@@ -240,7 +240,7 @@ fun BookSourcesScreen(
                             ) {
                                 GlassDropdownMenuItem(
                                     text = "全部书源",
-                                    selected = uiState.filterStatus == SourceFilter.ALL,
+                                    selected = filterStatus == SourceFilter.ALL,
                                     onClick = {
                                         viewModel.setFilterStatus(SourceFilter.ALL)
                                         showFilterMenu = false
@@ -248,7 +248,7 @@ fun BookSourcesScreen(
                                 )
                                 GlassDropdownMenuItem(
                                     text = "仅已启用",
-                                    selected = uiState.filterStatus == SourceFilter.ENABLED_ONLY,
+                                    selected = filterStatus == SourceFilter.ENABLED_ONLY,
                                     onClick = {
                                         viewModel.setFilterStatus(SourceFilter.ENABLED_ONLY)
                                         showFilterMenu = false
@@ -256,7 +256,7 @@ fun BookSourcesScreen(
                                 )
                                 GlassDropdownMenuItem(
                                     text = "仅已禁用",
-                                    selected = uiState.filterStatus == SourceFilter.DISABLED_ONLY,
+                                    selected = filterStatus == SourceFilter.DISABLED_ONLY,
                                     onClick = {
                                         viewModel.setFilterStatus(SourceFilter.DISABLED_ONLY)
                                         showFilterMenu = false
@@ -264,7 +264,7 @@ fun BookSourcesScreen(
                                 )
                                 GlassDropdownMenuItem(
                                     text = "仅支持发现/探索",
-                                    selected = uiState.filterStatus == SourceFilter.EXPLORE_ONLY,
+                                    selected = filterStatus == SourceFilter.EXPLORE_ONLY,
                                     onClick = {
                                         viewModel.setFilterStatus(SourceFilter.EXPLORE_ONLY)
                                         showFilterMenu = false
