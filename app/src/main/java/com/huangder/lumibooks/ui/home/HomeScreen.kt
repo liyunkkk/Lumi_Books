@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.rounded.Leaderboard
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Delete
@@ -127,11 +128,7 @@ fun HomeScreen(
     val statusBarTopPadding = WindowInsets.statusBars
         .asPaddingValues()
         .calculateTopPadding()
-    val bottomContentPadding = if (isMaterial3) {
-        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 96.dp
-    } else {
-        120.dp
-    }
+    val bottomContentPadding = if (isMaterial3) 84.dp else 84.dp
     val context = LocalContext.current
     var localShowGoalSheet by remember { mutableStateOf(false) }
     val showGoalSheet = if (renderReadingGoalSheet) localShowGoalSheet else showReadingGoalSheet
@@ -169,11 +166,11 @@ fun HomeScreen(
                     .then(if (isTablet) Modifier.align(Alignment.TopCenter) else Modifier)
             ) {
                 item(key = "header") {
-                    Spacer(Modifier.height(statusBarTopPadding + AppSpace.md))
+                    Spacer(Modifier.height(statusBarTopPadding + 4.dp))
                     PageEntranceItem(play = playEntranceAnimation, index = 0) {
-                        HomeHeader()
+                        HomeHeader(onNavigateToStatistics = onNavigateToStatistics)
                     }
-                    Spacer(Modifier.height(AppSpace.lg))
+                    Spacer(Modifier.height(6.dp))
                 }
 
                 if (uiState.books.isEmpty()) {
@@ -181,10 +178,9 @@ fun HomeScreen(
                         PageEntranceItem(play = playEntranceAnimation, index = 1) {
                             ImportHint(onImportClick = onImportClick)
                         }
-                        Spacer(Modifier.height(AppSpace.lg))
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
-
                 if (lastReadBook != null) {
                     item(key = "continue_reading") {
                         PageEntranceItem(play = playEntranceAnimation, index = 2) {
@@ -197,16 +193,15 @@ fun HomeScreen(
                                 modifier = Modifier.padding(horizontal = AppSpace.lg)
                             )
                         }
-                        Spacer(Modifier.height(AppSpace.lg))
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
-
                 if (recentBooks.isNotEmpty()) {
                     item(key = "recently_read") {
                         PageEntranceItem(play = playEntranceAnimation, index = 3) {
                             Column {
                                 SectionHeader(stringResource(R.string.section_recently_read))
-                                Spacer(Modifier.height(AppSpace.md))
+                                Spacer(Modifier.height(4.dp))
                                 BooksReadGrid(
                                     books = recentBooks,
                                     downloadStates = uiState.downloadStates,
@@ -218,10 +213,9 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        Spacer(Modifier.height(AppSpace.lg))
+                        Spacer(Modifier.height(8.dp))
                     }
                 }
-
                 item(key = "reading_goal") {
                     PageEntranceItem(play = playEntranceAnimation, index = 4) {
                         ReadingGoalCard(
@@ -234,9 +228,8 @@ fun HomeScreen(
                             }
                         )
                     }
-                    Spacer(Modifier.height(AppSpace.lg))
+                    Spacer(Modifier.height(8.dp))
                 }
-
                 item(key = "bottom_spacing") {
                     Spacer(Modifier.height(bottomContentPadding))
                 }
@@ -264,21 +257,36 @@ fun HomeScreen(
 // ─── Header ──────────────────────────────────────────────────────
 
 @Composable
-private fun HomeHeader() {
+private fun HomeHeader(
+    onNavigateToStatistics: (() -> Unit)? = null
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpace.lg, vertical = AppSpace.md),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = AppSpace.lg, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
             text = stringResource(R.string.home_page),
-            fontSize = AppType.Display,
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = resolveAppFontFamily(KaiTi),
             letterSpacing = (-0.02).sp,
             color = AppColors.TextPrimary
         )
+        if (onNavigateToStatistics != null) {
+            IconButton(
+                onClick = onNavigateToStatistics,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Leaderboard,
+                    contentDescription = stringResource(R.string.statistics_title),
+                    tint = AppColors.TextPrimary
+                )
+            }
+        }
     }
 }
 
@@ -355,13 +363,13 @@ private fun ContinueReadingCard(
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
                 onClick(coverBounds.get().takeUnless { it == Rect.Zero })
             }
-            .padding(AppSpace.md),
+            .padding(horizontal = AppSpace.md, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 封面（3:4 比例）
         Box(
             modifier = Modifier
-                .width(72.dp)
+                .width(56.dp)
                 .aspectRatio(0.75f)
                 .onGloballyPositioned { coverBounds.set(it.boundsInRoot()) }
                 .clip(RoundedCornerShape(AppRadius.sm))
@@ -531,7 +539,7 @@ private fun ContinueReadingCard(
 private fun SectionHeader(title: String) {
     Text(
         text = title,
-        fontSize = AppType.Section,
+        fontSize = 15.sp,
         fontWeight = FontWeight.Bold,
         fontFamily = resolveAppFontFamily(KaiTi),
         color = AppColors.TextPrimary,
@@ -629,69 +637,79 @@ private fun ReadingGoalCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg)
-            .shadow(12.dp, RoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
+            .shadow(10.dp, RoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
             .cardOutline(RoundedCornerShape(AppRadius.lg))
             .clip(RoundedCornerShape(AppRadius.lg))
             .background(AppColors.CardBg)
             .cardPressEffect()
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onCardClick)
-            .padding(AppSpace.lg),
+            .padding(horizontal = AppSpace.md, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 半圆弧进度条
         if (hasGoal) {
-        ArcProgressBar(
-            progress = progress,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(140.dp)
-        )
-
-        Spacer(Modifier.height(AppSpace.sm))
-
-        // 大数字
-        Text(
-            text = TimeUtils.formatDurationShort(readingTime),
-            fontSize = AppType.Huge,
-            fontWeight = FontWeight.Bold,
-            color = AppColors.TextPrimary
-        )
-        Text(
-            text = stringResource(R.string.goal_label, dailyGoal),
-            fontSize = AppType.Caption,
-            color = AppColors.TextSecondary
-        )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                ArcProgressBar(
+                    progress = progress,
+                    modifier = Modifier.fillMaxSize()
+                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.padding(bottom = 2.dp)
+                ) {
+                    Text(
+                        text = TimeUtils.formatDurationShort(readingTime),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary
+                    )
+                    Text(
+                        text = stringResource(R.string.goal_label, dailyGoal),
+                        fontSize = 11.sp,
+                        color = AppColors.TextSecondary
+                    )
+                }
+            }
         } else {
-            Spacer(Modifier.height(AppSpace.sm))
-            Text(
-                text = todayEmoji,
-                fontSize = 34.sp,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(AppSpace.sm))
-            Text(
-                text = todayStatusText,
-                fontSize = AppType.Section,
-                fontWeight = FontWeight.Bold,
-                color = AppColors.TextPrimary
-            )
-            Text(
-                text = stringResource(
-                    if (hasReadToday) R.string.today_read_message_done else R.string.today_read_message_empty
-                ),
-                fontSize = AppType.Caption,
-                color = AppColors.TextSecondary
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            ) {
+                Text(
+                    text = todayEmoji,
+                    fontSize = 18.sp
+                )
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = todayStatusText,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary
+                    )
+                    Text(
+                        text = stringResource(
+                            if (hasReadToday) R.string.today_read_message_done else R.string.today_read_message_empty
+                        ),
+                        fontSize = 11.sp,
+                        color = AppColors.TextSecondary
+                    )
+                }
+            }
         }
 
-        Spacer(Modifier.height(AppSpace.lg))
+        Spacer(Modifier.height(8.dp))
 
         // 继续阅读按钮
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(32.dp)
                 .clip(RoundedCornerShape(AppRadius.capsule))
                 .background(Color.Black)
                 .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onContinueClick),
@@ -699,13 +717,13 @@ private fun ReadingGoalCard(
         ) {
             Text(
                 text = stringResource(R.string.continue_reading),
-                fontSize = AppType.Body,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White
             )
         }
 
-        Spacer(Modifier.height(AppSpace.lg))
+        Spacer(Modifier.height(8.dp))
 
         // 星期打卡
         WeeklyCheckIn(weeklyData = weeklyData, dailyGoal = dailyGoal)
@@ -718,32 +736,34 @@ private fun ReadingGoalCard(
 private fun ArcProgressBar(progress: Float, modifier: Modifier = Modifier) {
     val accentColor = AppColors.Accent
     Canvas(modifier = modifier) {
-        val stroke = 10.dp.toPx()
-        val radius = (minOf(size.width, size.height * 2) - stroke) / 2
-        val diameter = radius * 2
-        val cx = size.width / 2
-        // 圆心下移，让半圆弧更靠底部
-        val cy = size.height + radius * 0.15f
+        val stroke = 5.dp.toPx()
+        val maxRadius = minOf((size.width - stroke) / 2f, size.height - stroke)
+        val radius = maxOf(0f, maxRadius)
+        val diameter = radius * 2f
+        val cx = size.width / 2f
+        val cy = size.height - stroke / 2f
         val topLeft = Offset(cx - radius, cy - radius)
-
+        val arcSize = Size(diameter, diameter)
         drawArc(
-            color = Color(0xFFE5E5EA),
+            color = Color(0xFFE5E5EA).copy(alpha = 0.6f),
             startAngle = 180f,
             sweepAngle = 180f,
             useCenter = false,
             topLeft = topLeft,
-            size = Size(diameter, diameter),
+            size = arcSize,
             style = Stroke(width = stroke, cap = StrokeCap.Round)
         )
-        drawArc(
-            color = accentColor,
-            startAngle = 180f,
-            sweepAngle = 180f * progress,
-            useCenter = false,
-            topLeft = topLeft,
-            size = Size(diameter, diameter),
-            style = Stroke(width = stroke, cap = StrokeCap.Round)
-        )
+        if (progress > 0f) {
+            drawArc(
+                color = accentColor,
+                startAngle = 180f,
+                sweepAngle = (180f * progress).coerceIn(0f, 180f),
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width = stroke, cap = StrokeCap.Round)
+            )
+        }
     }
 }
 
@@ -752,12 +772,10 @@ private fun ArcProgressBar(progress: Float, modifier: Modifier = Modifier) {
 @Composable
 private fun WeeklyCheckIn(weeklyData: List<DailyReading> = emptyList(), dailyGoal: Int = 30) {
     // weeklyData 是固定日历周 [日, 一, 二, 三, 四, 五, 六]
-    // todayIndex 基于今天是星期几
     val todayIndex = Calendar.getInstance().get(Calendar.DAY_OF_WEEK) - 1  // 0=周日
     val hasGoal = dailyGoal > 0
     val goalMs = dailyGoal * 60 * 1000L
     val accentColor = AppColors.Accent
-
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly
@@ -767,25 +785,22 @@ private fun WeeklyCheckIn(weeklyData: List<DailyReading> = emptyList(), dailyGoa
             val isToday = index == todayIndex
             val isFuture = index > todayIndex
             val goalMet = if (hasGoal) data.duration >= goalMs else data.duration > 0L
-
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
-                    modifier = Modifier.size(34.dp),
+                    modifier = Modifier.size(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     if (isPast || isToday) {
                         if (goalMet || (hasGoal && isToday)) {
-                            // 达标或今天：实心圆
                             Box(
                                 modifier = Modifier
-                                    .size(30.dp)
+                                    .size(22.dp)
                                     .clip(CircleShape)
                                     .background(if (isToday) accentColor else accentColor.copy(alpha = 0.8f))
                             )
                         } else {
-                            // 未达标：空心圆
-                            Canvas(modifier = Modifier.size(30.dp)) {
-                                val stroke = 1.5.dp.toPx()
+                            Canvas(modifier = Modifier.size(22.dp)) {
+                                val stroke = 1.2.dp.toPx()
                                 val r = (size.minDimension - stroke) / 2
                                 drawCircle(
                                     color = accentColor.copy(alpha = 0.4f),
@@ -797,7 +812,7 @@ private fun WeeklyCheckIn(weeklyData: List<DailyReading> = emptyList(), dailyGoa
                     }
                     Text(
                         text = data.dayLabel,
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         color = when {
                             isToday -> Color.White
                             goalMet && (isPast || !hasGoal) -> Color.White
@@ -811,7 +826,6 @@ private fun WeeklyCheckIn(weeklyData: List<DailyReading> = emptyList(), dailyGoa
         }
     }
 }
-
 // ─── 最近读过的图书 ────────────────────────────────────────────
 
 @Composable
@@ -828,12 +842,12 @@ private fun BooksReadGrid(
     val bookBounds = remember { mutableMapOf<String, Rect>() }
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(AppSpace.md)
+        horizontalArrangement = Arrangement.spacedBy(AppSpace.sm)
     ) {
         items(books, key = { it.id }) { book ->
             Box(
                 modifier = Modifier
-                    .width(if (isTablet) 120.dp else 96.dp)
+                    .width(if (isTablet) 110.dp else 68.dp)
                     .aspectRatio(0.75f)
                     .shadow(
                         elevation = 8.dp,

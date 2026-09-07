@@ -39,6 +39,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -89,6 +91,7 @@ import java.util.Calendar
 @Composable
 fun StatisticsScreen(
     playEntranceAnimation: Boolean = false,
+    onBack: (() -> Unit)? = null,
     onMessage: (String) -> Unit = {},
     viewModel: StatisticsViewModel = hiltViewModel()
 ) {
@@ -98,11 +101,9 @@ fun StatisticsScreen(
     val statusBarTopPadding = WindowInsets.statusBars
         .asPaddingValues()
         .calculateTopPadding()
-    val bottomContentPadding = if (LocalUseMaterial3Theme.current) {
-        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 96.dp
-    } else {
-        120.dp
-    }
+    val bottomContentPadding = WindowInsets.navigationBars
+        .asPaddingValues()
+        .calculateBottomPadding() + AppSpace.lg
     val motionEnabled = LocalMotionEnabled.current
     val chartAnimationsPlayed = remember { mutableStateListOf(false, false, false) }
     val selectedPeriod = uiState.selectedTab.coerceIn(0, 2)
@@ -135,19 +136,38 @@ fun StatisticsScreen(
                     .align(Alignment.TopCenter)
             ) {
                 item(key = "header") {
-                    Spacer(Modifier.height(statusBarTopPadding + AppSpace.md))
+                    Spacer(Modifier.height(statusBarTopPadding + AppSpace.xs))
                     PageEntranceItem(play = playEntranceAnimation, index = 0) {
-                        Text(
-                            text = stringResource(R.string.stats_title),
-                            fontSize = AppType.Display,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = resolveAppFontFamily(KaiTi),
-                            letterSpacing = (-0.02).sp,
-                            color = AppColors.TextPrimary,
-                            modifier = Modifier.padding(horizontal = AppSpace.lg, vertical = AppSpace.md)
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = AppSpace.md, vertical = AppSpace.xs),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (onBack != null) {
+                                IconButton(
+                                    onClick = onBack,
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = stringResource(R.string.back),
+                                        tint = AppColors.TextPrimary
+                                    )
+                                }
+                                Spacer(Modifier.width(AppSpace.xs))
+                            }
+                            Text(
+                                text = stringResource(R.string.stats_title),
+                                fontSize = AppType.Display,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = resolveAppFontFamily(KaiTi),
+                                letterSpacing = (-0.02).sp,
+                                color = AppColors.TextPrimary
+                            )
+                        }
                     }
-                    Spacer(Modifier.height(AppSpace.xl))
+                    Spacer(Modifier.height(AppSpace.md))
                 }
 
                 item(key = "tabs") {
