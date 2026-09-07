@@ -3024,21 +3024,10 @@ fun AboutDetail(viewModel: SettingsViewModel) {
     Spacer(Modifier.height(AppSpace.md))
 
     DetailCard {
-        ActionRow(Icons.Outlined.Groups, stringResource(R.string.official_qq_group)) {
+        ActionRow(Icons.Outlined.Source, stringResource(R.string.github_repository)) {
             val opened = runCatching {
                 context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse("https://qm.qq.com/q/pq77woweNG"))
-                )
-            }.isSuccess
-            if (!opened) {
-                Toast.makeText(context, R.string.network_error, Toast.LENGTH_LONG).show()
-            }
-        }
-        SettingsDivider()
-        ActionRow(Icons.Outlined.Forum, stringResource(R.string.github_discussions)) {
-            val opened = runCatching {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/huangder/Lumi_Books/discussions"))
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/liyunkkk/Lumi_Books"))
                 )
             }.isSuccess
             if (!opened) {
@@ -3046,28 +3035,6 @@ fun AboutDetail(viewModel: SettingsViewModel) {
             }
         }
     }
-
-    Text(
-        text = stringResource(R.string.community_contact_hint),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = AppSpace.md, vertical = AppSpace.sm),
-        fontSize = AppType.Caption,
-        color = AppColors.TextSecondary
-    )
-
-    Spacer(Modifier.height(AppSpace.md))
-
-    DetailCard {
-        ActionRow(Icons.Outlined.Source, stringResource(R.string.github_repository)) {
-            val opened = runCatching {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/huangder/Lumi_Books"))
-                )
-            }.isSuccess
-            if (!opened) {
-                Toast.makeText(context, R.string.network_error, Toast.LENGTH_LONG).show()
-            }
         }
     }
 

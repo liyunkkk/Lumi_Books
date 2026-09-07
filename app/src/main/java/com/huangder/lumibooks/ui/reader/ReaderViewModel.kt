@@ -3153,33 +3153,46 @@ class ReaderViewModel @Inject constructor(
         val isTxt = raw !is Spanned
         var skipFirstParagraphIndent = false
         val chapterText = if (isTxt) {
-            // 只有解析器识别出的真实章节标题才加大加粗。无目录 TXT 的章节标题是
-            // “第 N 章 + 正文摘要”的合成值，不能把原始首段整行误当成标题。
-            val newlineIdx = raw.indexOf('\n')
-            if (newlineIdx > 0) {
-                val title = raw.substring(0, newlineIdx)
-                val parsedChapterTitle = _uiState.value.chapterTitles.getOrNull(index).orEmpty()
-                if (shouldStyleTxtChapterTitle(title, parsedChapterTitle)) {
-                    skipFirstParagraphIndent = true
-                    val body = raw.substring(newlineIdx + 1)
-                    val spannable = SpannableString("$title\n\n$body")
-                    val titleEnd = title.length
-                    spannable.setSpan(
-                        AbsoluteSizeSpan(22, true),
-                        0,
-                        titleEnd,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                    spannable.setSpan(
-                        StyleSpan(Typeface.BOLD),
-                        0,
-                        titleEnd,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                    spannable
+            val parsedChapterTitle = _uiState.value.chapterTitles.getOrNull(index)?.trim().orEmpty()
+            if (parsedChapterTitle.isNotEmpty()) {
+                skipFirstParagraphIndent = true
+                val rawStr = raw.toString()
+                val newlineIdx = rawStr.indexOf('\n')
+                val firstLine = if (newlineIdx >= 0) rawStr.substring(0, newlineIdx).trim() else rawStr.trim()
+
+                // 参考开源阅读 (Legado) ContentProcessor 原理：
+                // 检查正文首行是否已包含章节标题，若包含则去重，避免重复显示双重标题
+                val hasTitleAlready = firstLine.isNotEmpty() && (
+                    firstLine == parsedChapterTitle ||
+                    shouldStyleTxtChapterTitle(firstLine, parsedChapterTitle) ||
+                    firstLine.startsWith(parsedChapterTitle) ||
+                    parsedChapterTitle.startsWith(firstLine)
+                )
+
+                val body = if (hasTitleAlready && newlineIdx >= 0) {
+                    rawStr.substring(newlineIdx + 1).trimStart('\r', '\n')
+                } else if (hasTitleAlready && newlineIdx < 0) {
+                    ""
                 } else {
-                    raw
+                    rawStr.trimStart('\r', '\n')
                 }
+
+                val fullText = if (body.isNotEmpty()) "$parsedChapterTitle\n\n$body" else parsedChapterTitle
+                val spannable = SpannableString(fullText)
+                val titleEnd = parsedChapterTitle.length
+                spannable.setSpan(
+                    AbsoluteSizeSpan(22, true),
+                    0,
+                    titleEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                spannable.setSpan(
+                    StyleSpan(Typeface.BOLD),
+                    0,
+                    titleEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                spannable
             } else {
                 raw
             }

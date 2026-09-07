@@ -151,7 +151,13 @@ fun HomeScreen(
         uiState.books.sortedByDescending { it.lastReadTime }
     }
     val lastReadBook = booksByLastRead.firstOrNull()
-    val recentBooks = booksByLastRead
+    val recentBooks = remember(booksByLastRead, lastReadBook) {
+        if (lastReadBook != null) {
+            booksByLastRead.filter { it.id != lastReadBook.id }
+        } else {
+            booksByLastRead
+        }
+    }
     CompositionLocalProvider(LocalShowCoverProgress provides uiState.showCoverProgress) {
     BoxWithConstraints(
         modifier = Modifier
