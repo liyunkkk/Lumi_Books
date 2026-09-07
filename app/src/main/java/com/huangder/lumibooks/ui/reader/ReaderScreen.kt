@@ -5842,7 +5842,7 @@ private fun ComicChapterImages(
                     imageLoader = imageLoader,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .defaultMinSize(minHeight = 120.dp)
+                        .heightIn(min = 120.dp)
                         .background(placeholderColor)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
