@@ -1,8 +1,8 @@
 package com.huangder.lumibooks.widget
-
 import android.content.Context
 import com.huangder.lumibooks.data.local.dao.BookDao
 import com.huangder.lumibooks.data.local.dao.NoteDao
+import com.huangder.lumibooks.domain.repository.BookRepository
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -13,8 +13,8 @@ import dagger.hilt.components.SingletonComponent
 interface WidgetDataEntryPoint {
     fun bookDao(): BookDao
     fun noteDao(): NoteDao
+    fun bookRepository(): BookRepository
 }
-
 internal fun Context.widgetDataEntryPoint(): WidgetDataEntryPoint {
     return EntryPointAccessors.fromApplication(
         applicationContext,

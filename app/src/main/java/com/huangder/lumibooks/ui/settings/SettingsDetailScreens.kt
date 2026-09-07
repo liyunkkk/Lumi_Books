@@ -695,6 +695,41 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
             )
         }
     }
+    Spacer(Modifier.height(12.dp))
+    // 书籍封面显示进度
+    DetailCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(AppSpace.md),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Outlined.BookmarkBorder,
+                contentDescription = null,
+                tint = AppColors.TextSecondary,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.width(AppSpace.md))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.show_cover_progress),
+                    fontSize = AppType.Body,
+                    color = AppColors.TextPrimary
+                )
+                Text(
+                    stringResource(R.string.show_cover_progress_desc),
+                    fontSize = AppType.Caption,
+                    color = AppColors.TextSecondary
+                )
+            }
+            Spacer(Modifier.width(AppSpace.sm))
+            LiquidGlassSwitch(
+                checked = uiState.showCoverProgress,
+                onCheckedChange = { viewModel.saveShowCoverProgress(it) }
+            )
+        }
+    }
 }
 
 @Composable

@@ -1,6 +1,7 @@
 package com.huangder.lumibooks.ui.bookshelf
-
 import android.net.Uri
+import androidx.compose.runtime.CompositionLocalProvider
+import com.huangder.lumibooks.ui.components.LocalShowCoverProgress
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -689,6 +690,7 @@ fun BookshelfScreen(
     }
 
     ProvideLiquidGlassBackdrop(null) {
+    CompositionLocalProvider(LocalShowCoverProgress provides uiState.showCoverProgress) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1361,11 +1363,10 @@ fun BookshelfScreen(
                 }
             )
         }
-
+    }
     }
     }
 }
-
 @Composable
 internal fun BookshelfCollection(
     layoutMode: Int,

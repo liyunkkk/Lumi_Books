@@ -30,6 +30,9 @@ import com.huangder.lumibooks.data.sync.BookDownloadState
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookDeleteMode
 import com.huangder.lumibooks.ui.theme.AppColors
+import androidx.compose.runtime.compositionLocalOf
+
+val LocalShowCoverProgress = compositionLocalOf { true }
 
 @Composable
 fun CloudBookDownloadDialog(
@@ -142,14 +145,15 @@ fun BookCoverProgressOverlay(
     book: Book,
     downloadState: BookDownloadState?,
     modifier: Modifier = Modifier,
-    compact: Boolean = false
+    compact: Boolean = false,
+    showProgressOverlay: Boolean = LocalShowCoverProgress.current
 ) {
     val downloading = downloadState as? BookDownloadState.Downloading
     val progress = downloading?.progress ?: book.readingProgress
         .takeIf { it.isFinite() }
         ?.coerceIn(0f, 1f)
         .orEmptyProgress()
-    val showProgress = downloading != null || (progress > 0f && !book.isCloudOnly)
+    val showProgress = showProgressOverlay && (downloading != null || (progress > 0f && !book.isCloudOnly))
 
     Box(modifier = modifier.fillMaxSize()) {
         if (book.isCloudOnly && downloading == null) {

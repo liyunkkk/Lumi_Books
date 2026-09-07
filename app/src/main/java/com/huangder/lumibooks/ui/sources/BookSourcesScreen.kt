@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
@@ -228,31 +229,42 @@ fun BookSourcesScreen(
                             }
                             DropdownMenu(
                                 expanded = showFilterMenu,
-                                onDismissRequest = { showFilterMenu = false }
+                                onDismissRequest = { showFilterMenu = false },
+                                modifier = Modifier
+                                    .width(185.dp)
+                                    .padding(horizontal = 4.dp),
+                                shape = RoundedCornerShape(18.dp),
+                                containerColor = if (isLiquidGlass) AppColors.CardBg.copy(alpha = 0.82f) else AppColors.CardBg.copy(alpha = 0.95f),
+                                border = BorderStroke(1.dp, AppColors.Divider.copy(alpha = 0.7f)),
+                                shadowElevation = 10.dp
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("全部书源") },
+                                GlassDropdownMenuItem(
+                                    text = "全部书源",
+                                    selected = uiState.filterStatus == SourceFilter.ALL,
                                     onClick = {
                                         viewModel.setFilterStatus(SourceFilter.ALL)
                                         showFilterMenu = false
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("仅已启用") },
+                                GlassDropdownMenuItem(
+                                    text = "仅已启用",
+                                    selected = uiState.filterStatus == SourceFilter.ENABLED_ONLY,
                                     onClick = {
                                         viewModel.setFilterStatus(SourceFilter.ENABLED_ONLY)
                                         showFilterMenu = false
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("仅已禁用") },
+                                GlassDropdownMenuItem(
+                                    text = "仅已禁用",
+                                    selected = uiState.filterStatus == SourceFilter.DISABLED_ONLY,
                                     onClick = {
                                         viewModel.setFilterStatus(SourceFilter.DISABLED_ONLY)
                                         showFilterMenu = false
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("仅支持发现/探索") },
+                                GlassDropdownMenuItem(
+                                    text = "仅支持发现/探索",
+                                    selected = uiState.filterStatus == SourceFilter.EXPLORE_ONLY,
                                     onClick = {
                                         viewModel.setFilterStatus(SourceFilter.EXPLORE_ONLY)
                                         showFilterMenu = false
@@ -260,7 +272,6 @@ fun BookSourcesScreen(
                                 )
                             }
                         }
-
                         // 导入菜单
                         Box {
                             IconButton(onClick = { showImportMenu = true }) {
@@ -268,19 +279,26 @@ fun BookSourcesScreen(
                             }
                             DropdownMenu(
                                 expanded = showImportMenu,
-                                onDismissRequest = { showImportMenu = false }
+                                onDismissRequest = { showImportMenu = false },
+                                modifier = Modifier
+                                    .width(210.dp)
+                                    .padding(horizontal = 4.dp),
+                                shape = RoundedCornerShape(18.dp),
+                                containerColor = if (isLiquidGlass) AppColors.CardBg.copy(alpha = 0.82f) else AppColors.CardBg.copy(alpha = 0.95f),
+                                border = BorderStroke(1.dp, AppColors.Divider.copy(alpha = 0.7f)),
+                                shadowElevation = 10.dp
                             ) {
-                                DropdownMenuItem(
-                                    leadingIcon = { Icon(Icons.Outlined.Language, contentDescription = null, tint = AppColors.Accent) },
-                                    text = { Text("网络链接导入 (URL)") },
+                                GlassDropdownMenuItem(
+                                    leadingIcon = Icons.Outlined.Language,
+                                    text = "网络链接导入 (URL)",
                                     onClick = {
                                         showImportMenu = false
                                         showUrlImportDialog = true
                                     }
                                 )
-                                DropdownMenuItem(
-                                    leadingIcon = { Icon(Icons.Outlined.UploadFile, contentDescription = null, tint = AppColors.Accent) },
-                                    text = { Text("本地文件导入 (JSON)") },
+                                GlassDropdownMenuItem(
+                                    leadingIcon = Icons.Outlined.UploadFile,
+                                    text = "本地文件导入 (JSON)",
                                     onClick = {
                                         showImportMenu = false
                                         filePicker.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
@@ -288,7 +306,6 @@ fun BookSourcesScreen(
                                 )
                             }
                         }
-
                         // 清空按钮
                         IconButton(onClick = { showDeleteAllConfirm = true }) {
                             Icon(Icons.Outlined.DeleteSweep, contentDescription = "清空书源", tint = AppColors.TextSecondary)
@@ -1409,6 +1426,53 @@ private fun EditSourceDialog(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun GlassDropdownMenuItem(
+    text: String,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    selected: Boolean = false,
+    onClick: () -> Unit
+) {
+    val bg = if (selected) AppColors.Accent.copy(alpha = 0.14f) else Color.Transparent
+    val textColor = if (selected) AppColors.Accent else AppColors.TextPrimary
+    val iconTint = if (selected) AppColors.Accent else AppColors.TextSecondary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (leadingIcon != null) {
+            Icon(
+                imageVector = leadingIcon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+        }
+        Text(
+            text = text,
+            fontSize = AppType.BodySmall,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            color = textColor,
+            modifier = Modifier.weight(1f)
+        )
+        if (selected) {
+            Icon(
+                imageVector = Icons.Outlined.Check,
+                contentDescription = null,
+                tint = AppColors.Accent,
+                modifier = Modifier.size(16.dp)
+            )
         }
     }
 }

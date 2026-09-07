@@ -101,7 +101,8 @@ data class HomeUiState(
     val syncedBookIds: Set<String> = emptySet(),
     val isWebdavSyncing: Boolean = false,
     val downloadStates: Map<String, BookDownloadState> = emptyMap(),
-    val isBookDeleteInProgress: Boolean = false
+    val isBookDeleteInProgress: Boolean = false,
+    val showCoverProgress: Boolean = true
 )
 
 enum class SortBy {
@@ -157,6 +158,7 @@ class HomeViewModel @Inject constructor(
         loadBookshelfLayoutMode()
         loadBookshelfSortMode()
         loadImportBooksLayoutMode()
+        loadShowCoverProgress()
         loadAuthorizedBookDirectories()
     }
 
@@ -263,6 +265,14 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.avatarUri.collectLatest { uri ->
                 _uiState.value = _uiState.value.copy(avatarUri = uri)
+            }
+        }
+    }
+
+    private fun loadShowCoverProgress() {
+        viewModelScope.launch {
+            dataStoreManager.showCoverProgress.collectLatest { showCoverProgress ->
+                _uiState.value = _uiState.value.copy(showCoverProgress = showCoverProgress)
             }
         }
     }
