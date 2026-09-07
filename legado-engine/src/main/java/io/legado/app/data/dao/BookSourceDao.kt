@@ -66,4 +66,6 @@ interface BookSourceDao {
 
     @Query("update book_sources set respondTime = :respondTime where bookSourceUrl = :sourceUrl")
     fun upRespondTime(sourceUrl: String, respondTime: Long)
+    @Query("update book_sources set enabledExplore = :enabledExplore where bookSourceUrl = :sourceUrl")
+    fun enableExplore(sourceUrl: String, enabledExplore: Boolean)
 }

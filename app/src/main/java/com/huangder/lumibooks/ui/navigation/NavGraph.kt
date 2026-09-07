@@ -845,7 +845,7 @@ fun MainNavGraph(
                     restoreState = true
                 }
             }
-            if (useMaterial3Navigation) {
+            if (useMaterial3Navigation && !isLiquidGlass) {
                 Material3BottomNavigationBar(
                     selectedIndex = selectedTab,
                     onTabSelected = selectTab,
