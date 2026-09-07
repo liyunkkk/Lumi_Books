@@ -3035,8 +3035,6 @@ fun AboutDetail(viewModel: SettingsViewModel) {
             }
         }
     }
-        }
-    }
 
     Spacer(Modifier.height(AppSpace.lg))
 
