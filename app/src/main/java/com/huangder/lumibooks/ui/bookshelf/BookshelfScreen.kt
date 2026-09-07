@@ -204,7 +204,8 @@ fun BookshelfScreen(
     }
     val density = LocalDensity.current
     val globalBackdrop = LocalLiquidGlassBackdrop.current
-    val bookshelfBackdrop = globalBackdrop ?: rememberLayerBackdrop()
+    val fallbackBackdrop = if (globalBackdrop == null && isLiquidGlass) rememberLayerBackdrop() else null
+    val activeBackdrop = globalBackdrop ?: fallbackBackdrop
     val bookshelfTopBlurBackdrop = rememberLayerBackdrop()
     var bookshelfHeaderHeightPx by remember { mutableStateOf(0) }
     var isEditing by remember { mutableStateOf(false) }
@@ -691,7 +692,7 @@ fun BookshelfScreen(
         onDispose { onOverlayProgressChange(0f) }
     }
 
-    ProvideLiquidGlassBackdrop(bookshelfBackdrop.takeIf { isLiquidGlass }) {
+    ProvideLiquidGlassBackdrop(activeBackdrop.takeIf { isLiquidGlass }) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -704,7 +705,7 @@ fun BookshelfScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (isLiquidGlass && globalBackdrop == null) Modifier.layerBackdrop(bookshelfBackdrop) else Modifier
+                    if (fallbackBackdrop != null) Modifier.layerBackdrop(fallbackBackdrop) else Modifier
                 )
                 .graphicsLayer {
                     renderEffect = if (
@@ -903,7 +904,7 @@ fun BookshelfScreen(
                 154.dp
             }
             StatusGradientOverlay(
-                backdrop = bookshelfBackdrop,
+                backdrop = activeBackdrop,
                 exportedBackdrop = bookshelfTopBlurBackdrop,
                 height = blurHeight,
                 blurRadius = 38.dp,
@@ -978,7 +979,7 @@ fun BookshelfScreen(
             }
         }
 
-        ProvideLiquidGlassBackdrop(bookshelfBackdrop.takeIf { isLiquidGlass }) {
+        ProvideLiquidGlassBackdrop(activeBackdrop.takeIf { isLiquidGlass }) {
             BookshelfSearchOverlay(
                 visible = isSearchActive,
                 query = searchQuery,

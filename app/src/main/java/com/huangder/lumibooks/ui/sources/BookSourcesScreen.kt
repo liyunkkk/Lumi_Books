@@ -101,12 +101,13 @@ import io.legado.app.data.entities.rule.SearchRule
 import io.legado.app.data.entities.rule.TocRule
 import io.legado.app.utils.GSON
 import io.legado.app.utils.fromJsonObject
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookSourcesScreen(
-    viewModel: BookSourcesViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    viewModel: BookSourcesViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 ) {
     val context = LocalContext.current
     val appTheme = LocalAppTheme.current
@@ -119,7 +120,7 @@ fun BookSourcesScreen(
     val filterStatus by viewModel.filterStatus.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val loading by viewModel.loading.collectAsState()
-    val message by viewModel.message.collectAsState()
+    val message by viewModel.operationMessage.collectAsState()
     val debuggingSource by viewModel.debuggingSource.collectAsState()
     val editingSource by viewModel.editingSource.collectAsState()
 
