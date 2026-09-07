@@ -1,27 +1,28 @@
 package com.huangder.lumibooks.util.parser
 
 import io.legado.app.data.appDb
+import io.legado.app.data.entities.BookChapter
 import io.legado.app.model.webBook.WebBook
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 在线书源解析器：实现 Lumi BookParser 接口，正文按章懒加载。
  *
  * filePath 约定："legado-online://<engineBookUrl>"。
- * parse() 拉取目录（getChapterListAwait），getChapterContent() 拉取正文（getContentAwait）。
+ * parse() 拉取目录（本地缓存优先秒开，缺失时带超时熔断网络拉取并持久化），getChapterContent() 拉取正文。
  */
 class OnlineBookParser(
     private val engineBookUrl: String
 ) : BookParser {
-
     companion object {
         const val SCHEME = "legado-online://"
+        private const val NETWORK_TIMEOUT_MS = 15_000L
     }
 
-    private var chapters: List<io.legado.app.data.entities.BookChapter> = emptyList()
-    private val contentCache = HashMap<Int, String>()
+    private var chapters: List<BookChapter> = emptyList()
+    private val contentCache = ConcurrentHashMap<Int, String>()
 
     private fun requireBookSource() = appDb.bookSourceDao.getBookSource(
         appDb.bookDao.getBook(engineBookUrl)?.origin ?: ""
@@ -32,12 +33,45 @@ class OnlineBookParser(
 
     override fun parse(filePath: String): BookContent {
         val book = requireEngineBook()
-        val source = requireBookSource()
-        val list = runBlocking {
-            withContext(Dispatchers.IO) {
-                WebBook.getChapterListAwait(source, book).getOrThrow()
-            }
+        if (book.tocUrl.isNullOrBlank()) {
+            book.tocUrl = book.bookUrl
+            try { appDb.bookDao.update(book) } catch (_: Exception) {}
         }
+
+        // 1. 优先读取本地数据库章节缓存（实现秒开，避免重复同步请求网络）
+        var cachedChapters = appDb.bookChapterDao.getChapterList(engineBookUrl)
+        if (cachedChapters.isEmpty() && book.bookUrl != engineBookUrl) {
+            cachedChapters = appDb.bookChapterDao.getChapterList(book.bookUrl)
+        }
+
+        val list = if (cachedChapters.isNotEmpty()) {
+            cachedChapters
+        } else {
+            // 2. 本地无缓存时，发起网络请求拉取目录，带 15 秒超时熔断
+            val source = requireBookSource()
+            val fetchedList = runBlocking {
+                withTimeoutOrNull(NETWORK_TIMEOUT_MS) {
+                    WebBook.getChapterListAwait(source, book).getOrNull()
+                }
+            } ?: throw IllegalStateException("加载目录超时或失败，请检查网络连接或更换书源")
+
+            if (fetchedList.isEmpty()) {
+                throw IllegalStateException("书源未返回任何章节内容")
+            }
+
+            // 3. 将拉取到的目录存入本地数据库，下次打开立即可读
+            try {
+                fetchedList.forEach { it.bookUrl = engineBookUrl }
+                appDb.bookChapterDao.delByBook(engineBookUrl)
+                appDb.bookChapterDao.insert(fetchedList)
+                book.totalChapterNum = fetchedList.size
+                appDb.bookDao.update(book)
+            } catch (e: Exception) {
+                android.util.Log.e("OnlineBookParser", "Failed to cache chapters to db", e)
+            }
+            fetchedList
+        }
+
         chapters = list
         val chapterList = list.map {
             Chapter(index = it.index, title = it.title, content = "")
@@ -56,16 +90,35 @@ class OnlineBookParser(
 
     override fun getChapterContent(chapterIndex: Int): CharSequence {
         contentCache[chapterIndex]?.let { return it }
-        val book = requireEngineBook()
-        val source = requireBookSource()
         val chapter = chapters.getOrNull(chapterIndex)
-            ?: throw IllegalStateException("章节索引越界: $chapterIndex")
-        val nextUrl = chapters.getOrNull(chapterIndex + 1)?.url
-        val content = runBlocking {
-            withContext(Dispatchers.IO) {
-                WebBook.getContentAwait(source, book, chapter, nextUrl, needSave = true)
-            }
+            ?: return "【章节索引越界: $chapterIndex】"
+
+        val book = try {
+            requireEngineBook()
+        } catch (e: Exception) {
+            return "【书籍信息加载失败: ${e.message}】"
         }
+        val source = try {
+            requireBookSource()
+        } catch (e: Exception) {
+            return "【书源不存在或已失效】"
+        }
+
+        if (book.tocUrl.isNullOrBlank()) {
+            book.tocUrl = book.bookUrl
+        }
+
+        val nextUrl = chapters.getOrNull(chapterIndex + 1)?.url
+        val content = try {
+            runBlocking {
+                withTimeoutOrNull(NETWORK_TIMEOUT_MS) {
+                    WebBook.getContentAwait(source, book, chapter, nextUrl, needSave = true)
+                }
+            } ?: "【正文加载超时】\n网络请求超时，请检查网络或点击重新加载。"
+        } catch (e: Exception) {
+            "【正文加载失败】\n${e.message ?: "未知网络错误"}，请检查网络或切换书源。"
+        }
+
         contentCache[chapterIndex] = content
         return content
     }

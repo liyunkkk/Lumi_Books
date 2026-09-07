@@ -327,6 +327,9 @@ object WebBook {
             if (runPerJs) {
                 runPreUpdateJs(bookSource, book).getOrThrow()
             }
+            if (book.tocUrl.isNullOrBlank()) {
+                book.tocUrl = book.bookUrl
+            }
             if (book.bookUrl == book.tocUrl && !book.tocHtml.isNullOrEmpty()) {
                 BookChapterList.analyzeChapterList(
                     bookSource = bookSource,
@@ -351,10 +354,11 @@ object WebBook {
                     }
                 }
                 checkRedirect(bookSource, res)
+                val effectiveBaseUrl = if (analyzeUrl.url.isNotBlank()) analyzeUrl.url else book.bookUrl
                 BookChapterList.analyzeChapterList(
                     bookSource = bookSource,
                     book = book,
-                    baseUrl = book.tocUrl,
+                    baseUrl = effectiveBaseUrl,
                     redirectUrl = res.url,
                     body = res.body
                 )
@@ -417,9 +421,10 @@ object WebBook {
                 needSave = needSave
             )
         } else {
+            val chapterBaseUrl = if (book.tocUrl.isNotBlank()) book.tocUrl else book.bookUrl
             val analyzeUrl = AnalyzeUrl(
                 mUrl = bookChapter.getAbsoluteURL(),
-                baseUrl = book.tocUrl,
+                baseUrl = chapterBaseUrl,
                 source = bookSource,
                 ruleData = book,
                 chapter = bookChapter,
