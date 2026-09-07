@@ -68,6 +68,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import coil.request.ImageRequest
+
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -174,7 +177,7 @@ fun Material3BottomNavigationBar(
             icon = {
                 if (!avatarUri.isNullOrBlank()) {
                     AsyncImage(
-                        model = java.io.File(avatarUri),
+                        model = rememberAvatarImageModel(avatarUri),
                         contentDescription = stringResource(R.string.settings),
                         modifier = Modifier
                             .size(24.dp)
@@ -758,7 +761,7 @@ fun NavSettingsButton(
         ) {
             if (!avatarUri.isNullOrBlank()) {
                 AsyncImage(
-                    model = java.io.File(avatarUri),
+                    model = rememberAvatarImageModel(avatarUri),
                     contentDescription = stringResource(R.string.avatar),
                     modifier = Modifier
                         .fillMaxSize()
@@ -789,7 +792,7 @@ fun NavSettingsButton(
         ) {
             if (!avatarUri.isNullOrBlank()) {
                 AsyncImage(
-                    model = java.io.File(avatarUri),
+                    model = rememberAvatarImageModel(avatarUri),
                     contentDescription = stringResource(R.string.avatar),
                     modifier = Modifier
                         .fillMaxSize()
@@ -975,6 +978,23 @@ private fun TabItemView(
                 tint = if (isSelected) selectedContentColor else contentColor,
                 modifier = Modifier.size(22.dp)
             )
+        }
+    }
+}
+
+
+@Composable
+private fun rememberAvatarImageModel(avatarUri: String?): Any? {
+    val context = LocalContext.current
+    return remember(avatarUri) {
+        if (avatarUri.isNullOrBlank()) null
+        else {
+            val file = java.io.File(avatarUri)
+            ImageRequest.Builder(context)
+                .data(file)
+                .memoryCacheKey("avatar_${avatarUri}_${file.lastModified()}")
+                .diskCacheKey("avatar_${avatarUri}_${file.lastModified()}")
+                .build()
         }
     }
 }

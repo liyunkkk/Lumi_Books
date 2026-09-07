@@ -26,7 +26,8 @@ data class BackupArchiveResult(val sizeBytes: Long, val itemCount: Int)
 class BackupArchiveManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val snapshotManager: PortableSnapshotManager,
-    private val legacyBackupImporter: LegacyBackupImporter
+    private val legacyBackupImporter: LegacyBackupImporter,
+    private val legadoBackupImporter: LegadoBackupImporter
 ) {
     suspend fun create(outputUri: Uri): BackupArchiveResult = withContext(Dispatchers.IO) {
         val bundle = snapshotManager.capture()
@@ -87,6 +88,10 @@ class BackupArchiveManager @Inject constructor(
             extractSafely(archive, extracted, freeBytes - MIN_FREE_SPACE_BYTES)
             val manifestFile = File(extracted, MANIFEST_PATH)
             if (!manifestFile.isFile) {
+                if (legadoBackupImporter.isLegadoBackup(extracted)) {
+                    val result = legadoBackupImporter.importFromDirectory(extracted)
+                    return@withContext BackupArchiveResult(archive.length(), result.totalCount)
+                }
                 val legacy = legacyBackupImporter.convert(extracted)
                 snapshotManager.apply(legacy.snapshot, legacy.assetFiles, replace = true)
                 return@withContext BackupArchiveResult(archive.length(), legacy.assetFiles.size + 1)

@@ -82,7 +82,7 @@ class PortableSnapshotManager @Inject constructor(
         }
 
         val portableBooks = books.map { book ->
-            val bodyId = if (includeBookFiles && !book.isCloudOnly && book.filePath.isNotBlank()) {
+            val bodyId = if (includeBookFiles && !book.isCloudOnly && book.filePath.isNotBlank() && book.format != "online") {
                 addSource(
                     "book",
                     book.id,
@@ -98,8 +98,10 @@ class PortableSnapshotManager @Inject constructor(
             folder.copy(coverPath = assetId?.let { "asset://$it" })
         }
 
-        val avatar = File(context.filesDir, "avatars/avatar.jpg")
-        addFile("avatar", "profile", avatar)
+        val avatarDir = File(context.filesDir, "avatars")
+        avatarDir.listFiles()?.filter { it.isFile }?.forEach { file ->
+            addFile("avatar", "profile", file)
+        }
         listOf("fonts" to "font", "reader_backgrounds" to "reader_background").forEach { (directory, kind) ->
             File(context.filesDir, directory).walkTopDown()
                 .filter { it.isFile && !it.name.contains(".blurred-") }
@@ -116,6 +118,14 @@ class PortableSnapshotManager @Inject constructor(
             )
         }
 
+        val bookSources = runCatching { io.legado.app.data.appDb.bookSourceDao.all() }.getOrDefault(emptyList())
+        val legadoBooks = runCatching { io.legado.app.data.appDb.bookDao.all() }.getOrDefault(emptyList())
+        val replaceRules = runCatching { io.legado.app.data.appDb.replaceRuleDao.all() }.getOrDefault(emptyList())
+
+        val bookSourcesJson = if (bookSources.isNotEmpty()) io.legado.app.utils.GSON.toJson(bookSources) else null
+        val legadoBooksJson = if (legadoBooks.isNotEmpty()) io.legado.app.utils.GSON.toJson(legadoBooks) else null
+        val replaceRulesJson = if (replaceRules.isNotEmpty()) io.legado.app.utils.GSON.toJson(replaceRules) else null
+
         PortableSnapshotBundle(
             snapshot = PortableSnapshot(
                 createdAt = System.currentTimeMillis(),
@@ -130,7 +140,10 @@ class PortableSnapshotManager @Inject constructor(
                 bookmarks = syncDao.getAllBookmarks(),
                 notes = syncDao.getAllNotes(),
                 tombstones = syncDao.getAllTombstones(),
-                assets = sources.values.map { it.asset }
+                assets = sources.values.map { it.asset },
+                bookSourcesJson = bookSourcesJson,
+                legadoBooksJson = legadoBooksJson,
+                replaceRulesJson = replaceRulesJson
             ),
             assetSources = sources
         )
@@ -177,6 +190,7 @@ class PortableSnapshotManager @Inject constructor(
                     val existing = existingBooks[book.id]
                     book.toEntity(
                         filePath = book.bodyAssetId?.let(assetPaths::get)
+                            ?: book.filePath?.takeIf { it.startsWith("online://") }
                             ?: existing?.filePath.orEmpty().takeIf { !replaceAssetDirectories }.orEmpty(),
                         coverPath = book.coverAssetId?.let(assetPaths::get)
                             ?: existing?.coverPath?.takeIf { !replaceAssetDirectories }
@@ -222,6 +236,31 @@ class PortableSnapshotManager @Inject constructor(
                 })
                 if (snapshot.tombstones.isNotEmpty()) syncDao.upsertTombstones(snapshot.tombstones)
                 applyTombstones(snapshot)
+
+                if (!snapshot.bookSourcesJson.isNullOrBlank()) {
+                    runCatching {
+                        val sources = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.BookSource>(snapshot.bookSourcesJson).getOrNull()
+                        if (!sources.isNullOrEmpty()) {
+                            io.legado.app.data.appDb.bookSourceDao.insert(*sources.toTypedArray())
+                        }
+                    }
+                }
+                if (!snapshot.legadoBooksJson.isNullOrBlank()) {
+                    runCatching {
+                        val engineBooks = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.Book>(snapshot.legadoBooksJson).getOrNull()
+                        if (!engineBooks.isNullOrEmpty()) {
+                            io.legado.app.data.appDb.bookDao.insert(*engineBooks.toTypedArray())
+                        }
+                    }
+                }
+                if (!snapshot.replaceRulesJson.isNullOrBlank()) {
+                    runCatching {
+                        val rules = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.ReplaceRule>(snapshot.replaceRulesJson).getOrNull()
+                        if (!rules.isNullOrEmpty()) {
+                            io.legado.app.data.appDb.replaceRuleDao.insert(*rules.toTypedArray())
+                        }
+                    }
+                }
             }
             preparedAssets.finish()
         } catch (error: Throwable) {
@@ -493,7 +532,7 @@ class PortableSnapshotManager @Inject constructor(
     private fun BookEntity.toPortable(bodyAssetId: String?, coverAssetId: String?) = PortableBook(
         id, title, author, format, lastReadTime, readingProgress, locatorJson, createdAt, isFavorite,
         isCloudOnly, metadataUpdatedAt, bodyAssetId, coverAssetId, remoteLibraryKey, remoteFileName,
-        remoteFileSize, remoteFileSha256
+        remoteFileSize, remoteFileSha256, filePath
     )
 
     private fun PortableBook.toEntity(filePath: String, coverPath: String?) = BookEntity(
