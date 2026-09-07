@@ -154,7 +154,6 @@ import com.huangder.lumibooks.ui.theme.LocalUseMaterial3Theme
 import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
 import com.huangder.lumibooks.R
 import androidx.compose.ui.res.stringResource
-import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
@@ -203,9 +202,6 @@ fun BookshelfScreen(
         24.dp
     }
     val density = LocalDensity.current
-    val globalBackdrop = LocalLiquidGlassBackdrop.current
-    val fallbackBackdrop = if (globalBackdrop == null && isLiquidGlass) rememberLayerBackdrop() else null
-    val activeBackdrop = globalBackdrop ?: fallbackBackdrop
     val bookshelfTopBlurBackdrop = rememberLayerBackdrop()
     var bookshelfHeaderHeightPx by remember { mutableStateOf(0) }
     var isEditing by remember { mutableStateOf(false) }
@@ -692,7 +688,7 @@ fun BookshelfScreen(
         onDispose { onOverlayProgressChange(0f) }
     }
 
-    ProvideLiquidGlassBackdrop(activeBackdrop.takeIf { isLiquidGlass }) {
+    ProvideLiquidGlassBackdrop(null) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -704,9 +700,6 @@ fun BookshelfScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(
-                    if (fallbackBackdrop != null) Modifier.layerBackdrop(fallbackBackdrop) else Modifier
-                )
                 .graphicsLayer {
                     renderEffect = if (
                         contentBlurRadius > 0.01f && android.os.Build.VERSION.SDK_INT >= 31
@@ -904,7 +897,7 @@ fun BookshelfScreen(
                 154.dp
             }
             StatusGradientOverlay(
-                backdrop = activeBackdrop,
+                backdrop = null,
                 exportedBackdrop = bookshelfTopBlurBackdrop,
                 height = blurHeight,
                 blurRadius = 38.dp,
@@ -979,7 +972,7 @@ fun BookshelfScreen(
             }
         }
 
-        ProvideLiquidGlassBackdrop(activeBackdrop.takeIf { isLiquidGlass }) {
+        ProvideLiquidGlassBackdrop(null) {
             BookshelfSearchOverlay(
                 visible = isSearchActive,
                 query = searchQuery,

@@ -60,7 +60,6 @@ import com.huangder.lumibooks.ui.components.ConfigurableNavigationBack
 import com.huangder.lumibooks.ui.components.CloudBookDownloadDialog
 import com.huangder.lumibooks.ui.components.LocalPredictiveBackEnabled
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuHost
-import com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop
 import com.huangder.lumibooks.ui.discover.DiscoveryScreen
 import com.huangder.lumibooks.ui.search.SearchScreen
 import com.huangder.lumibooks.ui.home.HomeScreen
@@ -524,15 +523,10 @@ fun MainNavGraph(
                 isLiquidGlass && currentRoute != Screen.Reader.route
             }
         ) {
-        ProvideLiquidGlassBackdrop(
-            liquidGlassBackdrop.takeIf {
-                isLiquidGlass && currentRoute != Screen.Reader.route
-            }
-        ) {
-        ConfigurableNavigationBack(
-            predictiveBackEnabled = predictiveBackEnabled,
-            bridgeEnabled = currentRoute != null && navController.previousBackStackEntry != null
-        ) {
+            ConfigurableNavigationBack(
+                predictiveBackEnabled = predictiveBackEnabled,
+                bridgeEnabled = currentRoute != null && navController.previousBackStackEntry != null
+            ) {
             // 主内容
             NavHost(
                 navController = navController,
@@ -1143,7 +1137,6 @@ fun MainNavGraph(
                 }
             )
         }
-    }
     }
     }
 }
