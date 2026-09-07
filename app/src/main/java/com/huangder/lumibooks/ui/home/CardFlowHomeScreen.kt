@@ -839,12 +839,14 @@ private fun BookDetailDialog(
                                                 )
                                             }
                                             Spacer(Modifier.height(8.dp))
+                                            val authorName = if (book.author.isNotBlank()) book.author else "本书作者"
+                                            val summaryText = when (activePrompt) {
+                                                "✨ 了解作者背景" -> "关于《${book.title}》的作者 ${authorName}：\n其作品风格独树一帜，擅长在叙事框架中构筑细腻的人物心理与宏大的时代背景。阅读时可重点关注其行文中的伏笔与多视角交织手法。"
+                                                "💡 核心主旨与脉络" -> "《${book.title}》的核心思想贯穿了对现实困境的观照与个体命运的探索。全书通过多重冲突层层推进，揭示了关于成长、选择与价值求索的永恒主题。"
+                                                else -> "《${book.title}》结构严谨、节奏明快。建议在阅读过程中结合目录标签与划线批注，获得更深层次的沉浸式体验。"
+                                            }
                                             Text(
-                                                text = when (activePrompt) {
-                                                    "✨ 了解作者背景" -> "关于《${book.title}》的作者 ${if (book.author.isNotBlank()) book.author else "本书作者"}：\n其作品风格独树一帜，擅长在叙事框架中构筑细腻的人物心理与宏大的时代背景。阅读时可重点关注其行文中的伏笔与多视角交织手法。",
-                                                    "💡 核心主旨与脉络" -> "《${book.title}》的核心思想贯穿了对现实困境的观照与个体命运的探索。全书通过多重冲突层层推进，揭示了关于成长、选择与价值求索的永恒主题。",
-                                                    else -> "《${book.title}》结构严谨、节奏明快。建议在阅读过程中结合目录标签与划线批注，获得更深层次的沉浸式体验。"
-                                                },
+                                                text = summaryText,
                                                 fontSize = 13.sp,
                                                 lineHeight = 20.sp,
                                                 color = MaterialTheme.colorScheme.onSurface
