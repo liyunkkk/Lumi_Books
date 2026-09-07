@@ -47,7 +47,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
+import com.huangder.lumibooks.ui.components.LocalShowCoverProgress
+import io.legado.app.data.appDb
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -144,6 +149,7 @@ fun HomeScreen(
     }
     val lastReadBook = booksByLastRead.firstOrNull()
     val recentBooks = booksByLastRead
+    CompositionLocalProvider(LocalShowCoverProgress provides uiState.showCoverProgress) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -161,19 +167,18 @@ fun HomeScreen(
                     .then(if (isTablet) Modifier.align(Alignment.TopCenter) else Modifier)
             ) {
                 item(key = "header") {
-                    Spacer(Modifier.height(statusBarTopPadding + AppSpace.sm))
+                    Spacer(Modifier.height(statusBarTopPadding + 2.dp))
                     PageEntranceItem(play = playEntranceAnimation, index = 0) {
                         HomeHeader(onNavigateToStatistics = onNavigateToStatistics)
                     }
-                    Spacer(Modifier.height(AppSpace.md))
+                    Spacer(Modifier.height(4.dp))
                 }
-
                 if (uiState.books.isEmpty()) {
                     item(key = "empty_library") {
                         PageEntranceItem(play = playEntranceAnimation, index = 1) {
                             ImportHint(onImportClick = onImportClick)
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(6.dp))
                     }
                 }
                 if (lastReadBook != null) {
@@ -188,7 +193,7 @@ fun HomeScreen(
                                 modifier = Modifier.padding(horizontal = AppSpace.lg)
                             )
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(6.dp))
                     }
                 }
                 if (recentBooks.isNotEmpty()) {
@@ -196,7 +201,7 @@ fun HomeScreen(
                         PageEntranceItem(play = playEntranceAnimation, index = 3) {
                             Column {
                                 SectionHeader(stringResource(R.string.section_recently_read))
-                                Spacer(Modifier.height(AppSpace.md))
+                                Spacer(Modifier.height(4.dp))
                                 BooksReadGrid(
                                     books = recentBooks,
                                     downloadStates = uiState.downloadStates,
@@ -208,7 +213,7 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(6.dp))
                     }
                 }
                 item(key = "reading_goal") {
@@ -217,13 +222,10 @@ fun HomeScreen(
                             readingTime = uiState.todayReadingTime,
                             dailyGoal = uiState.dailyGoal,
                             weeklyData = uiState.weeklyData,
-                            onCardClick = { setShowGoalSheet(true) },
-                            onContinueClick = {
-                                lastReadBook?.let { onNavigateToReader(it.id, it.coverPath, it.title, null) }
-                            }
+                            onCardClick = { setShowGoalSheet(true) }
                         )
                     }
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(6.dp))
                 }
                 item(key = "bottom_spacing") {
                     Spacer(Modifier.height(bottomContentPadding))
@@ -245,10 +247,9 @@ fun HomeScreen(
                 onSaveGoal = { minutes -> viewModel.saveDailyGoal(minutes) }
             )
         }
-
     } // 外层 Box 结束
+    } // CompositionLocalProvider 结束
 }
-
 // ─── Header ──────────────────────────────────────────────────────
 
 @Composable
@@ -323,8 +324,35 @@ private fun ImportHint(onImportClick: () -> Unit) {
     }
 }
 
-// ─── 继续阅读卡片 ──────────────────────────────────────────────
+// ─── 获取书籍简介 ──────────────────────────────────────────────
+@Composable
+private fun rememberBookIntro(book: Book): String {
+    var intro by remember(book.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(book.id) {
+        withContext(Dispatchers.IO) {
+            if (book.filePath.startsWith("legado://") || book.filePath.startsWith("online://")) {
+                val url = book.filePath.removePrefix("legado://").removePrefix("online://")
+                intro = runCatching { appDb.bookDao.getBook(url)?.intro?.trim() }.getOrNull()
+            }
+            if (intro.isNullOrBlank() && book.filePath.endsWith(".epub", ignoreCase = true)) {
+                intro = runCatching {
+                    java.util.zip.ZipFile(book.filePath).use { zip ->
+                        val container = zip.getEntry("META-INF/container.xml") ?: return@use null
+                        val cDoc = zip.getInputStream(container).use { javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(it) }
+                        val opf = cDoc.getElementsByTagName("rootfile").item(0)?.attributes?.getNamedItem("full-path")?.nodeValue ?: return@use null
+                        val opfEntry = zip.getEntry(opf) ?: return@use null
+                        val oDoc = zip.getInputStream(opfEntry).use { javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(it) }
+                        oDoc.getElementsByTagName("description").item(0)?.textContent?.trim()?.replace(Regex("<[^>]*>"), "")
+                    }
+                }.getOrNull()
+            }
+        }
+    }
+    val fallback = "已读 ${(book.readingProgress * 100).toInt()}% · 点击继续阅读"
+    return intro?.takeIf { it.isNotBlank() } ?: fallback
+}
 
+// ─── 继续阅读卡片 ──────────────────────────────────────────────
 @Composable
 private fun ContinueReadingCard(
     book: Book,
@@ -358,16 +386,16 @@ private fun ContinueReadingCard(
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
                 onClick(coverBounds.get().takeUnless { it == Rect.Zero })
             }
-            .padding(AppSpace.md),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 封面（3:4 比例）
+        // 封面（标准 3:4 比例网格大小）
         Box(
             modifier = Modifier
-                .width(72.dp)
+                .width(92.dp)
                 .aspectRatio(0.75f)
                 .onGloballyPositioned { coverBounds.set(it.boundsInRoot()) }
-                .clip(RoundedCornerShape(AppRadius.sm))
+                .clip(RoundedCornerShape(8.dp))
                 .background(AppColors.BgGray)
         ) {
             if (book.coverPath == null) {
@@ -390,130 +418,179 @@ private fun ContinueReadingCard(
                 compact = true
             )
         }
-        Spacer(Modifier.width(AppSpace.md))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = book.title,
-                fontSize = AppType.Body,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = resolveAppFontFamily(KaiTi),
-                color = AppColors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(AppSpace.xs))
-            Text(
-                text = book.author,
-                fontSize = AppType.BodySmall,
-                color = AppColors.TextSecondary,
-                maxLines = 1
-            )
-            if (book.isMissing) {
+        Spacer(Modifier.width(14.dp))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .height(123.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = book.title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = resolveAppFontFamily(KaiTi),
+                        color = AppColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box {
+                        IconButton(
+                            onClick = {
+                                if (isLiquidGlass && liquidMenuHost != null && menuAnchorBounds != Rect.Zero) {
+                                    liquidMenuHost.show(
+                                        LiquidGlassMenuSpec(
+                                            anchorBounds = menuAnchorBounds,
+                                            width = 132.dp,
+                                            items = listOf(
+                                                LiquidGlassMenuItem(
+                                                    label = favoriteMenuLabel,
+                                                    icon = Icons.Outlined.FavoriteBorder,
+                                                    onClick = onToggleFavorite
+                                                ),
+                                                LiquidGlassMenuItem(
+                                                    label = deleteMenuLabel,
+                                                    icon = Icons.Outlined.Delete,
+                                                    destructive = true,
+                                                    onClick = { showDeleteConfirm = true }
+                                                )
+                                            )
+                                        )
+                                    )
+                                } else {
+                                    menuExpanded = true
+                                }
+                            },
+                            modifier = Modifier
+                                .size(28.dp)
+                                .onGloballyPositioned { menuAnchorBounds = it.boundsInRoot() }
+                        ) {
+                            Icon(Icons.Outlined.MoreVert, null, tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                            modifier = Modifier.width(116.dp),
+                            shape = RoundedCornerShape(AppRadius.xl),
+                            containerColor = AppColors.WindowBg,
+                            border = BorderStroke(1.dp, AppColors.Divider),
+                            shadowElevation = 0.dp,
+                            tonalElevation = 0.dp
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                                    .clip(RoundedCornerShape(AppRadius.lg))
+                                    .clickable {
+                                        menuExpanded = false
+                                        onToggleFavorite()
+                                    },
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Outlined.FavoriteBorder, null, modifier = Modifier.size(17.dp), tint = AppColors.TextSecondary)
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    if (book.isFavorite) stringResource(R.string.remove_favorite) else stringResource(R.string.add_favorite),
+                                    fontSize = AppType.BodySmall,
+                                    color = AppColors.TextPrimary
+                                )
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                                    .clip(RoundedCornerShape(AppRadius.lg))
+                                    .clickable {
+                                        menuExpanded = false
+                                        showDeleteConfirm = true
+                                    },
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(17.dp), tint = AppColors.Accent)
+                                Spacer(Modifier.width(6.dp))
+                                Text(stringResource(R.string.delete_book), fontSize = AppType.BodySmall, color = AppColors.Accent)
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = stringResource(R.string.book_file_unavailable),
-                    fontSize = AppType.Caption,
-                    color = Color(0xFFD92D3A),
+                    text = book.author.ifBlank { "未知作者" },
+                    fontSize = 12.sp,
+                    color = AppColors.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-            }
-            Spacer(Modifier.height(AppSpace.xs))
-            Text(
-                text = if (downloadState is BookDownloadState.Downloading) {
-                    stringResource(
-                        R.string.book_download_progress,
-                        (downloadState.progress * 100f).toInt().coerceIn(0, 100)
-                    )
-                } else {
-                    stringResource(R.string.book_progress, (book.readingProgress * 100).toInt())
-                },
-                fontSize = AppType.Caption,
-                color = AppColors.TextSecondary
-            )
-        }
-        Box {
-            IconButton(
-                onClick = {
-                    if (isLiquidGlass && liquidMenuHost != null && menuAnchorBounds != Rect.Zero) {
-                        liquidMenuHost.show(
-                            LiquidGlassMenuSpec(
-                                anchorBounds = menuAnchorBounds,
-                                width = 132.dp,
-                                items = listOf(
-                                    LiquidGlassMenuItem(
-                                        label = favoriteMenuLabel,
-                                        icon = Icons.Outlined.FavoriteBorder,
-                                        onClick = onToggleFavorite
-                                    ),
-                                    LiquidGlassMenuItem(
-                                        label = deleteMenuLabel,
-                                        icon = Icons.Outlined.Delete,
-                                        destructive = true,
-                                        onClick = { showDeleteConfirm = true }
-                                    )
-                                )
-                            )
-                        )
-                    } else {
-                        menuExpanded = true
-                    }
-                },
-                modifier = Modifier
-                    .size(32.dp)
-                    .onGloballyPositioned { menuAnchorBounds = it.boundsInRoot() }
-            ) {
-                Icon(Icons.Outlined.MoreVert, null, tint = AppColors.TextSecondary, modifier = Modifier.size(18.dp))
-            }
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false },
-                modifier = Modifier.width(116.dp),
-                shape = RoundedCornerShape(AppRadius.xl),
-                containerColor = AppColors.WindowBg,
-                border = BorderStroke(1.dp, AppColors.Divider),
-                shadowElevation = 0.dp,
-                tonalElevation = 0.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(40.dp)
-                        .clip(RoundedCornerShape(AppRadius.lg))
-                        .clickable {
-                        menuExpanded = false
-                        onToggleFavorite()
-                    },
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Outlined.FavoriteBorder, null, modifier = Modifier.size(17.dp), tint = AppColors.TextSecondary)
-                    Spacer(Modifier.width(6.dp))
+                if (book.isMissing) {
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        if (book.isFavorite) stringResource(R.string.remove_favorite) else stringResource(R.string.add_favorite),
-                        fontSize = AppType.BodySmall,
-                        color = AppColors.TextPrimary
+                        text = stringResource(R.string.book_file_unavailable),
+                        fontSize = 11.sp,
+                        color = Color(0xFFD92D3A),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
+                Spacer(Modifier.height(4.dp))
+                val introText = rememberBookIntro(book)
+                Text(
+                    text = introText,
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp,
+                    color = AppColors.TextSecondary.copy(alpha = 0.85f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Column {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    val progressPercent = (book.readingProgress * 100).toInt().coerceIn(0, 100)
+                    Text(
+                        text = if (downloadState is BookDownloadState.Downloading) {
+                            stringResource(
+                                R.string.book_download_progress,
+                                (downloadState.progress * 100f).toInt().coerceIn(0, 100)
+                            )
+                        } else {
+                            stringResource(R.string.book_progress, progressPercent)
+                        },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AppColors.Accent
+                    )
+                }
+                Spacer(Modifier.height(3.dp))
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(40.dp)
-                        .clip(RoundedCornerShape(AppRadius.lg))
-                        .clickable {
-                        menuExpanded = false
-                        showDeleteConfirm = true
-                    },
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(AppColors.BgGray)
                 ) {
-                    Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(17.dp), tint = AppColors.Accent)
-                    Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.delete_book), fontSize = AppType.BodySmall, color = AppColors.Accent)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(book.readingProgress.coerceIn(0f, 1f))
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(1.5.dp))
+                            .background(AppColors.Accent)
+                    )
                 }
             }
         }
     }
-
     // 删除确认弹窗
     if (showDeleteConfirm) {
         CloudAwareBookDeleteDialog(
@@ -610,14 +687,12 @@ private fun RecentBookCard(
 }
 
 // ─── 阅读目标卡片 ──────────────────────────────────────────────
-
 @Composable
 private fun ReadingGoalCard(
     readingTime: Long,
     dailyGoal: Int,
     weeklyData: List<DailyReading> = emptyList(),
-    onCardClick: () -> Unit,
-    onContinueClick: () -> Unit
+    onCardClick: () -> Unit
 ) {
     val hasGoal = dailyGoal > 0
     val goalMs = if (hasGoal) dailyGoal * 60 * 1000L else 0L
@@ -627,25 +702,24 @@ private fun ReadingGoalCard(
         if (hasReadToday) R.string.today_read_status_done else R.string.today_read_status_empty
     )
     val todayEmoji = if (hasReadToday) "📖 ✨ 🌿" else "🌙 ☕ 📚"
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg)
-            .shadow(10.dp, RoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
+            .shadow(8.dp, RoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
             .cardOutline(RoundedCornerShape(AppRadius.lg))
             .clip(RoundedCornerShape(AppRadius.lg))
             .background(AppColors.CardBg)
             .cardPressEffect()
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onCardClick)
-            .padding(horizontal = AppSpace.md, vertical = 14.dp),
+            .padding(horizontal = AppSpace.md, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (hasGoal) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(108.dp),
+                    .height(90.dp),
                 contentAlignment = Alignment.BottomCenter
             ) {
                 ArcProgressBar(
@@ -654,17 +728,17 @@ private fun ReadingGoalCard(
                 )
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    modifier = Modifier.padding(bottom = 4.dp)
                 ) {
                     Text(
                         text = TimeUtils.formatDurationShort(readingTime),
-                        fontSize = 24.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = AppColors.TextPrimary
                     )
                     Text(
                         text = stringResource(R.string.goal_label, dailyGoal),
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         color = AppColors.TextSecondary
                     )
                 }
@@ -673,17 +747,17 @@ private fun ReadingGoalCard(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
             ) {
                 Text(
                     text = todayEmoji,
-                    fontSize = 22.sp
+                    fontSize = 20.sp
                 )
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(8.dp))
                 Column {
                     Text(
                         text = todayStatusText,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = AppColors.TextPrimary
                     )
@@ -691,36 +765,17 @@ private fun ReadingGoalCard(
                         text = stringResource(
                             if (hasReadToday) R.string.today_read_message_done else R.string.today_read_message_empty
                         ),
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         color = AppColors.TextSecondary
                     )
                 }
             }
         }
-        Spacer(Modifier.height(10.dp))
-        // 继续阅读按钮
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(40.dp)
-                .clip(RoundedCornerShape(AppRadius.capsule))
-                .background(Color.Black)
-                .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onContinueClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = stringResource(R.string.continue_reading),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White
-            )
-        }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(8.dp))
         // 星期打卡
         WeeklyCheckIn(weeklyData = weeklyData, dailyGoal = dailyGoal)
     }
 }
-
 // ─── 半圆弧进度条 ──────────────────────────────────────────────
 
 @Composable

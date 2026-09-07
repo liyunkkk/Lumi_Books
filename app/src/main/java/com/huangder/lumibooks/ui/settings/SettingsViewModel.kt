@@ -336,6 +336,11 @@ class SettingsViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(applyToBodyOnly = applyToBodyOnly)
             }
         }
+        viewModelScope.launch {
+            dataStoreManager.showCoverProgress.collectLatest { showCoverProgress ->
+                _uiState.value = _uiState.value.copy(showCoverProgress = showCoverProgress)
+            }
+        }
     }
 
     // ─── 个人信息 ───
@@ -552,6 +557,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.saveApplyToBodyOnly(enabled)
             _uiState.value = _uiState.value.copy(applyToBodyOnly = enabled)
+        }
+    }
+
+    fun saveShowCoverProgress(enabled: Boolean) {
+        viewModelScope.launch {
+            dataStoreManager.saveShowCoverProgress(enabled)
+            _uiState.value = _uiState.value.copy(showCoverProgress = enabled)
         }
     }
 

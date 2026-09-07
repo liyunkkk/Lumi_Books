@@ -210,6 +210,8 @@
     <string name="body_font_weight_desc">开启后正文使用加粗字重</string>
     <string name="apply_to_body_only">排版仅作用于正文</string>
     <string name="apply_to_body_only_desc">开启时字重、间距等设置仅作用于正文，标题等保持原样</string>
+    <string name="show_cover_progress">书籍封面显示阅读进度</string>
+    <string name="show_cover_progress_desc">在书架与主页封面显示已读百分比角标与进度条</string>
 
     <!-- 存储管理 -->
     <string name="label_total_size">总占用空间</string>
@@ -390,6 +392,8 @@
     <string name="cover_source_pick_image_desc">从本地相册选择图片</string>
     <string name="cover_source_web_search">网络搜索</string>
     <string name="cover_source_web_search_desc">通过多个搜索引擎查找本书封面</string>
+    <string name="cover_source_sources_search">搜索其它书源封面</string>
+    <string name="cover_source_sources_search_desc">从已启用的网络书源中聚合搜索匹配封面</string>
     <string name="cover_search_hint">搜索或输入网址</string>
     <string name="cover_search_engine_bing">Bing</string>
     <string name="cover_search_engine_baidu">百度</string>

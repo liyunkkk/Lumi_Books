@@ -6,6 +6,9 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -58,8 +61,12 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -90,6 +97,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.huangder.lumibooks.R
+import com.huangder.lumibooks.ui.components.LiquidGlassDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuItem
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
@@ -97,7 +105,9 @@ import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppSpace
 import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.ui.theme.KaiTi
+import com.huangder.lumibooks.ui.theme.LocalAppTheme
 import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
+import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.SearchBook
 
 /**
@@ -130,8 +140,8 @@ fun DiscoveryScreen(
     val layoutMode by viewModel.layoutMode.collectAsState()
     val activeBook by viewModel.activeBook.collectAsState()
     val isInLibrary by viewModel.isInLibrary.collectAsState()
-
     var searchQuery by remember { mutableStateOf("") }
+    var showSourcePickerSheet by remember { mutableStateOf(false) }
     LaunchedEffect(initialSearchQuery) {
         if (!initialSearchQuery.isNullOrBlank()) {
             searchQuery = initialSearchQuery
@@ -287,35 +297,14 @@ fun DiscoveryScreen(
                     )
                 }
 
-                // 书源选择胶囊（液态玻璃菜单）
+                // 书源选择胶囊（液态玻璃半透明面板）
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .padding(end = 8.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(AppColors.CardBg)
-                        .clickable {
-                            if (menuHost != null && sourceAnchorBounds != Rect.Zero && exploreSources.isNotEmpty()) {
-                                menuHost.show(
-                                    LiquidGlassMenuSpec(
-                                        anchorBounds = sourceAnchorBounds,
-                                        width = 220.dp,
-                                        maxVisibleItems = 8,
-                                        items = exploreSources.map { source ->
-                                            LiquidGlassMenuItem(
-                                                label = source.bookSourceName,
-                                                selected = source.bookSourceUrl == selectedSource?.bookSourceUrl,
-                                                onClick = {
-                                                    menuHost.dismiss()
-                                                    viewModel.selectSource(source)
-                                                }
-                                            )
-                                        }
-                                    )
-                                )
-                            }
-                        }
-                        .onGloballyPositioned { sourceAnchorBounds = it.boundsInRoot() }
+                        .clickable { showSourcePickerSheet = true }
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
@@ -549,6 +538,18 @@ fun DiscoveryScreen(
                 onAddToBookshelf = { viewModel.addToBookshelf(book) }
             )
         }
+
+        if (showSourcePickerSheet) {
+            DiscoverySourcePickerSheet(
+                sources = exploreSources,
+                selectedSource = selectedSource,
+                onSelectSource = { source ->
+                    viewModel.selectSource(source)
+                    showSourcePickerSheet = false
+                },
+                onDismiss = { showSourcePickerSheet = false }
+            )
+        }
     }
 }
 
@@ -724,7 +725,8 @@ private fun DiscoveryBookGridItem(
     }
 }
 
-/** 图书操作与详情对话框 */
+/** 图书操作与详情对话框（玻璃化统一设计与丰富元数据） */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DiscoveryBookActionDialog(
     book: SearchBook,
@@ -734,160 +736,363 @@ private fun DiscoveryBookActionDialog(
     onAddToBookshelf: () -> Unit
 ) {
     val context = LocalContext.current
+    val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Box(
+    val content: @Composable () -> Unit = {
+        Column(
             modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.5f))
-                .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-                    onDismiss()
-                },
-            contentAlignment = Alignment.BottomCenter
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                    .background(AppColors.CardBg)
-                    .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {}
-                    .padding(20.dp)
+            // 顶部：大封面 + 完整元数据
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
             ) {
-                // 顶部：封面与元数据
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    DiscoveryBookCover(
-                        coverUrl = book.coverUrl,
-                        name = book.name,
-                        author = book.author,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.size(width = 68.dp, height = 92.dp)
+                DiscoveryBookCover(
+                    coverUrl = book.coverUrl,
+                    name = book.name,
+                    author = book.author,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.size(width = 80.dp, height = 108.dp)
+                )
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = book.name,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(Modifier.width(14.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = book.name,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AppColors.TextPrimary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "作者：${book.author.ifBlank { "佚名" }}",
-                            fontSize = 13.sp,
-                            color = AppColors.TextSecondary
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = "书源：${book.originName}",
-                            fontSize = 12.sp,
-                            color = AppColors.Accent,
-                            fontWeight = FontWeight.Medium
-                        )
-                        if (!book.latestChapterTitle.isNullOrBlank()) {
-                            Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "作者：${book.author.ifBlank { "佚名" }}",
+                        fontSize = 13.sp,
+                        color = AppColors.TextSecondary
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AppColors.Accent.copy(alpha = 0.12f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
                             Text(
-                                text = "最新：${book.latestChapterTitle}",
+                                text = "书源：${book.originName}",
                                 fontSize = 11.sp,
-                                color = AppColors.TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                color = AppColors.Accent,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = AppColors.TextSecondary)
+                    val kinds = remember(book.kind) {
+                        book.kind.orEmpty()
+                            .split(",", " ", "/", "、")
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                            .take(4)
                     }
-                }
-
-                // 简介（如有）
-                val intro = book.intro?.trim()
-                if (!intro.isNullOrBlank()) {
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        text = intro,
-                        fontSize = 12.sp,
-                        color = AppColors.TextSecondary,
-                        lineHeight = 18.sp,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(AppColors.BgGray)
-                            .padding(10.dp)
-                    )
-                }
-
-                Spacer(Modifier.height(20.dp))
-
-                // 动作按钮组：立即阅读 + 加入书架
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Button(
-                        onClick = onReadNow,
-                        modifier = Modifier.weight(1f).height(46.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
-                    ) {
-                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("立即阅读", fontWeight = FontWeight.SemiBold)
-                    }
-
-                    OutlinedButton(
-                        onClick = onAddToBookshelf,
-                        enabled = !isInLibrary,
-                        modifier = Modifier.weight(1f).height(46.dp),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isInLibrary) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (isInLibrary) "已在书架" else "加入书架")
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-
-                // 辅助动作：复制书名与详情
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val info = "${book.name}\n作者：${book.author}\n书源：${book.originName}\n${book.bookUrl}"
-                            val clip = ClipData.newPlainText("Book Info", info)
-                            clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, "已复制书籍信息", Toast.LENGTH_SHORT).show()
+                    if (kinds.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            kinds.forEach { tag ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(AppColors.BgGray)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = tag,
+                                        fontSize = 10.sp,
+                                        color = AppColors.TextSecondary
+                                    )
+                                }
+                            }
                         }
-                        .padding(vertical = 10.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.ContentCopy,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = AppColors.TextSecondary
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("复制书名与链接", fontSize = 12.sp, color = AppColors.TextSecondary)
+                    }
+                    if (!book.latestChapterTitle.isNullOrBlank()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "最新：${book.latestChapterTitle}",
+                            fontSize = 11.sp,
+                            color = AppColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = AppColors.TextSecondary)
                 }
             }
+
+            // 简介全文（可滚动，消除截断）
+            val intro = book.intro?.trim()
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = "书籍简介",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = AppColors.TextPrimary
+            )
+            Spacer(Modifier.height(6.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 64.dp, max = 150.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(AppColors.BgGray.copy(alpha = 0.5f))
+                    .verticalScroll(rememberScrollState())
+                    .padding(10.dp)
+            ) {
+                Text(
+                    text = if (!intro.isNullOrBlank()) intro else "暂无该书籍简介信息",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSecondary,
+                    lineHeight = 18.sp
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // 动作按钮组：立即阅读 + 加入书架
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = onReadNow,
+                    modifier = Modifier.weight(1f).height(46.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+                ) {
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("立即阅读", fontWeight = FontWeight.SemiBold)
+                }
+                OutlinedButton(
+                    onClick = onAddToBookshelf,
+                    enabled = !isInLibrary,
+                    modifier = Modifier.weight(1f).height(46.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isInLibrary) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (isInLibrary) "已在书架" else "加入书架")
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            // 辅助动作：复制书名与详情
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val info = "${book.name}\n作者：${book.author}\n书源：${book.originName}\n${book.bookUrl}"
+                        val clip = ClipData.newPlainText("Book Info", info)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(context, "已复制书籍信息", Toast.LENGTH_SHORT).show()
+                    }
+                    .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.ContentCopy,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = AppColors.TextSecondary
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("复制书名与链接", fontSize = 12.sp, color = AppColors.TextSecondary)
+            }
+        }
+    }
+
+    if (isLiquidGlass) {
+        LiquidGlassDialog(
+            onDismissRequest = onDismiss,
+            alignment = Alignment.BottomCenter,
+            shape = RoundedCornerShape(28.dp),
+            contentScrimColor = AppColors.CardBg.copy(alpha = 0.24f),
+            backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
+        ) {
+            content()
+        }
+    } else {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            containerColor = AppColors.CardBg,
+            contentColor = AppColors.TextPrimary,
+            scrimColor = Color.Black.copy(alpha = 0.12f),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+/** 统一风格的书源切换面板（半透明液态玻璃设计，支持快速搜索过滤） */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DiscoverySourcePickerSheet(
+    sources: List<BookSource>,
+    selectedSource: BookSource?,
+    onSelectSource: (BookSource) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
+    var filterText by remember { mutableStateOf("") }
+    val filteredSources = remember(sources, filterText) {
+        if (filterText.isBlank()) sources
+        else sources.filter { it.bookSourceName.contains(filterText.trim(), ignoreCase = true) }
+    }
+
+    val content: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "选择发现书源",
+                        fontSize = AppType.Section,
+                        fontWeight = FontWeight.Bold,
+                        color = AppColors.TextPrimary
+                    )
+                    Text(
+                        text = "当前共 ${sources.size} 个支持发现的书源",
+                        fontSize = 11.sp,
+                        color = AppColors.TextSecondary,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Rounded.Close, contentDescription = "关闭", tint = AppColors.TextSecondary)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            if (sources.size > 5) {
+                OutlinedTextField(
+                    value = filterText,
+                    onValueChange = { filterText = it },
+                    placeholder = { Text("搜索书源名称...", fontSize = 13.sp) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AppColors.Accent,
+                        unfocusedBorderColor = AppColors.Divider
+                    )
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 160.dp, max = 360.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(filteredSources, key = { it.bookSourceUrl }) { source ->
+                    val isSelected = source.bookSourceUrl == selectedSource?.bookSourceUrl
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isSelected) AppColors.Accent.copy(alpha = 0.12f)
+                                else AppColors.BgGray.copy(alpha = 0.42f)
+                            )
+                            .border(
+                                width = if (isSelected) 1.dp else 0.5.dp,
+                                color = if (isSelected) AppColors.Accent.copy(alpha = 0.6f) else AppColors.Divider.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable {
+                                onSelectSource(source)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = source.bookSourceName,
+                                fontSize = AppType.BodySmall,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                color = if (isSelected) AppColors.Accent else AppColors.TextPrimary
+                            )
+                            if (!source.bookSourceGroup.isNullOrBlank()) {
+                                Text(
+                                    text = source.bookSourceGroup.orEmpty(),
+                                    fontSize = 10.sp,
+                                    color = AppColors.TextSecondary,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Rounded.Bookmark,
+                                contentDescription = "已选择",
+                                tint = AppColors.Accent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (isLiquidGlass) {
+        LiquidGlassDialog(
+            onDismissRequest = onDismiss,
+            alignment = Alignment.BottomCenter,
+            shape = RoundedCornerShape(28.dp),
+            contentScrimColor = AppColors.CardBg.copy(alpha = 0.24f),
+            backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
+        ) {
+            content()
+        }
+    } else {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            containerColor = AppColors.CardBg,
+            contentColor = AppColors.TextPrimary,
+            scrimColor = Color.Black.copy(alpha = 0.12f),
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        ) {
+            content()
         }
     }
 }
