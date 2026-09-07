@@ -1,10 +1,10 @@
 package com.huangder.lumibooks.data.backup
 import com.google.gson.reflect.TypeToken
-import appDb
+import io.legado.app.data.appDb
 import io.legado.app.data.entities.Book as EngineBook
 import io.legado.app.data.entities.BookSource
 import io.legado.app.data.entities.ReplaceRule
-import GSON
+import io.legado.app.utils.GSON
 
 import android.content.Context
 import androidx.room.withTransaction
