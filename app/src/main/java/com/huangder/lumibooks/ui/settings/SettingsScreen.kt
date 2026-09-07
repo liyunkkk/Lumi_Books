@@ -253,14 +253,6 @@ fun SettingsScreen(
                     CategoryItem(Icons.Outlined.Info, stringResource(R.string.category_about), grouped = true) {
                         context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "about"))
                     }
-                    SettingsGroupDivider()
-                    CategoryItem(Icons.Outlined.FavoriteBorder, stringResource(R.string.category_sponsor), grouped = true) {
-                        context.startActivity(Intent(context, SponsorActivity::class.java))
-                    }
-                    SettingsGroupDivider()
-                    CategoryItem(Icons.Outlined.BugReport, stringResource(R.string.category_feedback), grouped = true) {
-                        context.startActivity(Intent(context, FeedbackActivity::class.java))
-                    }
                 }
 
                 Spacer(Modifier.height(120.dp))

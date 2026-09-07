@@ -890,15 +890,7 @@ private fun ExternalTtsConsentSheet(
     onAccept: () -> Unit
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
-    var remainingSeconds by remember { mutableIntStateOf(CONSENT_COUNTDOWN_SECONDS) }
     var confirmed by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        while (remainingSeconds > 0) {
-            delay(1_000)
-            remainingSeconds--
-        }
-    }
 
     val sheetContent: @Composable () -> Unit = {
         Column(
@@ -1012,12 +1004,8 @@ private fun ExternalTtsConsentSheet(
             }
 
             ExternalTtsPrimaryButton(
-                label = if (remainingSeconds > 0) {
-                    stringResource(R.string.external_tts_consent_countdown, remainingSeconds)
-                } else {
-                    stringResource(R.string.external_tts_consent_accept)
-                },
-                enabled = remainingSeconds == 0 && confirmed,
+                label = stringResource(R.string.external_tts_consent_accept),
+                enabled = confirmed,
                 forceWhiteContent = true,
                 onClick = onAccept
             )
