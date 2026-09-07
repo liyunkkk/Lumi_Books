@@ -2,6 +2,7 @@ package com.huangder.lumibooks.util.parser
 
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.BookChapter
+import io.legado.app.help.book.BookHelp
 import io.legado.app.model.webBook.WebBook
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -109,14 +110,25 @@ class OnlineBookParser(
         }
 
         val nextUrl = chapters.getOrNull(chapterIndex + 1)?.url
-        val content = try {
-            runBlocking {
-                withTimeoutOrNull(NETWORK_TIMEOUT_MS) {
-                    WebBook.getContentAwait(source, book, chapter, nextUrl, needSave = true)
-                }
-            } ?: "【正文加载超时】\n网络请求超时，请检查网络或点击重新加载。"
-        } catch (e: Exception) {
-            "【正文加载失败】\n${e.message ?: "未知网络错误"}，请检查网络或切换书源。"
+        // 1. 文件级缓存优先：读取已落盘的 .nb 章节文件，命中则跳过网络请求直接秒开
+        val cachedContent = try {
+            BookHelp.getContent(book, chapter)
+        } catch (_: Exception) {
+            null
+        }
+        val content = if (!cachedContent.isNullOrBlank()) {
+            cachedContent
+        } else {
+            // 2. 缓存未命中才发起网络请求，成功后由 Legado 引擎落盘 .nb 文件
+            try {
+                runBlocking {
+                    withTimeoutOrNull(NETWORK_TIMEOUT_MS) {
+                        WebBook.getContentAwait(source, book, chapter, nextUrl, needSave = true)
+                    }
+                } ?: "【正文加载超时】\n网络请求超时，请检查网络或点击重新加载。"
+            } catch (e: Exception) {
+                "【正文加载失败】\n${e.message ?: "未知网络错误"}，请检查网络或切换书源。"
+            }
         }
 
         contentCache[chapterIndex] = content
