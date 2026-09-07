@@ -98,7 +98,7 @@ class OnlineBookParser(
         return try {
             val book = requireEngineBook()
             val source = requireBookSource()
-            source.bookSourceType == 2 || book.isType(io.legado.app.constant.BookType.image)
+            source.bookSourceType == 2 || ((book.type and io.legado.app.constant.BookType.image) > 0)
         } catch (_: Exception) {
             false
         }
