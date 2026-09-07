@@ -128,7 +128,7 @@ fun HomeScreen(
     val statusBarTopPadding = WindowInsets.statusBars
         .asPaddingValues()
         .calculateTopPadding()
-    val bottomContentPadding = if (isMaterial3) 84.dp else 84.dp
+    val bottomContentPadding = if (isMaterial3) 96.dp else 108.dp
     val context = LocalContext.current
     var localShowGoalSheet by remember { mutableStateOf(false) }
     val showGoalSheet = if (renderReadingGoalSheet) localShowGoalSheet else showReadingGoalSheet
@@ -166,11 +166,11 @@ fun HomeScreen(
                     .then(if (isTablet) Modifier.align(Alignment.TopCenter) else Modifier)
             ) {
                 item(key = "header") {
-                    Spacer(Modifier.height(statusBarTopPadding + 4.dp))
+                    Spacer(Modifier.height(statusBarTopPadding + AppSpace.sm))
                     PageEntranceItem(play = playEntranceAnimation, index = 0) {
                         HomeHeader(onNavigateToStatistics = onNavigateToStatistics)
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(AppSpace.md))
                 }
 
                 if (uiState.books.isEmpty()) {
@@ -201,7 +201,7 @@ fun HomeScreen(
                         PageEntranceItem(play = playEntranceAnimation, index = 3) {
                             Column {
                                 SectionHeader(stringResource(R.string.section_recently_read))
-                                Spacer(Modifier.height(4.dp))
+                                Spacer(Modifier.height(AppSpace.md))
                                 BooksReadGrid(
                                     books = recentBooks,
                                     downloadStates = uiState.downloadStates,
@@ -363,13 +363,13 @@ private fun ContinueReadingCard(
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
                 onClick(coverBounds.get().takeUnless { it == Rect.Zero })
             }
-            .padding(horizontal = AppSpace.md, vertical = 8.dp),
+            .padding(AppSpace.md),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // 封面（3:4 比例）
         Box(
             modifier = Modifier
-                .width(56.dp)
+                .width(72.dp)
                 .aspectRatio(0.75f)
                 .onGloballyPositioned { coverBounds.set(it.boundsInRoot()) }
                 .clip(RoundedCornerShape(AppRadius.sm))
@@ -539,7 +539,7 @@ private fun ContinueReadingCard(
 private fun SectionHeader(title: String) {
     Text(
         text = title,
-        fontSize = 15.sp,
+        fontSize = AppType.Section,
         fontWeight = FontWeight.Bold,
         fontFamily = resolveAppFontFamily(KaiTi),
         color = AppColors.TextPrimary,
@@ -650,7 +650,7 @@ private fun ReadingGoalCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(58.dp),
+                    .height(64.dp),
                 contentAlignment = Alignment.BottomCenter
             ) {
                 ArcProgressBar(
@@ -663,7 +663,7 @@ private fun ReadingGoalCard(
                 ) {
                     Text(
                         text = TimeUtils.formatDurationShort(readingTime),
-                        fontSize = 17.sp,
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.Bold,
                         color = AppColors.TextPrimary
                     )
@@ -709,7 +709,7 @@ private fun ReadingGoalCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(32.dp)
+                .height(36.dp)
                 .clip(RoundedCornerShape(AppRadius.capsule))
                 .background(Color.Black)
                 .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onContinueClick),
@@ -787,19 +787,19 @@ private fun WeeklyCheckIn(weeklyData: List<DailyReading> = emptyList(), dailyGoa
             val goalMet = if (hasGoal) data.duration >= goalMs else data.duration > 0L
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(26.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     if (isPast || isToday) {
                         if (goalMet || (hasGoal && isToday)) {
                             Box(
                                 modifier = Modifier
-                                    .size(22.dp)
+                                    .size(24.dp)
                                     .clip(CircleShape)
                                     .background(if (isToday) accentColor else accentColor.copy(alpha = 0.8f))
                             )
                         } else {
-                            Canvas(modifier = Modifier.size(22.dp)) {
+                            Canvas(modifier = Modifier.size(24.dp)) {
                                 val stroke = 1.2.dp.toPx()
                                 val r = (size.minDimension - stroke) / 2
                                 drawCircle(
@@ -842,12 +842,12 @@ private fun BooksReadGrid(
     val bookBounds = remember { mutableMapOf<String, Rect>() }
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(AppSpace.sm)
+        horizontalArrangement = Arrangement.spacedBy(AppSpace.md)
     ) {
         items(books, key = { it.id }) { book ->
             Box(
                 modifier = Modifier
-                    .width(if (isTablet) 110.dp else 68.dp)
+                    .width(if (isTablet) 120.dp else 96.dp)
                     .aspectRatio(0.75f)
                     .shadow(
                         elevation = 8.dp,
