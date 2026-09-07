@@ -687,7 +687,7 @@ fun ReaderScreen(
         basePageTransition
     }
     val isContinuousScrollMode = !isBookLayout && uiState.useNewEngine &&
-        uiState.readerWritingMode.usesContinuousScroll(basePageTransition, eInkMode)
+        (uiState.comicModeEnabled || uiState.readerWritingMode.usesContinuousScroll(basePageTransition, eInkMode))
 
     val currentBookmarkCharacterOffset = when {
         isBookLayout -> null
@@ -5683,12 +5683,19 @@ private fun ContinuousScrollReader(
                     // 绔犺妭闂撮殧锛氶槻姝㈠墠涓€绔犳湯灏句笌涓嬩竴绔犳爣棰樿创澶繎
                     .padding(bottom = 28.dp)
             ) {
-                if (comicModeEnabled) {
-                    // 漫画模式：提取章节内图片，按屏宽等比缩放、无缝上下拼接
+                val chapterImages = remember(chapterIndex, chapterText) {
+                    extractChapterImages(chapterText)
+                }
+                val isComic = comicModeEnabled || (chapterImages.isNotEmpty() && isPureImageChapter(chapterText, chapterImages))
+
+                if (isComic) {
+                    // 漫画模式或纯图片章节：按屏宽等比缩放、无缝上下拼接
                     ComicChapterImages(
                         chapterIndex = chapterIndex,
                         chapterText = chapterText,
-                        backgroundColor = backgroundColor
+                        imageSources = chapterImages,
+                        backgroundColor = backgroundColor,
+                        onMenuToggle = onMenuToggle
                     )
                 } else {
                 AndroidView(
@@ -5755,17 +5762,10 @@ private fun ContinuousScrollReader(
 private fun ComicChapterImages(
     chapterIndex: Int,
     chapterText: CharSequence?,
-    backgroundColor: Int
+    imageSources: List<String>,
+    backgroundColor: Int,
+    onMenuToggle: () -> Unit = {}
 ) {
-    val imageSources = remember(chapterIndex, chapterText) {
-        if (chapterText is Spanned) {
-            chapterText.getSpans(0, chapterText.length, android.text.style.ImageSpan::class.java)
-                .mapNotNull { it.source }
-                .filter { !it.isNullOrBlank() }
-        } else {
-            emptyList()
-        }
-    }
     val context = LocalContext.current
     // 共享单个 ImageLoader，避免每张图重复构建请求队列/内存缓存
     val imageLoader = remember(context) {
@@ -5778,10 +5778,43 @@ private fun ComicChapterImages(
         val luminance = bg.red * 0.299f + bg.green * 0.587f + bg.blue * 0.114f
         if (luminance > 0.5f) Color(0xFF666666) else Color(0xFF999999)
     }
+    val placeholderColor = remember(backgroundColor) {
+        Color(backgroundColor).copy(alpha = 0.35f)
+    }
+
+    // 提取可能的章节标题
+    val chapterTitle = remember(chapterText) {
+        val rawStr = chapterText?.toString()?.trim().orEmpty()
+        val firstLine = rawStr.lines().firstOrNull { line ->
+            val trimmed = line.trim()
+            trimmed.isNotBlank() && !trimmed.contains("<img", ignoreCase = true)
+        }?.trim().orEmpty()
+        if (firstLine.length in 1..80) firstLine else ""
+    }
+
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onMenuToggle
+            ),
         verticalArrangement = Arrangement.Top
     ) {
+        if (chapterTitle.isNotEmpty()) {
+            Text(
+                text = chapterTitle,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (hintColor == Color(0xFF666666)) Color(0xFF222222) else Color(0xFFEEEEEE),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 18.dp),
+                textAlign = TextAlign.Center
+            )
+        }
+
         if (imageSources.isEmpty()) {
             Text(
                 text = stringResource(R.string.comic_mode_no_images),
@@ -5790,20 +5823,117 @@ private fun ComicChapterImages(
                 modifier = Modifier.padding(vertical = 16.dp)
             )
         } else {
-            imageSources.forEach { source ->
-                coil.compose.AsyncImage(
-                    model = coil.request.ImageRequest.Builder(context)
+            imageSources.forEachIndexed { idx, source ->
+                val imageRequest = remember(source, context) {
+                    val builder = coil.request.ImageRequest.Builder(context)
                         .data(source)
                         .crossfade(true)
-                        .build(),
-                    contentDescription = null,
+                        .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                    val host = runCatching { java.net.URI(source).host }.getOrNull()
+                    if (!host.isNullOrBlank()) {
+                        builder.addHeader("Referer", "https://$host/")
+                    }
+                    builder.build()
+                }
+
+                coil.compose.AsyncImage(
+                    model = imageRequest,
+                    contentDescription = "Image ${idx + 1}",
                     imageLoader = imageLoader,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 120.dp)
+                        .background(placeholderColor)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onMenuToggle
+                        ),
                     contentScale = ContentScale.FillWidth
                 )
             }
         }
     }
+}
+
+internal fun extractChapterImages(chapterText: CharSequence?): List<String> {
+    if (chapterText.isNullOrBlank()) return emptyList()
+    val images = mutableListOf<String>()
+
+    // 1. 若是 Spanned，从 ImageSpan 获取
+    if (chapterText is Spanned) {
+        val spans = chapterText.getSpans(0, chapterText.length, android.text.style.ImageSpan::class.java)
+        for (span in spans) {
+            val src = span.source?.trim()?.replace("&amp;", "&")
+            if (!src.isNullOrEmpty() && !images.contains(src)) {
+                images.add(src)
+            }
+        }
+    }
+
+    // 2. 逐个提取各类 <img> 标签中的真实图片地址 (支持 data-original, data-src, src)
+    val text = chapterText.toString()
+    val tagPattern = java.util.regex.Pattern.compile(
+        "<img[^>]+>",
+        java.util.regex.Pattern.CASE_INSENSITIVE or java.util.regex.Pattern.DOTALL
+    )
+    val attrPattern = java.util.regex.Pattern.compile(
+        """\b(data-original|data-src|src)\s*=\s*(?:["']([^"']+)["']|([^>\s]+))""",
+        java.util.regex.Pattern.CASE_INSENSITIVE
+    )
+
+    val tagMatcher = tagPattern.matcher(text)
+    while (tagMatcher.find()) {
+        val tag = tagMatcher.group(0) ?: continue
+        var foundSrc = ""
+        var foundDataSrc = ""
+        var foundDataOriginal = ""
+        val attrMatcher = attrPattern.matcher(tag)
+        while (attrMatcher.find()) {
+            val attrName = attrMatcher.group(1)?.lowercase() ?: ""
+            val attrVal = (attrMatcher.group(2) ?: attrMatcher.group(3))?.trim()?.replace("&amp;", "&") ?: ""
+            when (attrName) {
+                "data-original" -> foundDataOriginal = attrVal
+                "data-src" -> foundDataSrc = attrVal
+                "src" -> foundSrc = attrVal
+            }
+        }
+        val bestUrl = listOf(foundDataOriginal, foundDataSrc, foundSrc).firstOrNull { candidate ->
+            candidate.isNotBlank() && !candidate.startsWith("data:image") && !candidate.endsWith("loading.gif", ignoreCase = true)
+        } ?: foundSrc
+
+        if (bestUrl.isNotBlank() && !images.contains(bestUrl)) {
+            images.add(bestUrl)
+        }
+    }
+
+    // 3. 兜底：若未提取到任何 <img> 标签，正则提取独立单行图片 URL (http/https)
+    if (images.isEmpty()) {
+        val linePattern = java.util.regex.Pattern.compile(
+            """^(https?://\S+\.(?:jpg|jpeg|png|webp|gif|bmp)(?:\?\S*)?)$""",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        )
+        text.lines().forEach { line ->
+            val trimmed = line.trim().replace("&amp;", "&")
+            val m = linePattern.matcher(trimmed)
+            if (m.matches()) {
+                val url = m.group(1)
+                if (!images.contains(url)) {
+                    images.add(url)
+                }
+            }
+        }
+    }
+
+    return images
+}
+
+internal fun isPureImageChapter(chapterText: CharSequence?, images: List<String>): Boolean {
+    if (chapterText.isNullOrBlank() || images.isEmpty()) return false
+    val cleanText = chapterText.toString()
+        .replace(Regex("<img[^>]*>", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("\\s+"), "")
+    return cleanText.length < 300
 }
 
 private fun continuousSpannableText(
@@ -5815,8 +5945,14 @@ private fun continuousSpannableText(
     ttsCurrentSentence: TtsSentencePosition? = null,
     backgroundColor: Int = 0xFFFBFBFC.toInt()
 ): SpannableStringBuilder {
+    val rawText = text?.toString().orEmpty()
+    val sanitizedText = if (rawText.contains("<img", ignoreCase = true)) {
+        rawText.replace(Regex("<img[^>]*>", RegexOption.IGNORE_CASE), "")
+    } else {
+        text ?: ""
+    }
     val content = SpannableStringBuilder(
-        BionicReadingFormatter.format(text ?: "", bionicReadingEnabled)
+        BionicReadingFormatter.format(sanitizedText, bionicReadingEnabled)
     )
     notes.forEach { note ->
         val start = note.startPosition.coerceIn(0, content.length)

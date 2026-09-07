@@ -442,6 +442,7 @@ class ReaderViewModel @Inject constructor(
     }
 
     private var parser: BookParser? = null
+    private var userExplicitComicMode: Boolean? = null
     private val firstChapterDecodeTraced = AtomicBoolean(false)
     private var renderSession: BookRenderSession? = null
     private var sessionStartTime: Long = System.currentTimeMillis()
@@ -927,7 +928,9 @@ class ReaderViewModel @Inject constructor(
         }
         viewModelScope.launch {
             dataStoreManager.comicMode.collectLatest { enabled ->
-                _uiState.value = _uiState.value.copy(comicModeEnabled = enabled)
+                val isOnlineComic = (parser as? OnlineBookParser)?.isImageBook() == true
+                val effective = userExplicitComicMode ?: (enabled || isOnlineComic)
+                _uiState.value = _uiState.value.copy(comicModeEnabled = effective)
             }
         }
         viewModelScope.launch {
@@ -2142,6 +2145,7 @@ class ReaderViewModel @Inject constructor(
     }
 
     fun saveComicMode(enabled: Boolean) {
+        userExplicitComicMode = enabled
         _uiState.value = _uiState.value.copy(comicModeEnabled = enabled)
         viewModelScope.launch { dataStoreManager.saveComicMode(enabled) }
     }
@@ -2400,6 +2404,7 @@ class ReaderViewModel @Inject constructor(
 
     private suspend fun loadBook(preferences: ReaderPreferencesSnapshot, book: Book?) {
             _uiState.value = _uiState.value.copy(isLoading = true)
+            userExplicitComicMode = null
             try {
                 if (book != null) {
                     val activeParser = BookParserFactory.createParser(book.format, context, book.filePath)
@@ -2461,6 +2466,9 @@ class ReaderViewModel @Inject constructor(
                     activeParser.useEpubCss = useEpubCss
                     (activeParser as? TxtParser)?.selectedEncoding = txtEncoding
                     (activeParser as? TxtParser)?.selectedTocRule = txtTocRule
+
+                    val isOnlineComic = (activeParser as? OnlineBookParser)?.isImageBook() == true
+                    val effectiveComicMode = preferences.comicModeEnabled || isOnlineComic
 
                     val content = ReaderOpenPerformance.traceStageSuspend(
                         bookId,
@@ -2549,6 +2557,7 @@ class ReaderViewModel @Inject constructor(
                         pdfPageMode = pdfPageMode,
                         eInkModeEnabled = eInkModeEnabled,
                         twoPageSpreadEnabled = twoPageSpreadEnabled,
+                        comicModeEnabled = effectiveComicMode,
                         error = null
                     )
 
