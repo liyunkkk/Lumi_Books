@@ -5686,7 +5686,12 @@ private fun ContinuousScrollReader(
                 val chapterImages = remember(chapterIndex, chapterText) {
                     extractChapterImages(chapterText)
                 }
-                val isComic = comicModeEnabled || (chapterImages.isNotEmpty() && isPureImageChapter(chapterText, chapterImages))
+                val hasImages = chapterImages.isNotEmpty()
+                val isComic = if (hasImages) {
+                    comicModeEnabled || isPureImageChapter(chapterText, chapterImages)
+                } else {
+                    false
+                }
 
                 if (isComic) {
                     // 漫画模式或纯图片章节：按屏宽等比缩放、无缝上下拼接

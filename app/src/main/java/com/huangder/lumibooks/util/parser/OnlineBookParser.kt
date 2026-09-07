@@ -163,7 +163,16 @@ class OnlineBookParser(
         return try {
             val book = requireEngineBook()
             val source = requireBookSource()
-            source.bookSourceType == 2 || ((book.type and io.legado.app.constant.BookType.image) > 0)
+            if (source.bookSourceType == 2 || ((book.type and io.legado.app.constant.BookType.image) > 0)) {
+                return true
+            }
+            val keywords = listOf("漫画", "韩漫", "日漫", "美漫", "comic", "manga", "條漫", "条漫")
+            keywords.any { kw ->
+                book.name.contains(kw, ignoreCase = true) ||
+                source.bookSourceName.contains(kw, ignoreCase = true) ||
+                (book.kind ?: "").contains(kw, ignoreCase = true) ||
+                (book.intro ?: "").contains(kw, ignoreCase = true)
+            }
         } catch (_: Exception) {
             false
         }

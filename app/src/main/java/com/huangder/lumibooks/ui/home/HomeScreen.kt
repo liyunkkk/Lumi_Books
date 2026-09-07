@@ -159,6 +159,21 @@ fun HomeScreen(
         }
     }
     CompositionLocalProvider(LocalShowCoverProgress provides uiState.showCoverProgress) {
+        if (uiState.homeScreenMode == com.huangder.lumibooks.data.local.DataStoreManager.HOME_SCREEN_MODE_CARD_FLOW) {
+            CardFlowHomeScreen(
+                books = uiState.books,
+                todayReadingTime = uiState.todayReadingTime,
+                dailyGoal = uiState.dailyGoal,
+                streakDays = uiState.streakDays,
+                avatarUri = uiState.avatarUri,
+                statusBarTopPadding = statusBarTopPadding,
+                bottomContentPadding = bottomContentPadding,
+                onNavigateToReader = onNavigateToReader,
+                onNavigateToStatistics = onNavigateToStatistics,
+                onNavigateToBookshelf = onNavigateToBookshelf,
+                onImportClick = onImportClick
+            )
+        } else {
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -265,6 +280,7 @@ fun HomeScreen(
             )
         }
     } // 外层 Box 结束
+        }
     } // CompositionLocalProvider 结束
 }
 // ─── Header ──────────────────────────────────────────────────────
