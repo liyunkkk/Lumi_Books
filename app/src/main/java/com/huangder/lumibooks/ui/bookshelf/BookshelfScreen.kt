@@ -203,7 +203,8 @@ fun BookshelfScreen(
         24.dp
     }
     val density = LocalDensity.current
-    val bookshelfBackdrop = rememberLayerBackdrop()
+    val globalBackdrop = LocalLiquidGlassBackdrop.current
+    val bookshelfBackdrop = globalBackdrop ?: rememberLayerBackdrop()
     val bookshelfTopBlurBackdrop = rememberLayerBackdrop()
     var bookshelfHeaderHeightPx by remember { mutableStateOf(0) }
     var isEditing by remember { mutableStateOf(false) }
@@ -703,7 +704,7 @@ fun BookshelfScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (isLiquidGlass) Modifier.layerBackdrop(bookshelfBackdrop) else Modifier
+                    if (isLiquidGlass && globalBackdrop == null) Modifier.layerBackdrop(bookshelfBackdrop) else Modifier
                 )
                 .graphicsLayer {
                     renderEffect = if (

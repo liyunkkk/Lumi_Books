@@ -60,6 +60,7 @@ import com.huangder.lumibooks.ui.components.ConfigurableNavigationBack
 import com.huangder.lumibooks.ui.components.CloudBookDownloadDialog
 import com.huangder.lumibooks.ui.components.LocalPredictiveBackEnabled
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuHost
+import com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop
 import com.huangder.lumibooks.ui.discover.DiscoveryScreen
 import com.huangder.lumibooks.ui.search.SearchScreen
 import com.huangder.lumibooks.ui.home.HomeScreen
@@ -493,14 +494,8 @@ fun MainNavGraph(
         if (currentRoute == Screen.Reader.route || currentRoute == Screen.Search.route || currentRoute == Screen.Statistics.route || showTransition) {
             tabBarVisible = false
             useMainReturnTabBarTransition = false
-        } else if (returningFromReader) {
-            useMainReturnTabBarTransition = true
-            tabBarVisible = true
         } else {
-            if (!eInkMode) {
-                delay(800)
-            }
-            useMainReturnTabBarTransition = false
+            useMainReturnTabBarTransition = true
             tabBarVisible = true
         }
         previousRoute = currentRoute
@@ -526,6 +521,11 @@ fun MainNavGraph(
         LiquidGlassDialogHost(
             modifier = Modifier.fillMaxSize(),
             backdrop = liquidGlassBackdrop.takeIf {
+                isLiquidGlass && currentRoute != Screen.Reader.route
+            }
+        ) {
+        ProvideLiquidGlassBackdrop(
+            liquidGlassBackdrop.takeIf {
                 isLiquidGlass && currentRoute != Screen.Reader.route
             }
         ) {
@@ -1143,8 +1143,8 @@ fun MainNavGraph(
                 }
             )
         }
-
-        }
     }
     }
+    }
+}
 }
