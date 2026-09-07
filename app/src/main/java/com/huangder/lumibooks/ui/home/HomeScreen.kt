@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -151,13 +152,21 @@ fun HomeScreen(
     val lastReadBook = booksByLastRead.firstOrNull()
     val recentBooks = booksByLastRead
     CompositionLocalProvider(LocalShowCoverProgress provides uiState.showCoverProgress) {
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(AppColors.WindowBg)
             .semantics { testTagsAsResourceId = true }
             .testTag(HOME_SCREEN_TAG)
     ) {
+        val screenHeight = maxHeight
+        // 计算从顶栏到底栏之间的有效可用高度，用于三大组件对齐
+        val availableContentHeight = screenHeight - statusBarTopPadding - bottomContentPadding - 54.dp
+        val dynamicSpacing = if (availableContentHeight > 480.dp) {
+            ((availableContentHeight - 480.dp) / 3).coerceIn(8.dp, 20.dp)
+        } else {
+            8.dp
+        }
         OverscrollBounce(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -172,7 +181,7 @@ fun HomeScreen(
                     PageEntranceItem(play = playEntranceAnimation, index = 0) {
                         HomeHeader(onNavigateToStatistics = onNavigateToStatistics)
                     }
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(dynamicSpacing))
                 }
                 if (uiState.books.isEmpty()) {
                     item(key = "empty_library") {
@@ -194,7 +203,7 @@ fun HomeScreen(
                                 modifier = Modifier.padding(horizontal = AppSpace.lg)
                             )
                         }
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(dynamicSpacing))
                     }
                 }
                 if (recentBooks.isNotEmpty()) {
@@ -214,7 +223,7 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(dynamicSpacing))
                     }
                 }
                 item(key = "reading_goal") {
@@ -226,7 +235,7 @@ fun HomeScreen(
                             onCardClick = { setShowGoalSheet(true) }
                         )
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(10.dp))
                 }
                 item(key = "bottom_spacing") {
                     Spacer(Modifier.height(bottomContentPadding))
@@ -390,12 +399,13 @@ private fun ContinueReadingCard(
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 封面（标准 3:4 比例网格大小）
+        // 封面（与书架完全一致的标准网格大封面 104dp x 138.7dp）
         Box(
             modifier = Modifier
-                .width(92.dp)
+                .width(104.dp)
                 .aspectRatio(0.75f)
                 .onGloballyPositioned { coverBounds.set(it.boundsInRoot()) }
+                .shadow(8.dp, RoundedCornerShape(8.dp), ambientColor = Color(0x14000000), spotColor = Color(0x14000000))
                 .clip(RoundedCornerShape(8.dp))
                 .background(AppColors.BgGray)
         ) {
@@ -423,7 +433,7 @@ private fun ContinueReadingCard(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .height(123.dp),
+                .height(138.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column {
@@ -894,7 +904,7 @@ private fun BooksReadGrid(
         items(books, key = { it.id }) { book ->
             Box(
                 modifier = Modifier
-                    .width(if (isTablet) 120.dp else 96.dp)
+                    .width(if (isTablet) 120.dp else 104.dp)
                     .aspectRatio(0.75f)
                     .shadow(
                         elevation = 8.dp,

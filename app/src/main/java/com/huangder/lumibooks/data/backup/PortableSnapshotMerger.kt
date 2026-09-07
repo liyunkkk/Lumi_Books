@@ -97,7 +97,10 @@ object PortableSnapshotMerger {
                 { it.id },
                 { 0L },
                 { it.toString() }
-            )
+            ),
+            bookSourcesJson = mergeJsonSources(local.bookSourcesJson, remote.bookSourcesJson),
+            legadoBooksJson = mergeJsonLegadoBooks(local.legadoBooksJson, remote.legadoBooksJson),
+            replaceRulesJson = mergeJsonReplaceRules(local.replaceRulesJson, remote.replaceRulesJson)
         )
     }
 
@@ -130,7 +133,8 @@ object PortableSnapshotMerger {
                         remoteLibraryKey = localBook.remoteLibraryKey ?: remoteBook.remoteLibraryKey,
                         remoteFileName = localBook.remoteFileName ?: remoteBook.remoteFileName,
                         remoteFileSize = maxOf(localBook.remoteFileSize, remoteBook.remoteFileSize),
-                        remoteFileSha256 = localBook.remoteFileSha256 ?: remoteBook.remoteFileSha256
+                        remoteFileSha256 = localBook.remoteFileSha256 ?: remoteBook.remoteFileSha256,
+                        filePath = localBook.filePath ?: remoteBook.filePath
                     )
                 }
             } ?: return@mapNotNull null
@@ -206,4 +210,56 @@ object PortableSnapshotMerger {
         groupBy(key).values.map { candidates ->
             candidates.maxWith(compareBy<T> { updatedAt(it) }.thenBy { it.toString() })
         }
+    private fun mergeJsonSources(localJson: String?, remoteJson: String?): String? {
+        if (localJson.isNullOrBlank()) return remoteJson
+        if (remoteJson.isNullOrBlank()) return localJson
+        return runCatching {
+            val localList = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.BookSource>(localJson).getOrNull() ?: emptyList()
+            val remoteList = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.BookSource>(remoteJson).getOrNull() ?: emptyList()
+            val map = linkedMapOf<String, io.legado.app.data.entities.BookSource>()
+            for (item in localList) map[item.bookSourceUrl] = item
+            for (item in remoteList) {
+                val old = map[item.bookSourceUrl]
+                if (old == null || item.lastUpdateTime >= old.lastUpdateTime) {
+                    map[item.bookSourceUrl] = item
+                }
+            }
+            io.legado.app.utils.GSON.toJson(map.values.toList())
+        }.getOrNull() ?: localJson
+    }
+
+    private fun mergeJsonLegadoBooks(localJson: String?, remoteJson: String?): String? {
+        if (localJson.isNullOrBlank()) return remoteJson
+        if (remoteJson.isNullOrBlank()) return localJson
+        return runCatching {
+            val localList = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.Book>(localJson).getOrNull() ?: emptyList()
+            val remoteList = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.Book>(remoteJson).getOrNull() ?: emptyList()
+            val map = linkedMapOf<String, io.legado.app.data.entities.Book>()
+            for (item in localList) map[item.bookUrl] = item
+            for (item in remoteList) {
+                val old = map[item.bookUrl]
+                if (old == null || item.latestUpdateEpoch() >= old.latestUpdateEpoch()) {
+                    map[item.bookUrl] = item
+                }
+            }
+            io.legado.app.utils.GSON.toJson(map.values.toList())
+        }.getOrNull() ?: localJson
+    }
+
+    private fun io.legado.app.data.entities.Book.latestUpdateEpoch(): Long {
+        return maxOf(durChapterTime, lastCheckTime)
+    }
+
+    private fun mergeJsonReplaceRules(localJson: String?, remoteJson: String?): String? {
+        if (localJson.isNullOrBlank()) return remoteJson
+        if (remoteJson.isNullOrBlank()) return localJson
+        return runCatching {
+            val localList = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.ReplaceRule>(localJson).getOrNull() ?: emptyList()
+            val remoteList = io.legado.app.utils.GSON.fromJsonArray<io.legado.app.data.entities.ReplaceRule>(remoteJson).getOrNull() ?: emptyList()
+            val map = linkedMapOf<String, io.legado.app.data.entities.ReplaceRule>()
+            for (item in localList) map[item.id.toString()] = item
+            for (item in remoteList) map[item.id.toString()] = item
+            io.legado.app.utils.GSON.toJson(map.values.toList())
+        }.getOrNull() ?: localJson
+    }
 }

@@ -39,7 +39,8 @@ data class PortableBook(
     val remoteLibraryKey: String?,
     val remoteFileName: String?,
     val remoteFileSize: Long,
-    val remoteFileSha256: String?
+    val remoteFileSha256: String?,
+    val filePath: String? = null
 )
 
 data class PortableSnapshot(
@@ -56,7 +57,10 @@ data class PortableSnapshot(
     val bookmarks: List<BookmarkEntity>,
     val notes: List<NoteEntity>,
     val tombstones: List<SyncTombstoneEntity>,
-    val assets: List<PortableAsset>
+    val assets: List<PortableAsset>,
+    val bookSourcesJson: String? = null,
+    val legadoBooksJson: String? = null,
+    val replaceRulesJson: String? = null
 ) {
     fun toJson(): String = JSONObject().apply {
         put("schemaVersion", schemaVersion)
@@ -73,6 +77,9 @@ data class PortableSnapshot(
         put("notes", notes.toJsonArray(::noteToJson))
         put("tombstones", tombstones.toJsonArray(::tombstoneToJson))
         put("assets", assets.toJsonArray(::assetToJson))
+        putNullable("bookSourcesJson", bookSourcesJson)
+        putNullable("legadoBooksJson", legadoBooksJson)
+        putNullable("replaceRulesJson", replaceRulesJson)
     }.toString()
 
     companion object {
@@ -96,7 +103,10 @@ data class PortableSnapshot(
                 bookmarks = root.array("bookmarks").mapObjects(::bookmarkFromJson),
                 notes = root.array("notes").mapObjects(::noteFromJson),
                 tombstones = root.array("tombstones").mapObjects(::tombstoneFromJson),
-                assets = root.array("assets").mapObjects(::assetFromJson)
+                assets = root.array("assets").mapObjects(::assetFromJson),
+                bookSourcesJson = root.nullableString("bookSourcesJson"),
+                legadoBooksJson = root.nullableString("legadoBooksJson"),
+                replaceRulesJson = root.nullableString("replaceRulesJson")
             )
         }
     }
@@ -120,6 +130,7 @@ private fun bookToJson(book: PortableBook) = JSONObject().apply {
     putNullable("remoteFileName", book.remoteFileName)
     put("remoteFileSize", book.remoteFileSize)
     putNullable("remoteFileSha256", book.remoteFileSha256)
+    putNullable("filePath", book.filePath)
 }
 
 private fun bookFromJson(json: JSONObject) = PortableBook(
@@ -139,7 +150,8 @@ private fun bookFromJson(json: JSONObject) = PortableBook(
     remoteLibraryKey = json.nullableString("remoteLibraryKey"),
     remoteFileName = json.nullableString("remoteFileName"),
     remoteFileSize = json.optLong("remoteFileSize"),
-    remoteFileSha256 = json.nullableString("remoteFileSha256")
+    remoteFileSha256 = json.nullableString("remoteFileSha256"),
+    filePath = json.nullableString("filePath")
 )
 
 private fun folderToJson(item: FolderEntity) = JSONObject().apply {

@@ -96,46 +96,14 @@ fun SettingsScreen(
     // 昵称编辑对话框状态
     var showNicknameDialog by remember { mutableStateOf(false) }
 
+    // 待裁剪的头像原始图片 Uri
+    var pendingCropImageUri by remember { mutableStateOf<Uri?>(null) }
     // 头像选择
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
-            scope.launch {
-                val avatarPath = withContext(Dispatchers.IO) {
-                    runCatching {
-                        val avatarDir = File(context.filesDir, "avatars").apply { mkdirs() }
-                        val avatarFile = File(avatarDir, "avatar.jpg")
-                        val temporaryFile = File(avatarDir, "avatar.jpg.tmp")
-                        try {
-                            val input = context.contentResolver.openInputStream(selectedUri)
-                                ?: error("Unable to open selected image")
-                            input.use { source ->
-                                temporaryFile.outputStream().use { output -> source.copyTo(output) }
-                            }
-                            if (!temporaryFile.exists() || temporaryFile.length() <= 0L) {
-                                error("Selected image is empty")
-                            }
-                            if (avatarFile.exists() && !avatarFile.delete()) {
-                                error("Unable to replace avatar")
-                            }
-                            if (!temporaryFile.renameTo(avatarFile)) {
-                                temporaryFile.copyTo(avatarFile, overwrite = true)
-                                temporaryFile.delete()
-                            }
-                            avatarFile.absolutePath
-                        } catch (error: Throwable) {
-                            temporaryFile.delete()
-                            throw error
-                        }
-                    }.getOrNull()
-                }
-                if (avatarPath != null) {
-                    viewModel.saveAvatar(avatarPath)
-                } else {
-                    Toast.makeText(context, R.string.epub_image_save_failed, Toast.LENGTH_SHORT).show()
-                }
-            }
+            pendingCropImageUri = selectedUri
         }
     }
 
@@ -215,8 +183,13 @@ fun SettingsScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     if (uiState.avatarUri != null) {
+                        val avatarFile = File(uiState.avatarUri)
                         AsyncImage(
-                            model = File(uiState.avatarUri),
+                            model = coil.request.ImageRequest.Builder(context)
+                                .data(avatarFile)
+                                .memoryCacheKey("avatar_${uiState.avatarUri}_${avatarFile.lastModified()}")
+                                .diskCacheKey("avatar_${uiState.avatarUri}_${avatarFile.lastModified()}")
+                                .build(),
                             contentDescription = stringResource(R.string.avatar),
                             modifier = Modifier.fillMaxSize().clip(CircleShape),
                             contentScale = ContentScale.Crop
@@ -316,8 +289,18 @@ fun SettingsScreen(
                     )
         }
     }
+    // ── 头像 1:1 裁剪浮层 ──
+    pendingCropImageUri?.let { uri ->
+        AvatarCropDialog(
+            imageUri = uri,
+            onDismiss = { pendingCropImageUri = null },
+            onCropped = { savedPath ->
+                pendingCropImageUri = null
+                viewModel.saveAvatar(savedPath)
+            }
+        )
+    }
 }
-
 @Composable
 fun ThirdPartyServicesDetail(viewModel: SettingsViewModel) {
     val uiState by viewModel.uiState.collectAsState()
