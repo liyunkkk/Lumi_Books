@@ -88,9 +88,6 @@ import com.huangder.lumibooks.ui.animation.cardPressEffect
 import com.huangder.lumibooks.ui.components.StatusGradientOverlay
 import com.huangder.lumibooks.ui.components.BookCoverProgressOverlay
 import com.huangder.lumibooks.ui.components.CloudAwareBookDeleteDialog
-import com.huangder.lumibooks.ui.components.LocalLiquidGlassBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuItem
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
@@ -125,8 +122,6 @@ fun HomeScreen(
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val isMaterial3 = LocalUseMaterial3Theme.current
     val isTablet = LocalConfiguration.current.smallestScreenWidthDp >= 600
-    val globalBackdrop = LocalLiquidGlassBackdrop.current
-    val topBlurBackdrop = globalBackdrop ?: rememberLayerBackdrop()
     val statusBarTopPadding = WindowInsets.statusBars
         .asPaddingValues()
         .calculateTopPadding()
@@ -236,7 +231,7 @@ fun HomeScreen(
             }
         } // OverscrollBounce 结束
 
-        StatusGradientOverlay(backdrop = topBlurBackdrop.takeIf { isLiquidGlass })
+        StatusGradientOverlay(backdrop = null)
 
         if (renderReadingGoalSheet) {
             ReadingGoalSheet(
