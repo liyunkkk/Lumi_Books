@@ -705,7 +705,7 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                Icons.Outlined.BookmarkBorder,
+                Icons.Outlined.Timer,
                 contentDescription = null,
                 tint = AppColors.TextSecondary,
                 modifier = Modifier.size(22.dp)

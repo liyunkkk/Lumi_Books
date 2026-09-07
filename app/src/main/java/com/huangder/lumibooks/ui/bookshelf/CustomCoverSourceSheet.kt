@@ -212,7 +212,7 @@ private fun SourceCoversPickerView(
         isSearching = true
         foundCovers = emptyList()
         val sources = withContext(Dispatchers.IO) {
-            runCatching { appDb.bookSourceDao.allEnabled }.getOrDefault(emptyList())
+            runCatching { appDb.bookSourceDao.allEnabled() }.getOrDefault(emptyList())
         }
         if (sources.isNotEmpty()) {
             BookDiscoveryRepository.searchStreaming(
