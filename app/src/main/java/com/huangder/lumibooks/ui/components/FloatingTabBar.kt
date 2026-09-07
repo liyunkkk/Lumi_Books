@@ -133,14 +133,15 @@ data class TabItem(
 val tabs = listOf(
     TabItem(Icons.Rounded.Home, Icons.Rounded.Home, R.string.home_title, "home_tab"),
     TabItem(Icons.Rounded.AutoStories, Icons.Rounded.AutoStories, R.string.bookshelf_title, "bookshelf_tab"),
-    TabItem(Icons.Rounded.TravelExplore, Icons.Rounded.TravelExplore, R.string.discover_title, "discover_tab"),
-    TabItem(Icons.Rounded.Leaderboard, Icons.Rounded.Leaderboard, R.string.statistics_title, "statistics_tab")
+    TabItem(Icons.Rounded.TravelExplore, Icons.Rounded.TravelExplore, R.string.discover_title, "discover_tab")
 )
 
 @Composable
 fun Material3BottomNavigationBar(
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit,
+    onOpenSettings: () -> Unit = {},
+    avatarUri: String? = null,
     modifier: Modifier = Modifier
 ) {
     NavigationBar(
@@ -166,6 +167,31 @@ fun Material3BottomNavigationBar(
                 alwaysShowLabel = true
             )
         }
+        NavigationBarItem(
+            modifier = Modifier.testTag("settings_tab"),
+            selected = false,
+            onClick = onOpenSettings,
+            icon = {
+                if (!avatarUri.isNullOrBlank()) {
+                    AsyncImage(
+                        model = java.io.File(avatarUri),
+                        contentDescription = stringResource(R.string.settings),
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.AccountCircle,
+                        contentDescription = stringResource(R.string.settings),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            },
+            label = { Text(stringResource(R.string.settings), maxLines = 1) },
+            alwaysShowLabel = true
+        )
     }
 }
 

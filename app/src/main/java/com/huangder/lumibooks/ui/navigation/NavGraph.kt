@@ -482,7 +482,6 @@ fun MainNavGraph(
             Screen.Home.route -> 0
             Screen.Bookshelf.route -> 1
             Screen.Discover.route -> 2
-            Screen.Statistics.route -> 3
             else -> selectedTab
         }
         if (currentRoute != Screen.Home.route) {
@@ -491,7 +490,7 @@ fun MainNavGraph(
         if (currentRoute != Screen.Bookshelf.route) {
             bookshelfOverlayProgress = 0f
         }
-        if (currentRoute == Screen.Reader.route || currentRoute == Screen.Search.route || showTransition) {
+        if (currentRoute == Screen.Reader.route || currentRoute == Screen.Search.route || currentRoute == Screen.Statistics.route || showTransition) {
             tabBarVisible = false
             useMainReturnTabBarTransition = false
         } else if (returningFromReader) {
@@ -581,12 +580,7 @@ fun MainNavGraph(
                     },
                     onTabBarVisibleChange = { visible -> tabBarVisible = visible },
                     onNavigateToStatistics = {
-                        selectedTab = 3
-                        navController.navigate(Screen.Statistics.route) {
-                            popUpTo(mainStartDestination) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        navController.navigate(Screen.Statistics.route)
                     },
                     onNavigateToBookshelf = {
                         selectedTab = 1
@@ -756,6 +750,7 @@ fun MainNavGraph(
                 )
                 StatisticsScreen(
                     playEntranceAnimation = playEntranceAnimation,
+                    onBack = { navController.popBackStack() },
                     onMessage = { transientMessage = it }
                 )
             }
@@ -842,7 +837,6 @@ fun MainNavGraph(
                     0 -> Screen.Home.route
                     1 -> Screen.Bookshelf.route
                     2 -> Screen.Discover.route
-                    3 -> Screen.Statistics.route
                     else -> Screen.Home.route
                 }
                 navController.navigate(route) {
@@ -854,7 +848,13 @@ fun MainNavGraph(
             if (useMaterial3Navigation) {
                 Material3BottomNavigationBar(
                     selectedIndex = selectedTab,
-                    onTabSelected = selectTab
+                    onTabSelected = selectTab,
+                    avatarUri = homeUiState.avatarUri,
+                    onOpenSettings = {
+                        context.startActivity(
+                            android.content.Intent(context, com.huangder.lumibooks.ui.settings.SettingsActivity::class.java)
+                        )
+                    }
                 )
             } else {
                 Box(
