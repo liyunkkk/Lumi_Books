@@ -530,11 +530,13 @@ fun DiscoveryScreen(
             }
         }
 
+        val loadingDetail by viewModel.loadingDetail.collectAsState()
         // 图书操作与详情浮层（对齐书库图 3 操作浮层）
         activeBook?.let { book ->
             DiscoveryBookActionDialog(
                 book = book,
                 isInLibrary = isInLibrary,
+                isLoadingDetail = loadingDetail,
                 onDismiss = { viewModel.dismissBookActions() },
                 onReadNow = {
                     viewModel.prepareReadBook(book) { lumiBookId, coverUrl, title ->
@@ -737,6 +739,7 @@ private fun DiscoveryBookGridItem(
 private fun DiscoveryBookActionDialog(
     book: SearchBook,
     isInLibrary: Boolean,
+    isLoadingDetail: Boolean = false,
     onDismiss: () -> Unit,
     onReadNow: () -> Unit,
     onAddToBookshelf: () -> Unit
@@ -863,12 +866,35 @@ private fun DiscoveryBookActionDialog(
             // 简介全文（可滚动，消除截断）
             val intro = book.intro?.trim()
             Spacer(Modifier.height(14.dp))
-            Text(
-                text = "书籍简介",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = AppColors.TextPrimary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "书籍简介",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AppColors.TextPrimary
+                )
+                if (isLoadingDetail && intro.isNullOrBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 1.5.dp,
+                            color = AppColors.Accent
+                        )
+                        Text(
+                            text = "正在同步详情...",
+                            fontSize = 11.sp,
+                            color = AppColors.Accent
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(6.dp))
             Box(
                 modifier = Modifier
@@ -880,7 +906,11 @@ private fun DiscoveryBookActionDialog(
                     .padding(10.dp)
             ) {
                 Text(
-                    text = if (!intro.isNullOrBlank()) intro else "暂无该书籍简介信息",
+                    text = when {
+                        !intro.isNullOrBlank() -> intro
+                        isLoadingDetail -> "正在从书源拉取书籍简介与章节信息..."
+                        else -> "暂无该书籍简介信息"
+                    },
                     fontSize = 12.sp,
                     color = AppColors.TextSecondary,
                     lineHeight = 18.sp

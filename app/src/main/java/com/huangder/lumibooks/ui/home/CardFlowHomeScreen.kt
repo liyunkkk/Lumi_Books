@@ -41,6 +41,8 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.domain.model.Book
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.huangder.lumibooks.ui.components.LiquidGlassDialog
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
@@ -181,11 +183,11 @@ fun CardFlowHomeScreen(
     }
 }
 
-private val ProductSansBold = FontFamily(Font(R.font.product_sans_bold, FontWeight.Bold))
+private val ProductSansBlack = FontFamily(Font(R.font.product_sans_black, FontWeight.Black))
 
 /**
  * 顶部竖排杂志风大标题 Header
- * I'm Now Reading 垂直排版 + 跟随系统原生字体 + 统计图标与 Reading 底部严格平齐
+ * I'm Now Reading 垂直排版 + 42sp 极粗几何 Product Sans Black + 统计图标严格等比底平齐
  */
 @Composable
 private fun CardFlowHeader(
@@ -202,42 +204,42 @@ private fun CardFlowHeader(
             Column(verticalArrangement = Arrangement.spacedBy((-4).dp)) {
                 Text(
                     text = "I'm",
-                    fontSize = 35.sp,
-                    lineHeight = 37.sp,
-                    fontFamily = ProductSansBold,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 42.sp,
+                    lineHeight = 44.sp,
+                    fontFamily = ProductSansBlack,
+                    fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.onBackground,
                     letterSpacing = (-0.5).sp
                 )
                 Text(
                     text = "Now",
-                    fontSize = 35.sp,
-                    lineHeight = 37.sp,
-                    fontFamily = ProductSansBold,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 42.sp,
+                    lineHeight = 44.sp,
+                    fontFamily = ProductSansBlack,
+                    fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.onBackground,
                     letterSpacing = (-0.5).sp
                 )
                 Text(
                     text = "Reading",
-                    fontSize = 35.sp,
-                    lineHeight = 37.sp,
-                    fontFamily = ProductSansBold,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = 42.sp,
+                    lineHeight = 44.sp,
+                    fontFamily = ProductSansBlack,
+                    fontWeight = FontWeight.Black,
                     color = MaterialTheme.colorScheme.onBackground,
                     letterSpacing = (-0.5).sp
                 )
             }
-            // 右上角统计图标按钮，等比放大（46dp）且底边与 Reading 底部水平严格平齐
+            // 右上角统计图标按钮，等比放大至 52dp（图标 32dp）且底边与 Reading 底部水平严格平齐
             IconButton(
                 onClick = onStatisticsClick,
-                modifier = Modifier.size(46.dp)
+                modifier = Modifier.size(52.dp)
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Leaderboard,
                     contentDescription = stringResource(R.string.statistics_title),
                     tint = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(32.dp)
                 )
             }
         }
@@ -416,6 +418,29 @@ private fun BookDetailSheetContent(
         label = "sheetContentAlpha"
     )
 
+    // 异步拉取每本书的完整简介（网络书库与本地 EPUB/TXT 等通用）
+    var bookIntro by remember(book.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(book.id) {
+        withContext(Dispatchers.IO) {
+            if (book.filePath.startsWith("legado://") || book.filePath.startsWith("online://")) {
+                val url = book.filePath.removePrefix("legado://").removePrefix("online://")
+                bookIntro = runCatching { io.legado.app.data.appDb.bookDao.getBook(url)?.intro?.trim() }.getOrNull()
+            }
+            if (bookIntro.isNullOrBlank() && book.filePath.endsWith(".epub", ignoreCase = true)) {
+                bookIntro = runCatching {
+                    java.util.zip.ZipFile(book.filePath).use { zip ->
+                        val container = zip.getEntry("META-INF/container.xml") ?: return@use null
+                        val cDoc = zip.getInputStream(container).use { javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(it) }
+                        val opf = cDoc.getElementsByTagName("rootfile").item(0)?.attributes?.getNamedItem("full-path")?.nodeValue ?: return@use null
+                        val opfEntry = zip.getEntry(opf) ?: return@use null
+                        val oDoc = zip.getInputStream(opfEntry).use { javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(it) }
+                        oDoc.getElementsByTagName("description").item(0)?.textContent?.trim()?.replace(Regex("<[^>]*>"), "")
+                    }
+                }.getOrNull()
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -505,9 +530,28 @@ private fun BookDetailSheetContent(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-
-            Spacer(Modifier.height(16.dp))
-
+            // 书籍简介（居于作者与继续阅读按钮之间，精致限高可滚动卡片）
+            if (!bookIntro.isNullOrBlank()) {
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .heightIn(max = 84.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = bookIntro!!,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 17.sp,
+                        textAlign = TextAlign.Start
+                    )
+                }
+            }
+            Spacer(Modifier.height(14.dp))
             // 精致圆角「继续阅读 / 开始阅读」行动按钮
             Button(
                 onClick = onContinueReading,

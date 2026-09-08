@@ -6,7 +6,9 @@ import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.domain.repository.BookRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.legado.app.data.entities.BookSource
+import io.legado.app.data.appDb
 import io.legado.app.data.entities.SearchBook
+import io.legado.app.model.webBook.WebBook
 import io.legado.app.data.entities.rule.ExploreKind
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -242,15 +244,60 @@ class DiscoveryViewModel @Inject constructor(
         _searching.value = false
     }
 
+    private var detailJob: Job? = null
+    private val _loadingDetail = MutableStateFlow(false)
+    val loadingDetail: StateFlow<Boolean> = _loadingDetail
+
     fun showBookActions(book: SearchBook) {
         _activeBook.value = book
+        detailJob?.cancel()
         viewModelScope.launch {
             val lumiId = OnlineBookRepository.lumiBookId(book.bookUrl)
             _isInLibrary.value = bookRepository.getBookById(lumiId) != null
         }
-    }
+        detailJob = viewModelScope.launch(Dispatchers.IO) {
+            val cached = runCatching { appDb.bookDao.getBook(book.bookUrl) }.getOrNull()
+            val cachedIntro = cached?.intro?.trim()
+            if (!cachedIntro.isNullOrBlank()) {
+                if (book.intro.isNullOrBlank()) {
+                    val updated = book.copy(
+                        intro = cachedIntro,
+                        latestChapterTitle = cached.latestChapterTitle ?: book.latestChapterTitle
+                    )
+                    if (_activeBook.value?.bookUrl == book.bookUrl) {
+                        _activeBook.value = updated
+                    }
+                }
+                return@launch
+            }
 
+            if (book.intro.isNullOrBlank()) {
+                _loadingDetail.value = true
+                val source = _selectedSource.value
+                    ?: runCatching { appDb.bookSourceDao.getBookSource(book.origin) }.getOrNull()
+                if (source != null) {
+                    runCatching {
+                        val detailed = WebBook.getBookInfoAwait(source, book.toBook())
+                        val fetchedIntro = detailed.intro?.trim()
+                        if (!fetchedIntro.isNullOrBlank()) {
+                            runCatching { appDb.bookDao.insert(detailed) }
+                            if (_activeBook.value?.bookUrl == book.bookUrl) {
+                                val updated = book.copy(
+                                    intro = fetchedIntro,
+                                    latestChapterTitle = detailed.latestChapterTitle ?: book.latestChapterTitle
+                                )
+                                _activeBook.value = updated
+                            }
+                        }
+                    }
+                }
+                _loadingDetail.value = false
+            }
+        }
+    }
     fun dismissBookActions() {
+        detailJob?.cancel()
+        _loadingDetail.value = false
         _activeBook.value = null
     }
 
