@@ -929,24 +929,55 @@ private fun DiscoveryBookActionDialog(
     if (isLiquidGlass) {
         LiquidGlassDialog(
             onDismissRequest = onDismiss,
-            alignment = Alignment.BottomCenter,
+            alignment = Alignment.Center,
             shape = RoundedCornerShape(28.dp),
-            contentScrimColor = AppColors.CardBg.copy(alpha = 0.24f),
-            backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
+            contentScrimColor = AppColors.CardBg.copy(alpha = 0.50f),
+            backgroundScrimColor = Color.Black.copy(alpha = 0.25f)
         ) {
-            content()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.90f)
+                    .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)), RoundedCornerShape(28.dp))
+            ) {
+                content()
+            }
         }
     } else {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
+        Dialog(
             onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = AppColors.CardBg,
-            contentColor = AppColors.TextPrimary,
-            scrimColor = Color.Black.copy(alpha = 0.12f),
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true
+            )
         ) {
-            content()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth(0.90f)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        ),
+                    shape = RoundedCornerShape(28.dp),
+                    color = AppColors.CardBg,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                    tonalElevation = 8.dp
+                ) {
+                    content()
+                }
+            }
         }
     }
 }
