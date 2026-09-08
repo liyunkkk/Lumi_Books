@@ -133,7 +133,6 @@ fun CardFlowHomeScreen(
                         val scale = 1f - (absOffset * 0.12f).coerceIn(0f, 0.18f)
                         val rotationY = -pageOffset.coerceIn(-1.5f, 1.5f) * 20f
                         val alpha = 1f - (absOffset * 0.18f).coerceIn(0f, 0.30f)
-                        val translationX = -pageOffset * 10.dp.toPx()
 
                         Box(
                             modifier = Modifier
@@ -143,7 +142,7 @@ fun CardFlowHomeScreen(
                                     scaleY = scale
                                     this.rotationY = rotationY
                                     this.alpha = alpha
-                                    this.translationX = translationX
+                                    this.translationX = -pageOffset * 10.dp.toPx()
                                     cameraDistance = 16 * density
                                 }
                                 .clickable(
