@@ -229,6 +229,8 @@ private fun FolderContextMenuLayout(
         )
         FolderActionsPanel(
             folder = folder,
+            isNowReadingHidden = isNowReadingHidden,
+            isHidden = isHidden,
             alpha = actionsAlpha,
             compact = compact,
             onAction = onAction
@@ -301,6 +303,8 @@ private fun FolderInfoPanel(
 @Composable
 private fun FolderActionsPanel(
     folder: LibraryFolder,
+    isNowReadingHidden: Boolean = false,
+    isHidden: Boolean = false,
     alpha: Float,
     compact: Boolean,
     onAction: (FolderContextAction) -> Unit
