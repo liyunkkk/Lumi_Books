@@ -482,7 +482,7 @@ private fun BookDetailSheetContent(
                             // 强制清空 infoHtml 避免跳过真实网页请求
                             val targetBook = cached.apply { infoHtml = null }
                             val detailed = io.legado.app.model.webBook.WebBook.getBookInfoAwait(source, targetBook)
-                            val rawIntro = detailed.getDisplayIntro().ifBlank { detailed.intro ?: "" }.trim()
+                            val rawIntro = detailed.getDisplayIntro().orEmpty().ifBlank { detailed.intro ?: "" }.trim()
                             if (rawIntro.isNotBlank()) {
                                 runCatching { io.legado.app.data.appDb.bookDao.insert(detailed) }
                                 bookIntro = rawIntro

@@ -11,6 +11,9 @@ import io.legado.app.data.entities.SearchBook
 import io.legado.app.model.webBook.WebBook
 import io.legado.app.data.entities.rule.ExploreKind
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
@@ -306,7 +309,7 @@ class DiscoveryViewModel @Inject constructor(
                             infoHtml = null
                         }
                         val detailed = WebBook.getBookInfoAwait(source, targetBook)
-                        val rawIntro = detailed.getDisplayIntro().ifBlank { detailed.intro.orEmpty() }.trim()
+                        val rawIntro = detailed.getDisplayIntro().orEmpty().ifBlank { detailed.intro.orEmpty() }.trim()
                         val fetchedIntro = if (rawIntro.isNotBlank()) rawIntro else null
                         if (!fetchedIntro.isNullOrBlank()) {
                             runCatching { appDb.bookDao.insert(detailed) }
