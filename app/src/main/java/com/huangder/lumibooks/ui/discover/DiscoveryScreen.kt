@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.ui.discover
 
+import io.legado.app.data.entities.rule.ExploreKind
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -1354,7 +1356,7 @@ private fun MediaCategorySectionRow(
  */
 @Composable
 private fun MediaCategoryDetailView(
-    kind: io.legado.app.data.entities.ExploreKind,
+    kind: ExploreKind,
     books: List<SearchBook>,
     isLoading: Boolean,
     hasMore: Boolean,
