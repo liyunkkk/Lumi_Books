@@ -271,11 +271,13 @@ fun FloatingTabBar(
             )
         )
     } else if (isLiquidGlass) {
+        // 双层透镜渐变边框：顶部高光、腰部微冷白、下半周带深色环境光折射线，白底上同样清晰通透呈现立体折射边界
         Brush.verticalGradient(
             colors = listOf(
-                Color.White.copy(alpha = 0.98f),
-                Color.White.copy(alpha = 0.58f + transparency * 0.10f),
-                Color.White.copy(alpha = 0.18f + transparency * 0.08f)
+                Color.White.copy(alpha = 0.96f),
+                Color(0xFFE4E9F2).copy(alpha = 0.60f),
+                Color(0xFF7A8499).copy(alpha = 0.24f + transparency * 0.08f),
+                Color.White.copy(alpha = 0.38f)
             )
         )
     } else if (isDark) {
@@ -307,7 +309,7 @@ fun FloatingTabBar(
     val liquidSurfaceColor = if (isDark) {
         Color(0xFF121214).copy(alpha = 0.34f - transparency * 0.16f)
     } else {
-        Color.White.copy(alpha = 0.38f - transparency * 0.20f)
+        Color(0xFFF7F9FC).copy(alpha = 0.26f - transparency * 0.12f)
     }
     val tabsBackdrop = rememberLayerBackdrop()
     val combinedTabsBackdrop = if (isLiquidGlass && liquidGlassBackdrop != null) {
@@ -482,19 +484,33 @@ fun FloatingTabBar(
                 modifier = Modifier
                     .fillMaxSize()
                     .drawBehind {
-                        val shadowRadius = 28.dp.toPx()
                         val cornerRadius = size.height / 2f
-                        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        // 1. 底层大范围柔和弥散阴影（带轻微垂直偏移，赋予玻璃浮空厚度）
+                        val ambientPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                             color = Color.White.copy(alpha = 0.01f).toArgb()
-                            setShadowLayer(shadowRadius, 0f, 0f, shadowColor.toArgb())
+                            setShadowLayer(
+                                26.dp.toPx(),
+                                0f,
+                                if (isLiquidGlass) 5.dp.toPx() else 3.dp.toPx(),
+                                if (isDark) Color.Black.copy(alpha = 0.40f).toArgb()
+                                else Color(0xFF1A2233).copy(alpha = 0.13f).toArgb()
+                            )
+                        }
+                        // 2. 近景接触轮廓阴影（增强收紧感）
+                        val contactPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                            color = Color.White.copy(alpha = 0.01f).toArgb()
+                            setShadowLayer(
+                                8.dp.toPx(),
+                                0f,
+                                2.dp.toPx(),
+                                if (isDark) Color.Black.copy(alpha = 0.25f).toArgb()
+                                else Color(0xFF1A2233).copy(alpha = 0.07f).toArgb()
+                            )
                         }
                         drawIntoCanvas { canvas ->
-                            canvas.nativeCanvas.drawRoundRect(
-                                RectF(0f, 0f, size.width, size.height),
-                                cornerRadius,
-                                cornerRadius,
-                                paint
-                            )
+                            val rect = RectF(0f, 0f, size.width, size.height)
+                            canvas.nativeCanvas.drawRoundRect(rect, cornerRadius, cornerRadius, ambientPaint)
+                            canvas.nativeCanvas.drawRoundRect(rect, cornerRadius, cornerRadius, contactPaint)
                         }
                     }
             )
@@ -551,21 +567,59 @@ fun FloatingTabBar(
                 )
             }
 
-            // A translucent tonal veil keeps the bar readable over changing content;
-            // the prism remains a separate, brighter layer above it.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(glassShape)
-                    .background(
-                        tabMaskColor.copy(
-                            alpha = (
-                                (if (isLiquidGlass) 0.30f else 0.20f) * (1f - toneProgress) +
-                                    (if (isLiquidGlass) 0.24f else 0.16f) * toneProgress
+            if (isLiquidGlass) {
+                // 次表面微反射天光与内高光弧（纯白背景下依然呈现通透晶莹的凸起液态水滴质感）
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(glassShape)
+                        .background(
+                            if (isDark) {
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.08f),
+                                        Color.Black.copy(alpha = 0.22f)
+                                    )
                                 )
+                            } else {
+                                Brush.linearGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.32f),
+                                        Color.White.copy(alpha = 0.12f),
+                                        Color(0xFFE6EEF8).copy(alpha = 0.18f)
+                                    ),
+                                    start = Offset.Zero,
+                                    end = Offset.Infinite
+                                )
+                            }
                         )
-                    )
-            )
+                        .border(
+                            width = 0.8.dp,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = if (isDark) 0.35f else 0.70f),
+                                    Color.White.copy(alpha = if (isDark) 0.10f else 0.20f),
+                                    Color.Transparent
+                                )
+                            ),
+                            shape = glassShape
+                        )
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(glassShape)
+                        .background(
+                            tabMaskColor.copy(
+                                alpha = (
+                                    0.20f * (1f - toneProgress) +
+                                        0.16f * toneProgress
+                                )
+                            )
+                        )
+                )
+            }
 
             FixedTabItems(
                 currentIndex = currentIndex,
@@ -743,7 +797,7 @@ fun NavSettingsButton(
     val isDark = LocalIsDarkTheme.current
     val buttonSize = if (isLiquidGlass) 72.dp else 56.dp
     val iconSize = if (isLiquidGlass) 32.dp else 26.dp
-    val strokeColor = if (isDark) Color.White.copy(alpha = 0.2f) else Color.Black.copy(alpha = 0.1f)
+    val strokeColor = if (isDark) Color.White.copy(alpha = 0.2f) else Color(0xFF7A8499).copy(alpha = 0.28f)
 
     if (isLiquidGlass && liquidGlassBackdrop != null) {
         val fallback = if (isDark) Color.Black else Color.White
