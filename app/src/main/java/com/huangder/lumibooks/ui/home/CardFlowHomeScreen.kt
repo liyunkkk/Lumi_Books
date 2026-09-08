@@ -6,6 +6,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -101,12 +102,16 @@ fun CardFlowHomeScreen(
                         .padding(horizontal = 32.dp, vertical = 24.dp)
                 )
             } else {
-                Box(
+                BoxWithConstraints(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
+                    val screenWidth = maxWidth
+                    val cardWidth = 200.dp
+                    val horizontalPadding = ((screenWidth - cardWidth) / 2).coerceAtLeast(32.dp)
+
                     val pagerState = rememberPagerState(
                         initialPage = 0,
                         pageCount = { displayBooks.size }
@@ -114,18 +119,21 @@ fun CardFlowHomeScreen(
 
                     HorizontalPager(
                         state = pagerState,
-                        contentPadding = PaddingValues(horizontal = 68.dp),
-                        pageSpacing = (-8).dp,
+                        pageSize = PageSize.Fixed(cardWidth),
+                        contentPadding = PaddingValues(horizontal = horizontalPadding),
+                        pageSpacing = 16.dp,
+                        beyondViewportPageCount = 2,
                         modifier = Modifier.fillMaxSize()
                     ) { page ->
                         val book = displayBooks[page]
-                        val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+                        val pageOffset = (page - pagerState.currentPage) + pagerState.currentPageOffsetFraction
                         val absOffset = pageOffset.absoluteValue.coerceIn(0f, 2f)
 
-                        // 3D 景深变换参数：向内聚拢叠放，使得上一本和下一本能够露出约 35%~40% 封面
-                        val scale = 1f - (absOffset * 0.18f).coerceIn(0f, 0.22f)
-                        val rotationY = -pageOffset.coerceIn(-1.5f, 1.5f) * 22f
-                        val alpha = 1f - (absOffset * 0.22f).coerceIn(0f, 0.32f)
+                        // 3D 景深变换参数：向内靠拢叠放，使得上一本和下一本能够稳定露出约 40% 封面
+                        val scale = 1f - (absOffset * 0.12f).coerceIn(0f, 0.18f)
+                        val rotationY = -pageOffset.coerceIn(-1.5f, 1.5f) * 20f
+                        val alpha = 1f - (absOffset * 0.18f).coerceIn(0f, 0.30f)
+                        val translationX = -pageOffset * 10.dp.toPx()
 
                         Box(
                             modifier = Modifier
@@ -135,7 +143,7 @@ fun CardFlowHomeScreen(
                                     scaleY = scale
                                     this.rotationY = rotationY
                                     this.alpha = alpha
-                                    this.translationX = -pageOffset * 34.dp.toPx()
+                                    this.translationX = translationX
                                     cameraDistance = 16 * density
                                 }
                                 .clickable(
@@ -246,7 +254,7 @@ private fun Book3DCardItem(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.width(195.dp),
+        modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Card(
@@ -329,19 +337,13 @@ private fun BookDetailDialog(
     if (isLiquidGlass) {
         LiquidGlassDialog(
             onDismissRequest = onDismiss,
+            modifier = Modifier.fillMaxHeight(0.74f),
             alignment = Alignment.Center,
             shape = RoundedCornerShape(32.dp),
             contentScrimColor = AppColors.CardBg.copy(alpha = 0.45f),
             backgroundScrimColor = Color.Black.copy(alpha = 0.25f)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.88f)
-                    .fillMaxHeight(0.72f)
-                    .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)), RoundedCornerShape(32.dp))
-            ) {
-                dialogContent()
-            }
+            dialogContent()
         }
     } else {
         Dialog(
@@ -366,7 +368,7 @@ private fun BookDetailDialog(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth(0.88f)
-                        .fillMaxHeight(0.72f)
+                        .fillMaxHeight(0.74f)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
