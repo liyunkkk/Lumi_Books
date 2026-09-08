@@ -257,20 +257,20 @@ class DiscoveryViewModel @Inject constructor(
 
     // 流媒体分类流状态（用于一级界面多分类横滑浏览）
     private val _categorySections = MutableStateFlow<List<CategorySection>>(emptyList())
-    val categorySections: StateFlow<List<CategorySection>> = _categorySections.asStateFlow()
+    val categorySections: StateFlow<List<CategorySection>> = _categorySections
     private val _isLoadingSections = MutableStateFlow(false)
-    val isLoadingSections: StateFlow<Boolean> = _isLoadingSections.asStateFlow()
+    val isLoadingSections: StateFlow<Boolean> = _isLoadingSections
 
     // 流媒体二级分类页面状态（用于垂直 3 列瀑布流与触底分页）
     private val _activeCategoryDetail = MutableStateFlow<ExploreKind?>(null)
-    val activeCategoryDetail: StateFlow<ExploreKind?> = _activeCategoryDetail.asStateFlow()
+    val activeCategoryDetail: StateFlow<ExploreKind?> = _activeCategoryDetail
     private val _categoryDetailPage = MutableStateFlow(1)
     private val _categoryDetailBooks = MutableStateFlow<List<SearchBook>>(emptyList())
-    val categoryDetailBooks: StateFlow<List<SearchBook>> = _categoryDetailBooks.asStateFlow()
+    val categoryDetailBooks: StateFlow<List<SearchBook>> = _categoryDetailBooks
     private val _isLoadingCategoryDetail = MutableStateFlow(false)
-    val isLoadingCategoryDetail: StateFlow<Boolean> = _isLoadingCategoryDetail.asStateFlow()
+    val isLoadingCategoryDetail: StateFlow<Boolean> = _isLoadingCategoryDetail
     private val _hasMoreCategoryDetail = MutableStateFlow(true)
-    val hasMoreCategoryDetail: StateFlow<Boolean> = _hasMoreCategoryDetail.asStateFlow()
+    val hasMoreCategoryDetail: StateFlow<Boolean> = _hasMoreCategoryDetail
 
     fun showBookActions(book: SearchBook) {
         _activeBook.value = book
@@ -286,7 +286,7 @@ class DiscoveryViewModel @Inject constructor(
                 if (book.intro.isNullOrBlank()) {
                     val updated = book.copy(
                         intro = cachedIntro,
-                        latestChapterTitle = cached.latestChapterTitle ?: book.latestChapterTitle
+                        latestChapterTitle = cached?.latestChapterTitle ?: book.latestChapterTitle
                     )
                     if (_activeBook.value?.bookUrl == book.bookUrl) {
                         _activeBook.value = updated
@@ -306,7 +306,7 @@ class DiscoveryViewModel @Inject constructor(
                             infoHtml = null
                         }
                         val detailed = WebBook.getBookInfoAwait(source, targetBook)
-                        val rawIntro = detailed.getDisplayIntro().ifBlank { detailed.intro ?: "" }.trim()
+                        val rawIntro = detailed.getDisplayIntro().ifBlank { detailed.intro.orEmpty() }.trim()
                         val fetchedIntro = if (rawIntro.isNotBlank()) rawIntro else null
                         if (!fetchedIntro.isNullOrBlank()) {
                             runCatching { appDb.bookDao.insert(detailed) }
@@ -342,19 +342,21 @@ class DiscoveryViewModel @Inject constructor(
             // 先用占位数据占位
             _categorySections.value = targetKinds.map { CategorySection(kind = it, books = emptyList(), isLoading = true) }
 
-            val loadedSections = targetKinds.map { kind ->
-                async {
-                    val url = kind.url ?: return@async CategorySection(kind = kind, books = emptyList(), isLoading = false)
-                    val result = runCatching {
-                        WebBook.exploreBookAwait(source, url, page = 1)
-                    }.getOrNull()
-                    CategorySection(
-                        kind = kind,
-                        books = result?.first ?: emptyList(),
-                        isLoading = false
-                    )
-                }
-            }.awaitAll()
+            val loadedSections = coroutineScope {
+                targetKinds.map { kind ->
+                    async {
+                        val url = kind.url ?: return@async CategorySection(kind = kind, books = emptyList(), isLoading = false)
+                        val result = runCatching {
+                            WebBook.exploreBookAwait(source, url, page = 1)
+                        }.getOrNull()
+                        CategorySection(
+                            kind = kind,
+                            books = result ?: emptyList(),
+                            isLoading = false
+                        )
+                    }
+                }.awaitAll()
+            }
 
             _categorySections.value = loadedSections.filter { it.books.isNotEmpty() }
             _isLoadingSections.value = false
@@ -405,7 +407,7 @@ class DiscoveryViewModel @Inject constructor(
                 WebBook.exploreBookAwait(source, url, page = page)
             }.getOrNull()
 
-            val newBooks = result?.first ?: emptyList()
+            val newBooks = result ?: emptyList()
             if (refresh) {
                 _categoryDetailBooks.value = newBooks
             } else {
