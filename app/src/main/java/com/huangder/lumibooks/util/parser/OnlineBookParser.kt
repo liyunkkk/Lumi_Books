@@ -116,7 +116,7 @@ class OnlineBookParser(
         } catch (_: Exception) {
             null
         }
-        val content = if (!cachedContent.isNullOrBlank()) {
+        val rawContent = if (!cachedContent.isNullOrBlank()) {
             cachedContent
         } else {
             // 2. 缓存未命中才发起网络请求，成功后由 Legado 引擎落盘 .nb 文件
@@ -130,7 +130,11 @@ class OnlineBookParser(
                 "【正文加载失败】\n${e.message ?: "未知网络错误"}，请检查网络或切换书源。"
             }
         }
-
+        val content = if (rawContent.startsWith("【正文加载")) {
+            rawContent
+        } else {
+            PurifyEngine.purify(book, chapter, rawContent)
+        }
         contentCache[chapterIndex] = content
         return content
     }

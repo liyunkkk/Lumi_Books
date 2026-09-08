@@ -126,11 +126,24 @@ data class BookSource(
     }
 
     override fun hashCode(): Int {
-        return bookSourceUrl.hashCode()
+        var result = bookSourceUrl.hashCode()
+        result = 31 * result + enabled.hashCode()
+        result = 31 * result + enabledExplore.hashCode()
+        result = 31 * result + (bookSourceGroup?.hashCode() ?: 0)
+        result = 31 * result + bookSourceName.hashCode()
+        result = 31 * result + customOrder.hashCode()
+        return result
     }
 
     override fun equals(other: Any?): Boolean {
-        return if (other is BookSource) other.bookSourceUrl == bookSourceUrl else false
+        if (this === other) return true
+        if (other !is BookSource) return false
+        return bookSourceUrl == other.bookSourceUrl &&
+                enabled == other.enabled &&
+                enabledExplore == other.enabledExplore &&
+                bookSourceGroup == other.bookSourceGroup &&
+                bookSourceName == other.bookSourceName &&
+                customOrder == other.customOrder
     }
 
     fun getSearchRule(): SearchRule {

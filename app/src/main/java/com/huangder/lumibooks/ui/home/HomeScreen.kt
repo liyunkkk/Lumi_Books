@@ -95,7 +95,6 @@ import com.huangder.lumibooks.ui.animation.OverscrollBounce
 import com.huangder.lumibooks.ui.animation.cardPressEffect
 import com.huangder.lumibooks.ui.components.StatusGradientOverlay
 import com.huangder.lumibooks.ui.components.BookCoverProgressOverlay
-import com.huangder.lumibooks.ui.components.CloudAwareBookDeleteDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuItem
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
@@ -511,7 +510,10 @@ private fun ContinueReadingCard(
                                                     label = deleteMenuLabel,
                                                     icon = Icons.Outlined.Delete,
                                                     destructive = true,
-                                                    onClick = { showDeleteConfirm = true }
+                                                    onClick = {
+                                                        val mode = if (book.remoteFileName != null) BookDeleteMode.LOCAL_AND_CLOUD else BookDeleteMode.LOCAL_ONLY
+                                                        onDelete(mode)
+                                                    }
                                                 )
                                             )
                                         )
@@ -563,7 +565,8 @@ private fun ContinueReadingCard(
                                     .clip(RoundedCornerShape(AppRadius.lg))
                                     .clickable {
                                         menuExpanded = false
-                                        showDeleteConfirm = true
+                                        val mode = if (book.remoteFileName != null) BookDeleteMode.LOCAL_AND_CLOUD else BookDeleteMode.LOCAL_ONLY
+                                        onDelete(mode)
                                     },
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
@@ -643,18 +646,7 @@ private fun ContinueReadingCard(
             }
         }
     }
-    // 删除确认弹窗
-    if (showDeleteConfirm) {
-        CloudAwareBookDeleteDialog(
-            bookCount = 1,
-            hasRemoteBooks = book.remoteFileName != null,
-            onDismiss = { showDeleteConfirm = false },
-            onDelete = { mode ->
-                showDeleteConfirm = false
-                onDelete(mode)
-            }
-        )
-    }
+
 }
 
 // ─── 区块标题 ──────────────────────────────────────────────────

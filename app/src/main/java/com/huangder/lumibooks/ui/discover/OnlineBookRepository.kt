@@ -7,15 +7,15 @@ import com.huangder.lumibooks.util.parser.OnlineBookParser
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.SearchBook
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
 
 /**
  * 在线书籍入库桥接：SearchBook → 引擎 Book + Lumi 本地 Book 记录。
- * 幂等：同一 bookUrl 只入库一次。
+ * 无论哪个书源加入书库，同名小说只保留一部，已存在时无缝更新替换为当前书源。
  */
 object OnlineBookRepository {
-
     const val SCHEME = OnlineBookParser.SCHEME
 
     fun lumiBookId(bookUrl: String): String {
@@ -27,34 +27,56 @@ object OnlineBookRepository {
 
     /**
      * 确保书籍存在于引擎库与 Lumi 书库，返回 Lumi Book id。
-     * 已存在时直接返回，不重复拉取网络。
+     * 若书架已存在同名在线书籍，直接无缝更新书源地址并复用现有记录，不重复添加。
      */
     suspend fun ensureInLibrary(
         bookRepository: BookRepository,
         searchBook: SearchBook
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val lumiId = lumiBookId(searchBook.bookUrl)
-            // 幂等：Lumi 已有记录直接返回
-            bookRepository.getBookById(lumiId)?.let { return@runCatching lumiId }
+            val searchTitle = searchBook.name.trim()
+            val searchAuthor = searchBook.author.trim()
+            val candidateLumiId = lumiBookId(searchBook.bookUrl)
 
-            // 引擎库：不存在则插入（保留 SearchBook 解析出的元数据）
+            // 1. 优先查重：按 bookUrl 的 MD5 或 按 (同书名 + 作者匹配) 查找书库中现有的在线书籍
+            val allBooks = bookRepository.getAllBooks().first()
+            val existing = allBooks.firstOrNull { book ->
+                isOnlineBook(book.filePath) && (
+                    book.id == candidateLumiId ||
+                    (book.title.trim() == searchTitle &&
+                     (searchAuthor.isBlank() || book.author.isBlank() || book.author.trim() == searchAuthor))
+                )
+            }
+
+            // 2. 引擎库：确保目标 searchBook 已持久化至 engineBook
             val engineBook = appDb.bookDao.getBook(searchBook.bookUrl)
                 ?: searchBook.toBook().also { appDb.bookDao.insert(it) }
 
-            val lumiBook = Book(
-                id = lumiId,
-                title = engineBook.name.ifBlank { searchBook.name },
-                author = engineBook.author.ifBlank { searchBook.author },
-                filePath = SCHEME + engineBook.bookUrl,
-                coverPath = engineBook.coverUrl ?: searchBook.coverUrl,
-                format = BookFormat.TXT,
-                lastReadTime = System.currentTimeMillis(),
-                readingProgress = 0f,
-                createdAt = System.currentTimeMillis()
-            )
-            bookRepository.insertBook(lumiBook)
-            lumiId
+            if (existing != null) {
+                // 已存在同名同作者小说：无缝更新书源至当前选中的书源，不重复入库
+                val updated = existing.copy(
+                    filePath = SCHEME + engineBook.bookUrl,
+                    coverPath = engineBook.coverUrl?.takeIf { it.isNotBlank() } ?: existing.coverPath,
+                    lastReadTime = System.currentTimeMillis()
+                )
+                bookRepository.updateBook(updated)
+                existing.id
+            } else {
+                // 首次入库：新建条目
+                val lumiBook = Book(
+                    id = candidateLumiId,
+                    title = engineBook.name.ifBlank { searchBook.name },
+                    author = engineBook.author.ifBlank { searchBook.author },
+                    filePath = SCHEME + engineBook.bookUrl,
+                    coverPath = engineBook.coverUrl ?: searchBook.coverUrl,
+                    format = BookFormat.TXT,
+                    lastReadTime = System.currentTimeMillis(),
+                    readingProgress = 0f,
+                    createdAt = System.currentTimeMillis()
+                )
+                bookRepository.insertBook(lumiBook)
+                candidateLumiId
+            }
         }
     }
 

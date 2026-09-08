@@ -12,6 +12,9 @@ import kotlinx.coroutines.withContext
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import androidx.compose.material.icons.outlined.Tune
+import com.huangder.lumibooks.ui.sources.BookSourcesActivity
 import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -329,6 +332,16 @@ fun DiscoveryScreen(
                     )
                 }
 
+                // 书源管理直达按钮
+                IconButton(onClick = {
+                    context.startActivity(Intent(context, BookSourcesActivity::class.java))
+                }) {
+                    Icon(
+                        imageVector = Icons.Outlined.Tune,
+                        contentDescription = "书源管理",
+                        tint = AppColors.TextPrimary
+                    )
+                }
                 // 书源选择胶囊（液态玻璃半透明面板）
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

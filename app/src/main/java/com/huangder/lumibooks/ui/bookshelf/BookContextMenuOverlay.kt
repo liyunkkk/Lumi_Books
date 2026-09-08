@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.SwapHoriz
+import com.huangder.lumibooks.ui.discover.OnlineBookRepository
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -82,6 +84,7 @@ sealed class ContextMenuAction {
     data object EditInfo : ContextMenuAction()
     data object ToggleHideNowReading : ContextMenuAction()
     data object ToggleHideBook : ContextMenuAction()
+    data object ChangeSource : ContextMenuAction()
 }
 
 /**
@@ -108,7 +111,8 @@ fun BookContextMenuOverlay(
     isNowReadingHidden: Boolean = false,
     isHidden: Boolean = false,
     onToggleHideNowReading: (Book) -> Unit = {},
-    onToggleHideBook: (Book) -> Unit = {}
+    onToggleHideBook: (Book) -> Unit = {},
+    onChangeSource: (Book) -> Unit = {}
 ) {
     if (state.phase == ContextMenuPhase.Idle) return
 
@@ -165,6 +169,7 @@ fun BookContextMenuOverlay(
                         is ContextMenuAction.EditInfo -> onEditInfo(book)
                         is ContextMenuAction.ToggleHideNowReading -> onToggleHideNowReading(book)
                         is ContextMenuAction.ToggleHideBook -> onToggleHideBook(book)
+                        is ContextMenuAction.ChangeSource -> onChangeSource(book)
                     }
                 },
                 onEditInfo = {
@@ -338,6 +343,7 @@ private fun ContextMenuLayout(
             actionsAlpha = actionsAlpha,
             compact = useCompactMiddlePanel,
             isFavorite = book.isFavorite,
+            isOnlineBook = OnlineBookRepository.isOnlineBook(book.filePath),
             hasCustomCover = com.huangder.lumibooks.util.FileUtils.isCustomCover(book.coverPath),
             onAction = onAction
         )
@@ -437,6 +443,7 @@ private fun MenuActionsPanel(
     actionsAlpha: Float,
     compact: Boolean = false,
     isFavorite: Boolean = false,
+    isOnlineBook: Boolean = false,
     hasCustomCover: Boolean = false,
     isNowReadingHidden: Boolean = false,
     isHidden: Boolean = false,
@@ -496,6 +503,9 @@ private fun MenuActionsPanel(
                     action = ContextMenuAction.ToggleHideBook
                 )
             )
+            if (isOnlineBook) {
+                add(MenuItem("切换书源", Icons.Outlined.SwapHoriz, ContextMenuAction.ChangeSource))
+            }
             add(MenuItem(stringResource(R.string.delete), Icons.Outlined.Delete, ContextMenuAction.Delete))
         }
 
