@@ -4,6 +4,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -739,11 +743,30 @@ private fun DiscoveryBookActionDialog(
 ) {
     val context = LocalContext.current
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
+    var animState by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        animState = true
+    }
+    val contentScale by animateFloatAsState(
+        targetValue = if (animState) 1f else 0.88f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 280f),
+        label = "discoveryDialogScale"
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (animState) 1f else 0f,
+        animationSpec = tween(180),
+        label = "discoveryDialogAlpha"
+    )
 
     val content: @Composable () -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = contentScale
+                    scaleY = contentScale
+                    alpha = contentAlpha
+                }
                 .padding(horizontal = 20.dp, vertical = 18.dp)
         ) {
             // 顶部：大封面 + 完整元数据

@@ -752,6 +752,36 @@ fun MainNavGraph(
             composable(
                 route = Screen.Reader.route,
                 arguments = listOf(navArgument("bookId") { type = NavType.StringType }),
+                enterTransition = {
+                    if (!eInkMode) {
+                        fadeIn(tween(260, easing = FastOutSlowInEasing)) + scaleIn(
+                            initialScale = 0.96f,
+                            animationSpec = tween(260, easing = FastOutSlowInEasing)
+                        )
+                    } else {
+                        EnterTransition.None
+                    }
+                },
+                exitTransition = {
+                    if (!eInkMode) {
+                        fadeOut(tween(220, easing = FastOutSlowInEasing)) + scaleOut(
+                            targetScale = 0.96f,
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                        )
+                    } else {
+                        ExitTransition.None
+                    }
+                },
+                popEnterTransition = {
+                    if (!eInkMode) {
+                        fadeIn(tween(260, easing = FastOutSlowInEasing)) + scaleIn(
+                            initialScale = 0.96f,
+                            animationSpec = tween(260, easing = FastOutSlowInEasing)
+                        )
+                    } else {
+                        EnterTransition.None
+                    }
+                },
                 popExitTransition = {
                     if (!eInkMode && targetState.destination.route != Screen.Reader.route) {
                         fadeOut(tween(240, easing = FastOutSlowInEasing)) + scaleOut(
