@@ -179,6 +179,8 @@ fun CardFlowHomeScreen(
     }
 }
 
+private val ProductSansBold = FontFamily(Font(R.font.product_sans_bold, FontWeight.Bold))
+
 /**
  * 顶部竖排杂志风大标题 Header
  * I'm Now Reading 垂直排版 + 跟随系统原生字体 + 统计图标与 Reading 底部严格平齐
@@ -198,37 +200,42 @@ private fun CardFlowHeader(
             Column(verticalArrangement = Arrangement.spacedBy((-4).dp)) {
                 Text(
                     text = "I'm",
-                    fontSize = 32.sp,
+                    fontSize = 35.sp,
+                    lineHeight = 37.sp,
+                    fontFamily = ProductSansBold,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                     letterSpacing = (-0.5).sp
                 )
                 Text(
                     text = "Now",
-                    fontSize = 32.sp,
+                    fontSize = 35.sp,
+                    lineHeight = 37.sp,
+                    fontFamily = ProductSansBold,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                     letterSpacing = (-0.5).sp
                 )
                 Text(
                     text = "Reading",
-                    fontSize = 32.sp,
+                    fontSize = 35.sp,
+                    lineHeight = 37.sp,
+                    fontFamily = ProductSansBold,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                     letterSpacing = (-0.5).sp
                 )
             }
-
-            // 右上角统计图标按钮，其底边与 Reading 底部水平严格平齐
+            // 右上角统计图标按钮，等比放大（46dp）且底边与 Reading 底部水平严格平齐
             IconButton(
                 onClick = onStatisticsClick,
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.size(46.dp)
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Leaderboard,
                     contentDescription = stringResource(R.string.statistics_title),
                     tint = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
         }
@@ -392,10 +399,29 @@ private fun BookDetailSheetContent(
     onContinueReading: () -> Unit
 ) {
     var inputText by remember { mutableStateOf("") }
+    var animState by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        animState = true
+    }
+    val contentScale by animateFloatAsState(
+        targetValue = if (animState) 1f else 0.88f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 280f),
+        label = "sheetContentScale"
+    )
+    val contentAlpha by animateFloatAsState(
+        targetValue = if (animState) 1f else 0f,
+        animationSpec = tween(180),
+        label = "sheetContentAlpha"
+    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer {
+                scaleX = contentScale
+                scaleY = contentScale
+                alpha = contentAlpha
+            }
             .padding(horizontal = 22.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {

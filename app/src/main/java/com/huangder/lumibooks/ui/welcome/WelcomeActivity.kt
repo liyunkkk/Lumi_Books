@@ -78,7 +78,13 @@ class WelcomeActivity : ComponentActivity() {
         if (!isDebugWelcomePreview) {
             LaunchThemeController.deferSplashEnabled(this, splashEnabled)
         }
-        if (!isDebugWelcomePreview && !installState.shouldShowWelcome(completedInstallTime)) {
+        if (!isDebugWelcomePreview) {
+            lifecycleScope.launch {
+                dataStoreManager.completeWelcomeFlow(installState.installMarker)
+                dataStoreManager.saveWelcomeLanguageSetupCompleted()
+                dataStoreManager.saveAcceptedTermsVersion(100)
+                dataStoreManager.saveAcceptedPrivacyVersion(100)
+            }
             startMainActivity(splashEnabled)
             return
         }
