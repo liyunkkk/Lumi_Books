@@ -98,9 +98,11 @@ class DiscoveryViewModel @Inject constructor(
                 dataStoreManager.saveDiscoverSelectedSourceUrl(source.bookSourceUrl)
                 runCatching { BookDiscoveryRepository.exploreKinds(source) }
                     .onSuccess { kinds ->
-                        _exploreKinds.value = kinds.filter { it.type == ExploreKind.Type.url && !it.url.isNullOrBlank() }
-                        _selectedKind.value = _exploreKinds.value.firstOrNull()
+                        val validKinds = kinds.filter { it.type == ExploreKind.Type.url && !it.url.isNullOrBlank() }
+                        _exploreKinds.value = validKinds
+                        _selectedKind.value = validKinds.firstOrNull()
                         _selectedKind.value?.let { loadBooks(source, it) }
+                        loadCategorySections(source, validKinds)
                     }
                     .onFailure { _message.value = "解析分类失败: ${it.message}" }
             }
@@ -179,8 +181,13 @@ class DiscoveryViewModel @Inject constructor(
 
     fun refresh() {
         val source = _selectedSource.value ?: return
-        val kind = _selectedKind.value ?: return
-        loadBooks(source, kind)
+        val kind = _selectedKind.value
+        if (kind != null) {
+            loadBooks(source, kind)
+        }
+        if (_exploreKinds.value.isNotEmpty()) {
+            loadCategorySections(source, _exploreKinds.value)
+        }
     }
 
     fun search(keyword: String) {
@@ -248,6 +255,23 @@ class DiscoveryViewModel @Inject constructor(
     private val _loadingDetail = MutableStateFlow(false)
     val loadingDetail: StateFlow<Boolean> = _loadingDetail
 
+    // 流媒体分类流状态（用于一级界面多分类横滑浏览）
+    private val _categorySections = MutableStateFlow<List<CategorySection>>(emptyList())
+    val categorySections: StateFlow<List<CategorySection>> = _categorySections.asStateFlow()
+    private val _isLoadingSections = MutableStateFlow(false)
+    val isLoadingSections: StateFlow<Boolean> = _isLoadingSections.asStateFlow()
+
+    // 流媒体二级分类页面状态（用于垂直 3 列瀑布流与触底分页）
+    private val _activeCategoryDetail = MutableStateFlow<ExploreKind?>(null)
+    val activeCategoryDetail: StateFlow<ExploreKind?> = _activeCategoryDetail.asStateFlow()
+    private val _categoryDetailPage = MutableStateFlow(1)
+    private val _categoryDetailBooks = MutableStateFlow<List<SearchBook>>(emptyList())
+    val categoryDetailBooks: StateFlow<List<SearchBook>> = _categoryDetailBooks.asStateFlow()
+    private val _isLoadingCategoryDetail = MutableStateFlow(false)
+    val isLoadingCategoryDetail: StateFlow<Boolean> = _isLoadingCategoryDetail.asStateFlow()
+    private val _hasMoreCategoryDetail = MutableStateFlow(true)
+    val hasMoreCategoryDetail: StateFlow<Boolean> = _hasMoreCategoryDetail.asStateFlow()
+
     fun showBookActions(book: SearchBook) {
         _activeBook.value = book
         detailJob?.cancel()
@@ -257,7 +281,7 @@ class DiscoveryViewModel @Inject constructor(
         }
         detailJob = viewModelScope.launch(Dispatchers.IO) {
             val cached = runCatching { appDb.bookDao.getBook(book.bookUrl) }.getOrNull()
-            val cachedIntro = cached?.intro?.trim()
+            val cachedIntro = cached?.getDisplayIntro()?.trim() ?: cached?.intro?.trim()
             if (!cachedIntro.isNullOrBlank()) {
                 if (book.intro.isNullOrBlank()) {
                     val updated = book.copy(
@@ -277,8 +301,13 @@ class DiscoveryViewModel @Inject constructor(
                     ?: runCatching { appDb.bookSourceDao.getBookSource(book.origin) }.getOrNull()
                 if (source != null) {
                     runCatching {
-                        val detailed = WebBook.getBookInfoAwait(source, book.toBook())
-                        val fetchedIntro = detailed.intro?.trim()
+                        // 核心修复：强制清除 SearchBook 继承来的列表页 infoHtml 缓存，使 WebBook 重新发起网络 HTTP 请求拉取完整书籍详情页
+                        val targetBook = book.toBook().apply {
+                            infoHtml = null
+                        }
+                        val detailed = WebBook.getBookInfoAwait(source, targetBook)
+                        val rawIntro = detailed.getDisplayIntro().ifBlank { detailed.intro ?: "" }.trim()
+                        val fetchedIntro = if (rawIntro.isNotBlank()) rawIntro else null
                         if (!fetchedIntro.isNullOrBlank()) {
                             runCatching { appDb.bookDao.insert(detailed) }
                             if (_activeBook.value?.bookUrl == book.bookUrl) {
@@ -289,6 +318,8 @@ class DiscoveryViewModel @Inject constructor(
                                 _activeBook.value = updated
                             }
                         }
+                    }.onFailure {
+                        android.util.Log.e("DiscoveryVM", "拉取详情失败: ${it.message}", it)
                     }
                 }
                 _loadingDetail.value = false
@@ -299,6 +330,95 @@ class DiscoveryViewModel @Inject constructor(
         detailJob?.cancel()
         _loadingDetail.value = false
         _activeBook.value = null
+    }
+
+    /**
+     * 并发拉取流媒体分类流（选取前 8 个分类，每个分类拉取第 1 页书籍）
+     */
+    private fun loadCategorySections(source: BookSource, kinds: List<ExploreKind>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoadingSections.value = true
+            val targetKinds = kinds.take(8)
+            // 先用占位数据占位
+            _categorySections.value = targetKinds.map { CategorySection(kind = it, books = emptyList(), isLoading = true) }
+
+            val loadedSections = targetKinds.map { kind ->
+                async {
+                    val url = kind.url ?: return@async CategorySection(kind = kind, books = emptyList(), isLoading = false)
+                    val result = runCatching {
+                        WebBook.exploreBookAwait(source, url, page = 1)
+                    }.getOrNull()
+                    CategorySection(
+                        kind = kind,
+                        books = result?.first ?: emptyList(),
+                        isLoading = false
+                    )
+                }
+            }.awaitAll()
+
+            _categorySections.value = loadedSections.filter { it.books.isNotEmpty() }
+            _isLoadingSections.value = false
+        }
+    }
+
+    /**
+     * 进入流媒体二级分类页面（3 列垂直瀑布流）
+     */
+    fun openCategoryDetail(kind: ExploreKind) {
+        _activeCategoryDetail.value = kind
+        _categoryDetailPage.value = 1
+        _categoryDetailBooks.value = emptyList()
+        _hasMoreCategoryDetail.value = true
+        // 先复用已有缓存展示
+        val preloaded = _categorySections.value.firstOrNull { it.kind == kind }?.books
+        if (!preloaded.isNullOrEmpty()) {
+            _categoryDetailBooks.value = preloaded
+        }
+        loadCategoryDetailBooks(page = 1, refresh = preloaded.isNullOrEmpty())
+    }
+
+    /**
+     * 关闭流媒体二级分类页面
+     */
+    fun closeCategoryDetail() {
+        _activeCategoryDetail.value = null
+        _categoryDetailBooks.value = emptyList()
+    }
+
+    /**
+     * 流媒体二级页面触底加载更多
+     */
+    fun loadMoreCategoryDetail() {
+        if (_isLoadingCategoryDetail.value || !_hasMoreCategoryDetail.value) return
+        val nextPage = _categoryDetailPage.value + 1
+        loadCategoryDetailBooks(page = nextPage, refresh = false)
+    }
+
+    private fun loadCategoryDetailBooks(page: Int, refresh: Boolean) {
+        val kind = _activeCategoryDetail.value ?: return
+        val source = _selectedSource.value ?: return
+        val url = kind.url ?: return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoadingCategoryDetail.value = true
+            val result = runCatching {
+                WebBook.exploreBookAwait(source, url, page = page)
+            }.getOrNull()
+
+            val newBooks = result?.first ?: emptyList()
+            if (refresh) {
+                _categoryDetailBooks.value = newBooks
+            } else {
+                val current = _categoryDetailBooks.value.toMutableList()
+                val existingUrls = current.map { it.bookUrl }.toSet()
+                current.addAll(newBooks.filter { it.bookUrl !in existingUrls })
+                _categoryDetailBooks.value = current
+            }
+
+            _categoryDetailPage.value = page
+            _hasMoreCategoryDetail.value = newBooks.isNotEmpty()
+            _isLoadingCategoryDetail.value = false
+        }
     }
 
     fun addToBookshelf(book: SearchBook) {
@@ -342,3 +462,9 @@ private object BookSourceRepositoryHolder {
             runCatching { io.legado.app.data.appDb.bookSourceDao.allEnabled() }
         }
 }
+
+data class CategorySection(
+    val kind: ExploreKind,
+    val books: List<SearchBook> = emptyList(),
+    val isLoading: Boolean = false
+)
