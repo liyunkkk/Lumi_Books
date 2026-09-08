@@ -935,13 +935,7 @@ private fun DiscoveryBookActionDialog(
             contentScrimColor = AppColors.CardBg.copy(alpha = 0.50f),
             backgroundScrimColor = Color.Black.copy(alpha = 0.25f)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.90f)
-                    .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)), RoundedCornerShape(28.dp))
-            ) {
-                content()
-            }
+            content()
         }
     } else {
         Dialog(
