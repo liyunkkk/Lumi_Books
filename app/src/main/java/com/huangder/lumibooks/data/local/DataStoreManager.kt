@@ -332,6 +332,10 @@ class DataStoreManager @Inject constructor(
         // 是否已完成首次启动的更新检查
         private val HAS_CHECKED_UPDATE_ON_START = booleanPreferencesKey("has_checked_update_on_start")
         private val ACKNOWLEDGED_NOTICE_IDS = stringSetPreferencesKey("acknowledged_notice_ids")
+        private val HIDDEN_FROM_NOW_READING_BOOK_IDS = stringSetPreferencesKey("hidden_from_now_reading_book_ids")
+        private val HIDDEN_FROM_NOW_READING_FOLDER_IDS = stringSetPreferencesKey("hidden_from_now_reading_folder_ids")
+        private val HIDDEN_BOOK_IDS = stringSetPreferencesKey("hidden_book_ids")
+        private val HIDDEN_FOLDER_IDS = stringSetPreferencesKey("hidden_folder_ids")
         private val IGNORED_APP_UPDATE_VERSION_CODE = longPreferencesKey("ignored_app_update_version_code")
         private val PORTABLE_PREFERENCE_METADATA = stringPreferencesKey("portable_preference_metadata_v1")
     }
@@ -2782,6 +2786,60 @@ class DataStoreManager @Inject constructor(
 
     suspend fun saveSearchTypeFilter(type: Int) {
         context.dataStore.edit { it[SEARCH_TYPE_FILTER] = type }
+    }
+
+    val hiddenFromNowReadingBookIds: Flow<Set<String>> =
+        context.dataStore.data.map { it[HIDDEN_FROM_NOW_READING_BOOK_IDS].orEmpty() }
+
+    val hiddenFromNowReadingFolderIds: Flow<Set<String>> =
+        context.dataStore.data.map { it[HIDDEN_FROM_NOW_READING_FOLDER_IDS].orEmpty() }
+
+    val hiddenBookIds: Flow<Set<String>> =
+        context.dataStore.data.map { it[HIDDEN_BOOK_IDS].orEmpty() }
+
+    val hiddenFolderIds: Flow<Set<String>> =
+        context.dataStore.data.map { it[HIDDEN_FOLDER_IDS].orEmpty() }
+
+    suspend fun toggleHideBookFromNowReading(bookId: String) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[HIDDEN_FROM_NOW_READING_BOOK_IDS].orEmpty()
+            preferences[HIDDEN_FROM_NOW_READING_BOOK_IDS] = if (bookId in current) current - bookId else current + bookId
+        }
+    }
+
+    suspend fun toggleHideFolderFromNowReading(folderId: String) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[HIDDEN_FROM_NOW_READING_FOLDER_IDS].orEmpty()
+            preferences[HIDDEN_FROM_NOW_READING_FOLDER_IDS] = if (folderId in current) current - folderId else current + folderId
+        }
+    }
+
+    suspend fun hideBook(bookId: String) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[HIDDEN_BOOK_IDS].orEmpty()
+            preferences[HIDDEN_BOOK_IDS] = current + bookId
+        }
+    }
+
+    suspend fun unhideBook(bookId: String) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[HIDDEN_BOOK_IDS].orEmpty()
+            preferences[HIDDEN_BOOK_IDS] = current - bookId
+        }
+    }
+
+    suspend fun hideFolder(folderId: String) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[HIDDEN_FOLDER_IDS].orEmpty()
+            preferences[HIDDEN_FOLDER_IDS] = current + folderId
+        }
+    }
+
+    suspend fun unhideFolder(folderId: String) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[HIDDEN_FOLDER_IDS].orEmpty()
+            preferences[HIDDEN_FOLDER_IDS] = current - folderId
+        }
     }
 
     suspend fun clearAll() {

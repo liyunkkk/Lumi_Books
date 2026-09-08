@@ -24,6 +24,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -78,6 +80,8 @@ sealed class ContextMenuAction {
     data object BookmarksNotes : ContextMenuAction()
     data object Tags : ContextMenuAction()
     data object EditInfo : ContextMenuAction()
+    data object ToggleHideNowReading : ContextMenuAction()
+    data object ToggleHideBook : ContextMenuAction()
 }
 
 /**
@@ -100,7 +104,11 @@ fun BookContextMenuOverlay(
     onTags: (Book) -> Unit = {},
     onEditInfo: (Book) -> Unit = {},
     onBookDetails: (Book) -> Unit = {},
-    onMoveToFolder: (Book) -> Unit = {}
+    onMoveToFolder: (Book) -> Unit = {},
+    isNowReadingHidden: Boolean = false,
+    isHidden: Boolean = false,
+    onToggleHideNowReading: (Book) -> Unit = {},
+    onToggleHideBook: (Book) -> Unit = {}
 ) {
     if (state.phase == ContextMenuPhase.Idle) return
 
@@ -141,6 +149,8 @@ fun BookContextMenuOverlay(
                 menuAlpha = menuAlpha,
                 actionsAlpha = actionsAlpha,
                 coverBounds = coverBounds,
+                isNowReadingHidden = isNowReadingHidden,
+                isHidden = isHidden,
                 onAction = { action ->
                     state.dismiss()
                     when (action) {
@@ -153,6 +163,8 @@ fun BookContextMenuOverlay(
                         is ContextMenuAction.BookmarksNotes -> onBookmarksNotes(book)
                         is ContextMenuAction.Tags -> onTags(book)
                         is ContextMenuAction.EditInfo -> onEditInfo(book)
+                        is ContextMenuAction.ToggleHideNowReading -> onToggleHideNowReading(book)
+                        is ContextMenuAction.ToggleHideBook -> onToggleHideBook(book)
                     }
                 },
                 onEditInfo = {
@@ -251,6 +263,8 @@ private fun ContextMenuLayout(
     menuAlpha: Float,
     actionsAlpha: Float,
     coverBounds: Rect,
+    isNowReadingHidden: Boolean = false,
+    isHidden: Boolean = false,
     onAction: (ContextMenuAction) -> Unit,
     onEditInfo: () -> Unit
 ) {
@@ -424,6 +438,8 @@ private fun MenuActionsPanel(
     compact: Boolean = false,
     isFavorite: Boolean = false,
     hasCustomCover: Boolean = false,
+    isNowReadingHidden: Boolean = false,
+    isHidden: Boolean = false,
     onAction: (ContextMenuAction) -> Unit
 ) {
     val shape = RoundedCornerShape(
@@ -466,6 +482,20 @@ private fun MenuActionsPanel(
             if (hasCustomCover) {
                 add(MenuItem(stringResource(R.string.remove_custom_cover), Icons.Outlined.Restore, ContextMenuAction.RemoveCustomCover))
             }
+            add(
+                MenuItem(
+                    label = if (isNowReadingHidden) "取消在读隐藏" else "隐藏当前在读",
+                    icon = if (isNowReadingHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                    action = ContextMenuAction.ToggleHideNowReading
+                )
+            )
+            add(
+                MenuItem(
+                    label = if (isHidden) "移出隐藏" else "隐藏书籍",
+                    icon = if (isHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                    action = ContextMenuAction.ToggleHideBook
+                )
+            )
             add(MenuItem(stringResource(R.string.delete), Icons.Outlined.Delete, ContextMenuAction.Delete))
         }
 

@@ -103,7 +103,11 @@ data class HomeUiState(
     val isWebdavSyncing: Boolean = false,
     val downloadStates: Map<String, BookDownloadState> = emptyMap(),
     val isBookDeleteInProgress: Boolean = false,
-    val showCoverProgress: Boolean = true
+    val showCoverProgress: Boolean = true,
+    val hiddenFromNowReadingBookIds: Set<String> = emptySet(),
+    val hiddenFromNowReadingFolderIds: Set<String> = emptySet(),
+    val hiddenBookIds: Set<String> = emptySet(),
+    val hiddenFolderIds: Set<String> = emptySet()
 )
 
 enum class SortBy {
@@ -161,6 +165,66 @@ class HomeViewModel @Inject constructor(
         loadImportBooksLayoutMode()
         loadShowCoverProgress()
         loadAuthorizedBookDirectories()
+        loadHiddenStates()
+    }
+
+    private fun loadHiddenStates() {
+        viewModelScope.launch {
+            dataStoreManager.hiddenFromNowReadingBookIds.collectLatest { ids ->
+                _uiState.value = _uiState.value.copy(hiddenFromNowReadingBookIds = ids)
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.hiddenFromNowReadingFolderIds.collectLatest { ids ->
+                _uiState.value = _uiState.value.copy(hiddenFromNowReadingFolderIds = ids)
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.hiddenBookIds.collectLatest { ids ->
+                _uiState.value = _uiState.value.copy(hiddenBookIds = ids)
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.hiddenFolderIds.collectLatest { ids ->
+                _uiState.value = _uiState.value.copy(hiddenFolderIds = ids)
+            }
+        }
+    }
+
+    fun toggleHideBookFromNowReading(bookId: String) {
+        viewModelScope.launch {
+            dataStoreManager.toggleHideBookFromNowReading(bookId)
+        }
+    }
+
+    fun toggleHideFolderFromNowReading(folderId: String) {
+        viewModelScope.launch {
+            dataStoreManager.toggleHideFolderFromNowReading(folderId)
+        }
+    }
+
+    fun hideBook(bookId: String) {
+        viewModelScope.launch {
+            dataStoreManager.hideBook(bookId)
+        }
+    }
+
+    fun unhideBook(bookId: String) {
+        viewModelScope.launch {
+            dataStoreManager.unhideBook(bookId)
+        }
+    }
+
+    fun hideFolder(folderId: String) {
+        viewModelScope.launch {
+            dataStoreManager.hideFolder(folderId)
+        }
+    }
+
+    fun unhideFolder(folderId: String) {
+        viewModelScope.launch {
+            dataStoreManager.unhideFolder(folderId)
+        }
     }
 
     fun loadBooks() {

@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.HideImage
@@ -57,6 +59,8 @@ private sealed interface FolderContextAction {
     data object SetCover : FolderContextAction
     data object RemoveCover : FolderContextAction
     data object Move : FolderContextAction
+    data object ToggleHideNowReading : FolderContextAction
+    data object ToggleHideFolder : FolderContextAction
 }
 
 @Composable
@@ -68,7 +72,11 @@ internal fun FolderContextMenuOverlay(
     onDelete: (LibraryFolder) -> Unit,
     onSetCover: (LibraryFolder) -> Unit,
     onRemoveCover: (LibraryFolder) -> Unit,
-    onMove: (LibraryFolder) -> Unit
+    onMove: (LibraryFolder) -> Unit,
+    isNowReadingHidden: Boolean = false,
+    isHidden: Boolean = false,
+    onToggleHideNowReading: (LibraryFolder) -> Unit = {},
+    onToggleHideFolder: (LibraryFolder) -> Unit = {}
 ) {
     if (state.phase == ContextMenuPhase.Idle) return
     val folder = state.selectedFolder ?: return
@@ -100,6 +108,8 @@ internal fun FolderContextMenuOverlay(
                 menuAlpha = state.menuAlpha.value,
                 actionsAlpha = state.actionsAlpha.value,
                 coverBounds = state.coverBounds,
+                isNowReadingHidden = isNowReadingHidden,
+                isHidden = isHidden,
                 onRename = {
                     state.dismiss()
                     onRename(folder)
@@ -111,6 +121,8 @@ internal fun FolderContextMenuOverlay(
                         FolderContextAction.SetCover -> onSetCover(folder)
                         FolderContextAction.RemoveCover -> onRemoveCover(folder)
                         FolderContextAction.Move -> onMove(folder)
+                        FolderContextAction.ToggleHideNowReading -> onToggleHideNowReading(folder)
+                        FolderContextAction.ToggleHideFolder -> onToggleHideFolder(folder)
                     }
                 }
             )
@@ -161,6 +173,8 @@ private fun FolderContextMenuLayout(
     menuAlpha: Float,
     actionsAlpha: Float,
     coverBounds: Rect,
+    isNowReadingHidden: Boolean = false,
+    isHidden: Boolean = false,
     onRename: () -> Unit,
     onAction: (FolderContextAction) -> Unit
 ) {
@@ -338,6 +352,18 @@ private fun FolderActionsPanel(
                 icon = Icons.Outlined.DriveFileMove,
                 compact = compact,
                 onClick = { onAction(FolderContextAction.Move) }
+            )
+            FolderContextActionItem(
+                label = if (isNowReadingHidden) "取消在读隐藏" else "隐藏当前在读",
+                icon = if (isNowReadingHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                compact = compact,
+                onClick = { onAction(FolderContextAction.ToggleHideNowReading) }
+            )
+            FolderContextActionItem(
+                label = if (isHidden) "移出隐藏" else "隐藏文件夹",
+                icon = if (isHidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                compact = compact,
+                onClick = { onAction(FolderContextAction.ToggleHideFolder) }
             )
         }
     }

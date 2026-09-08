@@ -80,7 +80,7 @@ fun CardFlowHomeScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(AppColors.WindowBg)
     ) {
         Column(
             modifier = Modifier
