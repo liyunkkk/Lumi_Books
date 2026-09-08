@@ -10,6 +10,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -972,7 +973,7 @@ private fun DiscoveryBookActionDialog(
                         ),
                     shape = RoundedCornerShape(28.dp),
                     color = AppColors.CardBg,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                    border = BorderStroke(1.dp, AppColors.Divider.copy(alpha = 0.3f)),
                     tonalElevation = 8.dp
                 ) {
                     content()
