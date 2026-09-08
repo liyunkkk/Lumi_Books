@@ -146,6 +146,7 @@ import com.huangder.lumibooks.ui.discover.BookDiscoveryRepository
 import com.huangder.lumibooks.ui.discover.OnlineBookRepository
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.SearchBook
+import io.legado.app.data.entities.BookSource
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppRadius
 import com.huangder.lumibooks.ui.theme.AppSpace
@@ -1111,9 +1112,9 @@ fun BookshelfScreen(
                 coroutineScope.launch {
                     try {
                         val title = book.title.trim()
-                        val allSources = withContext(Dispatchers.IO) {
-                            val enabled = runCatching { appDb.bookSourceDao.allEnabled() }.getOrDefault(emptyList())
-                            val all = runCatching { appDb.bookSourceDao.all() }.getOrDefault(emptyList())
+                        val allSources = withContext<List<BookSource>>(Dispatchers.IO) {
+                            val enabled = runCatching { appDb.bookSourceDao.allEnabled() }.getOrDefault(emptyList<BookSource>())
+                            val all = runCatching { appDb.bookSourceDao.all() }.getOrDefault(emptyList<BookSource>())
                             val candidates = (if (enabled.isNotEmpty()) enabled else all).filter { !it.searchUrl.isNullOrBlank() }
                             candidates.distinctBy { it.bookSourceUrl }
                         }

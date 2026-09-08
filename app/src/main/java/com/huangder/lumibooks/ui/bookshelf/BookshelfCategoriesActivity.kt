@@ -675,7 +675,14 @@ private fun CategoryBooksPage(
     var deletingBookIds by remember { mutableStateOf(emptySet<String>()) }
     var pendingDeleteBooks by remember { mutableStateOf(emptyList<Book>()) }
     var pendingDeleteMode by remember { mutableStateOf(BookDeleteMode.LOCAL_ONLY) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val triggerDeleteCategoryBooks: (List<Book>) -> Unit = { targets ->
+        if (targets.isNotEmpty()) {
+            val mode = if (targets.any { it.remoteFileName != null }) BookDeleteMode.LOCAL_AND_CLOUD else BookDeleteMode.LOCAL_ONLY
+            pendingDeleteMode = mode
+            pendingDeleteBooks = targets
+            deletingBookIds = targets.mapTo(mutableSetOf()) { it.id }
+        }
+    }
     var showBatchTagSheet by remember { mutableStateOf(false) }
     var showBatchMoveSheet by remember { mutableStateOf(false) }
     var tagTargetBook by remember { mutableStateOf<Book?>(null) }
@@ -790,14 +797,6 @@ private fun CategoryBooksPage(
                 onBookDetails = { book -> BookDetailsActivity.start(context, book.id) },
                 onMoveToFolder = { book -> moveTargetBook = book },
 
-    val triggerDeleteCategoryBooks: (List<Book>) -> Unit = { targets ->
-        if (targets.isNotEmpty()) {
-            val mode = if (targets.any { it.remoteFileName != null }) BookDeleteMode.LOCAL_AND_CLOUD else BookDeleteMode.LOCAL_ONLY
-            pendingDeleteMode = mode
-            pendingDeleteBooks = targets
-            deletingBookIds = targets.mapTo(mutableSetOf()) { it.id }
-        }
-    }
                 onDelete = {
                     triggerDeleteCategoryBooks(listOf(it))
                 },
