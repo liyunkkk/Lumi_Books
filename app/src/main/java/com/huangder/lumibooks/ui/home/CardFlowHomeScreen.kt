@@ -45,7 +45,7 @@ import kotlin.math.absoluteValue
 
 /**
  * 首页在读精选模式（3D景深卡片流）
- * 对应杂志化竖排大标题、横向视差堆叠、左右书籍露出与液态玻璃极简详情视窗
+ * 对应杂志化竖排大标题、横向视差堆叠、左右书籍高比例露出与全圆角悬浮液态玻璃极简视窗
  */
 @Composable
 fun CardFlowHomeScreen(
@@ -77,11 +77,11 @@ fun CardFlowHomeScreen(
                 .fillMaxSize()
                 .padding(
                     top = statusBarTopPadding + 10.dp,
-                    bottom = bottomContentPadding + 14.dp
+                    bottom = bottomContentPadding + 12.dp
                 ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 1. 竖排杂志风大标题 Header + 原版统计图标
+            // 1. 竖排杂志风大标题 Header（右上角统计图标与 Reading 底部水平对齐）
             CardFlowHeader(
                 readingBookCount = displayBooks.size,
                 onStatisticsClick = onNavigateToStatistics,
@@ -90,9 +90,9 @@ fun CardFlowHomeScreen(
                     .padding(horizontal = 24.dp)
             )
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
 
-            // 2. 中央 3D 景深卡片流（当前书居中，左右露出上一本和下一本）
+            // 2. 中央 3D 景深卡片流（左右书籍大比例露出堆叠）
             if (displayBooks.isEmpty()) {
                 EmptyReadingCard(
                     onImportClick = onImportClick,
@@ -114,18 +114,18 @@ fun CardFlowHomeScreen(
 
                     HorizontalPager(
                         state = pagerState,
-                        contentPadding = PaddingValues(horizontal = 80.dp),
-                        pageSpacing = 12.dp,
+                        contentPadding = PaddingValues(horizontal = 68.dp),
+                        pageSpacing = (-8).dp,
                         modifier = Modifier.fillMaxSize()
                     ) { page ->
                         val book = displayBooks[page]
                         val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
                         val absOffset = pageOffset.absoluteValue.coerceIn(0f, 2f)
 
-                        // 3D 景深变换参数：缩放、Y轴旋转与内聚位移
-                        val scale = 1f - (absOffset * 0.16f).coerceIn(0f, 0.22f)
-                        val rotationY = -pageOffset.coerceIn(-1.5f, 1.5f) * 20f
-                        val alpha = 1f - (absOffset * 0.28f).coerceIn(0f, 0.38f)
+                        // 3D 景深变换参数：向内聚拢叠放，使得上一本和下一本能够露出约 35%~40% 封面
+                        val scale = 1f - (absOffset * 0.18f).coerceIn(0f, 0.22f)
+                        val rotationY = -pageOffset.coerceIn(-1.5f, 1.5f) * 22f
+                        val alpha = 1f - (absOffset * 0.22f).coerceIn(0f, 0.32f)
 
                         Box(
                             modifier = Modifier
@@ -135,7 +135,7 @@ fun CardFlowHomeScreen(
                                     scaleY = scale
                                     this.rotationY = rotationY
                                     this.alpha = alpha
-                                    this.translationX = -pageOffset * 24.dp.toPx()
+                                    this.translationX = -pageOffset * 34.dp.toPx()
                                     cameraDistance = 16 * density
                                 }
                                 .clickable(
@@ -154,33 +154,10 @@ fun CardFlowHomeScreen(
                         }
                     }
                 }
-
-                // 底部保留：轻触封面展开提示
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                        .padding(horizontal = 14.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.AutoAwesome,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "轻触封面展开详情与 AI 伴读",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
         }
 
-        // 3. 卡片平滑展开为液态玻璃极简详情视窗
+        // 3. 卡片平滑展开为悬浮居中、全圆角液态玻璃极简详情视窗
         selectedBookForDetail?.let { book ->
             BookDetailDialog(
                 book = book,
@@ -196,7 +173,8 @@ fun CardFlowHomeScreen(
 }
 
 /**
- * 顶部竖排杂志风大标题 Header（I'm Now Reading 垂直排版 + 跟随系统字体 + 原版统计图标）
+ * 顶部竖排杂志风大标题 Header
+ * I'm Now Reading 垂直排版 + 跟随系统原生字体 + 统计图标与 Reading 底部严格平齐
  */
 @Composable
 private fun CardFlowHeader(
@@ -204,12 +182,12 @@ private fun CardFlowHeader(
     onStatisticsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Column {
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom
+        ) {
             Column(verticalArrangement = Arrangement.spacedBy((-4).dp)) {
                 Text(
                     text = "I'm",
@@ -233,31 +211,32 @@ private fun CardFlowHeader(
                     letterSpacing = (-0.5).sp
                 )
             }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = if (readingBookCount > 0) "共 $readingBookCount 本书籍在读" else "暂无正在阅读的书籍",
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+
+            // 右上角统计图标按钮，其底边与 Reading 底部水平严格平齐
+            IconButton(
+                onClick = onStatisticsClick,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Leaderboard,
+                    contentDescription = stringResource(R.string.statistics_title),
+                    tint = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
 
-        // 右上角保留原版统计图标按钮
-        IconButton(
-            onClick = onStatisticsClick,
-            modifier = Modifier.size(40.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Leaderboard,
-                contentDescription = stringResource(R.string.statistics_title),
-                tint = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.size(24.dp)
-            )
-        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = if (readingBookCount > 0) "共 $readingBookCount 本书籍在读" else "暂无正在阅读的书籍",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
 /**
- * 3D 景深单书卡片（纯净封面，书名与作者在封面下方居中，无进度条）
+ * 3D 景深单书卡片（精致尺寸 195dp，纯净封面无多余文字与进度条，书名与作者在封面下方居中）
  */
 @Composable
 private fun Book3DCardItem(
@@ -267,7 +246,7 @@ private fun Book3DCardItem(
     modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = modifier.width(220.dp),
+        modifier = modifier.width(195.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Card(
@@ -300,7 +279,7 @@ private fun Book3DCardItem(
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
 
         // 封面下方居中：书名（加粗）与作者（灰色）
         Text(
@@ -329,7 +308,7 @@ private fun Book3DCardItem(
 }
 
 /**
- * 液态玻璃极简详情视窗（参考图 3 与图 5）
+ * 悬浮居中、上下全圆角的液态玻璃极简详情视窗（参考图 4）
  */
 @Composable
 private fun BookDetailDialog(
@@ -350,12 +329,19 @@ private fun BookDetailDialog(
     if (isLiquidGlass) {
         LiquidGlassDialog(
             onDismissRequest = onDismiss,
-            alignment = Alignment.BottomCenter,
-            shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-            contentScrimColor = AppColors.CardBg.copy(alpha = 0.32f),
-            backgroundScrimColor = Color.Black.copy(alpha = 0.16f)
+            alignment = Alignment.Center,
+            shape = RoundedCornerShape(32.dp),
+            contentScrimColor = AppColors.CardBg.copy(alpha = 0.45f),
+            backgroundScrimColor = Color.Black.copy(alpha = 0.25f)
         ) {
-            dialogContent()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.88f)
+                    .fillMaxHeight(0.72f)
+                    .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.35f)), RoundedCornerShape(32.dp))
+            ) {
+                dialogContent()
+            }
         }
     } else {
         Dialog(
@@ -369,25 +355,26 @@ private fun BookDetailDialog(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.40f))
+                    .background(Color.Black.copy(alpha = 0.35f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = onDismiss
                     ),
-                contentAlignment = Alignment.BottomCenter
+                contentAlignment = Alignment.Center
             ) {
                 Surface(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .fillMaxHeight(0.85f)
+                        .fillMaxWidth(0.88f)
+                        .fillMaxHeight(0.72f)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = {}
                         ),
-                    shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                    shape = RoundedCornerShape(32.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
                     tonalElevation = 8.dp
                 ) {
                     dialogContent()
@@ -407,12 +394,11 @@ private fun BookDetailSheetContent(
 
     Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .fillMaxHeight(0.85f)
-            .padding(horizontal = 24.dp, vertical = 20.dp),
+            .fillMaxSize()
+            .padding(horizontal = 22.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 顶部操作栏：左上角圆形叉号关闭按钮（参考图 3）
+        // 顶部操作栏：左上角圆形叉号关闭按钮（参考图 4）
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Start,
@@ -421,7 +407,7 @@ private fun BookDetailSheetContent(
             IconButton(
                 onClick = onDismiss,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(34.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             ) {
@@ -433,8 +419,6 @@ private fun BookDetailSheetContent(
                 )
             }
         }
-
-        Spacer(Modifier.height(10.dp))
 
         // 中间主体（可滚动居中内容）
         Column(
@@ -448,7 +432,7 @@ private fun BookDetailSheetContent(
             // 居中大封面（大圆角，点击可直接开始阅读）
             Card(
                 modifier = Modifier
-                    .width(140.dp)
+                    .width(128.dp)
                     .aspectRatio(0.68f)
                     .shadow(16.dp, RoundedCornerShape(18.dp))
                     .clickable(onClick = onContinueReading),
@@ -467,12 +451,12 @@ private fun BookDetailSheetContent(
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
 
             // 封面下方居中：书名
             Text(
                 text = book.title,
-                fontSize = 20.sp,
+                fontSize = 19.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
@@ -482,10 +466,10 @@ private fun BookDetailSheetContent(
 
             // 封面下方居中：作者
             if (book.author.isNotBlank()) {
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(3.dp))
                 Text(
                     text = book.author,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
@@ -493,15 +477,15 @@ private fun BookDetailSheetContent(
                 )
             }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(16.dp))
 
             // 精致圆角「继续阅读 / 开始阅读」行动按钮
             Button(
                 onClick = onContinueReading,
                 modifier = Modifier
-                    .widthIn(min = 160.dp, max = 220.dp)
-                    .height(44.dp),
-                shape = RoundedCornerShape(22.dp),
+                    .widthIn(min = 150.dp, max = 200.dp)
+                    .height(42.dp),
+                shape = RoundedCornerShape(21.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AppColors.Accent
                 )
@@ -514,21 +498,21 @@ private fun BookDetailSheetContent(
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = if (book.readingProgress > 0) "继续阅读" else "开始阅读",
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
         // 底部极简 AI 伴读输入框（圆角胶囊形输入框 + 向上箭头发送按钮）
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(28.dp))
+                .clip(RoundedCornerShape(26.dp))
                 .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-                .padding(start = 20.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                .padding(start = 18.dp, end = 6.dp, top = 5.dp, bottom = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -542,14 +526,14 @@ private fun BookDetailSheetContent(
                     modifier = Modifier.fillMaxWidth(),
                     textStyle = LocalTextStyle.current.copy(
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp
+                        fontSize = 13.sp
                     ),
                     singleLine = true,
                     decorationBox = { innerTextField ->
                         if (inputText.isBlank()) {
                             Text(
                                 text = "Ask about this book...",
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             )
                         }
@@ -560,7 +544,7 @@ private fun BookDetailSheetContent(
             IconButton(
                 onClick = { /* 占位预留 */ },
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(34.dp)
                     .clip(CircleShape)
                     .background(
                         if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary
@@ -571,7 +555,7 @@ private fun BookDetailSheetContent(
                     imageVector = Icons.Outlined.ArrowUpward,
                     contentDescription = "Send",
                     tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(17.dp)
                 )
             }
         }
