@@ -460,13 +460,14 @@ private fun BookDetailSheetContent(
     var bookIntro by remember(book.id) { mutableStateOf<String?>(null) }
     LaunchedEffect(book.id) {
         withContext(Dispatchers.IO) {
+            val pathStr = book.filePath.orEmpty()
             var resolvedUrl: String? = null
-            if (book.filePath.startsWith("legado-online://")) {
-                resolvedUrl = book.filePath.removePrefix("legado-online://")
-            } else if (book.filePath.startsWith("legado://")) {
-                resolvedUrl = book.filePath.removePrefix("legado://")
-            } else if (book.filePath.startsWith("online://")) {
-                resolvedUrl = book.filePath.removePrefix("online://")
+            if (pathStr.startsWith("legado-online://")) {
+                resolvedUrl = pathStr.removePrefix("legado-online://")
+            } else if (pathStr.startsWith("legado://")) {
+                resolvedUrl = pathStr.removePrefix("legado://")
+            } else if (pathStr.startsWith("online://")) {
+                resolvedUrl = pathStr.removePrefix("online://")
             }
 
             if (!resolvedUrl.isNullOrBlank()) {
@@ -491,7 +492,7 @@ private fun BookDetailSheetContent(
                 }
             }
 
-            if (bookIntro.isNullOrBlank() && book.filePath.endsWith(".epub", ignoreCase = true)) {
+            if (bookIntro.isNullOrBlank() && pathStr.endsWith(".epub", ignoreCase = true)) {
                 bookIntro = runCatching {
                     java.util.zip.ZipFile(book.filePath).use { zip ->
                         val container = zip.getEntry("META-INF/container.xml") ?: return@use null
