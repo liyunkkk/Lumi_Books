@@ -67,6 +67,13 @@ object BookSourceRepository {
         }
     }
 
+    suspend fun saveAll(sources: List<BookSource>): Result<Int> = withContext(Dispatchers.IO) {
+        runCatching {
+            appDb.bookSourceDao.insert(*sources.toTypedArray())
+            sources.size
+        }
+    }
+
     suspend fun setEnabled(sourceUrl: String, enabled: Boolean) = withContext(Dispatchers.IO) {
         appDb.bookSourceDao.enable(sourceUrl, enabled)
     }

@@ -130,7 +130,6 @@ import com.huangder.lumibooks.ui.animation.OverscrollBounce
 import com.huangder.lumibooks.ui.animation.PageEntranceItem
 import com.huangder.lumibooks.ui.components.StatusGradientOverlay
 import com.huangder.lumibooks.ui.components.BookCoverProgressOverlay
-import com.huangder.lumibooks.ui.components.CloudAwareBookDeleteDialog
 import com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassBackdrop
 import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
@@ -143,6 +142,10 @@ import com.huangder.lumibooks.ui.components.LiquidGlassTextButton
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
 import com.huangder.lumibooks.ui.components.ConfigurableBackHandler
 import com.huangder.lumibooks.ui.home.HomeViewModel
+import com.huangder.lumibooks.ui.discover.BookDiscoveryRepository
+import com.huangder.lumibooks.ui.discover.OnlineBookRepository
+import io.legado.app.data.appDb
+import io.legado.app.data.entities.SearchBook
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppRadius
 import com.huangder.lumibooks.ui.theme.AppSpace
@@ -207,7 +210,9 @@ fun BookshelfScreen(
     var bookshelfHeaderHeightPx by remember { mutableStateOf(0) }
     var isEditing by remember { mutableStateOf(false) }
     var selectedBookIds by remember { mutableStateOf(emptySet<String>()) }
-    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+    var changeSourceTargetBook by remember { mutableStateOf<Book?>(null) }
+    var changeSourceResults by remember { mutableStateOf<List<SearchBook>>(emptyList()) }
+    var isSearchingChangeSources by remember { mutableStateOf(false) }
     var deletingBookIds by remember { mutableStateOf(emptySet<String>()) }
     var booksPendingDeletion by remember { mutableStateOf(emptyList<Book>()) }
     var pendingDeleteMode by remember { mutableStateOf(BookDeleteMode.LOCAL_ONLY) }
@@ -613,10 +618,18 @@ fun BookshelfScreen(
         expandedListBookId = null
         moveTargetBook = book
     }
+
+    val triggerDeleteBooks: (List<Book>) -> Unit = { targets ->
+        if (targets.isNotEmpty()) {
+            val mode = if (targets.any { it.remoteFileName != null }) BookDeleteMode.LOCAL_AND_CLOUD else BookDeleteMode.LOCAL_ONLY
+            pendingDeleteMode = mode
+            booksPendingDeletion = targets
+            deletingBookIds = targets.mapTo(mutableSetOf()) { it.id }
+        }
+    }
     val deleteBookFromList: (Book) -> Unit = { book ->
         expandedListBookId = null
-        booksPendingDeletion = listOf(book)
-        showBatchDeleteConfirm = true
+        triggerDeleteBooks(listOf(book))
     }
     val chooseCoverFromList: (Book) -> Unit = { book ->
         expandedListBookId = null
@@ -824,8 +837,8 @@ fun BookshelfScreen(
                             if (!isEditing) selectedBookIds = emptySet()
                         },
                         onDeleteSelected = {
-                            booksPendingDeletion = uiState.books.filter { it.id in selectedBookIds }
-                            showBatchDeleteConfirm = true
+                            val targets = uiState.books.filter { it.id in selectedBookIds }
+                            triggerDeleteBooks(targets)
                         },
                         onTagSelected = { showBatchTagSheet = true },
                         onMoveSelected = { showBatchMoveSheet = true },
@@ -946,8 +959,8 @@ fun BookshelfScreen(
                         if (!isEditing) selectedBookIds = emptySet()
                     },
                     onDeleteSelected = {
-                        booksPendingDeletion = uiState.books.filter { it.id in selectedBookIds }
-                        showBatchDeleteConfirm = true
+                        val targets = uiState.books.filter { it.id in selectedBookIds }
+                        triggerDeleteBooks(targets)
                     },
                     onTagSelected = { showBatchTagSheet = true },
                     onMoveSelected = { showBatchMoveSheet = true },
@@ -1035,8 +1048,7 @@ fun BookshelfScreen(
                 },
                 onDelete = { book ->
                     expandedSearchBookId = null
-                    booksPendingDeletion = listOf(book)
-                    showBatchDeleteConfirm = true
+                    triggerDeleteBooks(listOf(book))
                 },
                 onFavorite = { book ->
                     viewModel.updateBook(book.copy(isFavorite = !book.isFavorite))
@@ -1090,8 +1102,36 @@ fun BookshelfScreen(
                 }
             },
             onDelete = { book ->
-                booksPendingDeletion = listOf(book)
-                showBatchDeleteConfirm = true
+                triggerDeleteBooks(listOf(book))
+            },
+            onChangeSource = { book ->
+                changeSourceTargetBook = book
+                changeSourceResults = emptyList()
+                isSearchingChangeSources = true
+                coroutineScope.launch {
+                    try {
+                        val title = book.title.trim()
+                        val allSources = withContext(Dispatchers.IO) {
+                            val enabled = runCatching { appDb.bookSourceDao.allEnabled() }.getOrDefault(emptyList())
+                            val all = runCatching { appDb.bookSourceDao.all() }.getOrDefault(emptyList())
+                            val candidates = (if (enabled.isNotEmpty()) enabled else all).filter { !it.searchUrl.isNullOrBlank() }
+                            candidates.distinctBy { it.bookSourceUrl }
+                        }
+                        BookDiscoveryRepository.searchStreaming(
+                            keyword = title,
+                            sources = allSources,
+                            maxConcurrency = 6,
+                            sourceTimeoutMs = 8000L
+                        ) { batch ->
+                            val matched = batch.filter { it.name.trim() == title }
+                            changeSourceResults = matched
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("BookshelfScreen", "换源搜索异常: ${e.message}")
+                    } finally {
+                        isSearchingChangeSources = false
+                    }
+                }
             },
             onFavorite = { book ->
                 pendingContextMenuAction = PendingBookMenuAction(PendingBookMenuActionType.Favorite, book)
@@ -1411,23 +1451,29 @@ fun BookshelfScreen(
             )
         }
 
-        if (showBatchDeleteConfirm) {
-            val targets = booksPendingDeletion.ifEmpty {
-                uiState.books.filter { it.id in selectedBookIds }
-            }
-            CloudAwareBookDeleteDialog(
-                bookCount = targets.size,
-                hasRemoteBooks = targets.any { it.remoteFileName != null },
-                onDismiss = {
-                    showBatchDeleteConfirm = false
-                    booksPendingDeletion = emptyList()
+        // 书库换源弹窗（无缝换源，点击即切无需额外确认或提示）
+        if (changeSourceTargetBook != null) {
+            BookshelfChangeSourceDialog(
+                sources = changeSourceResults,
+                isSearching = isSearchingChangeSources,
+                onSelectSource = { targetSearchBook ->
+                    val target = changeSourceTargetBook
+                    if (target != null) {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val newEngineBookUrl = targetSearchBook.bookUrl
+                            val newFilePath = OnlineBookRepository.SCHEME + newEngineBookUrl
+                            val engineBook = appDb.bookDao.getBook(newEngineBookUrl)
+                                ?: targetSearchBook.toBook().also { appDb.bookDao.insert(it) }
+                            val updatedBook = target.copy(
+                                filePath = newFilePath,
+                                coverPath = engineBook.coverUrl ?: target.coverPath
+                            )
+                            viewModel.updateBook(updatedBook)
+                        }
+                        changeSourceTargetBook = null
+                    }
                 },
-                onDelete = { mode ->
-                    pendingDeleteMode = mode
-                    booksPendingDeletion = targets
-                    deletingBookIds = targets.mapTo(mutableSetOf()) { it.id }
-                    showBatchDeleteConfirm = false
-                }
+                onDismiss = { changeSourceTargetBook = null }
             )
         }
     }
@@ -2820,4 +2866,115 @@ private fun AddBookItem(onClick: () -> Unit) {
 internal fun formatProgressPercent(progress: Float): String {
     val pct = progress * 100f
     return if (pct < 10f) "%.1f%%".format(pct) else "${pct.toInt()}%"
+}
+
+// ─── 书库快速换源弹窗 ─────────────────────────────────────────────
+@Composable
+private fun BookshelfChangeSourceDialog(
+    sources: List<SearchBook>,
+    isSearching: Boolean,
+    onSelectSource: (SearchBook) -> Unit,
+    onDismiss: () -> Unit
+) {
+    LiquidGlassAlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "切换书源",
+                    color = AppColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                if (isSearching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = AppColors.Accent
+                    )
+                }
+            }
+        },
+        text = {
+            if (sources.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isSearching) "正在检索可用书源..." else "未检索到同名书源书籍",
+                        color = AppColors.TextSecondary,
+                        fontSize = 14.sp
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    sources.forEach { book ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = AppColors.CardBg,
+                            border = BorderStroke(1.dp, AppColors.Divider.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectSource(book) }
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = book.originName.ifBlank { "未知书源" },
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = AppColors.TextPrimary
+                                    )
+                                    if (book.author.isNotBlank()) {
+                                        Text(
+                                            text = book.author,
+                                            fontSize = 12.sp,
+                                            color = AppColors.TextSecondary
+                                        )
+                                    }
+                                }
+                                if (!book.latestChapterTitle.isNullOrBlank()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = "最新: ${book.latestChapterTitle}",
+                                        fontSize = 12.sp,
+                                        color = AppColors.TextSecondary,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            LiquidGlassTextButton(
+                text = "关闭",
+                onClick = onDismiss
+            )
+        }
+    )
 }

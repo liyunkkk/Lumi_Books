@@ -86,7 +86,6 @@ import com.huangder.lumibooks.domain.model.FolderMoveResult
 import com.huangder.lumibooks.domain.model.LibraryTag
 import com.huangder.lumibooks.domain.model.LibraryFolder
 import com.huangder.lumibooks.ui.components.ConfigurableActivityBack
-import com.huangder.lumibooks.ui.components.CloudAwareBookDeleteDialog
 import com.huangder.lumibooks.ui.components.ConfigurableBackHandler
 import com.huangder.lumibooks.ui.components.EditInputDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
@@ -790,9 +789,17 @@ private fun CategoryBooksPage(
                 onEditInfo = { editingBook = it },
                 onBookDetails = { book -> BookDetailsActivity.start(context, book.id) },
                 onMoveToFolder = { book -> moveTargetBook = book },
+
+    val triggerDeleteCategoryBooks: (List<Book>) -> Unit = { targets ->
+        if (targets.isNotEmpty()) {
+            val mode = if (targets.any { it.remoteFileName != null }) BookDeleteMode.LOCAL_AND_CLOUD else BookDeleteMode.LOCAL_ONLY
+            pendingDeleteMode = mode
+            pendingDeleteBooks = targets
+            deletingBookIds = targets.mapTo(mutableSetOf()) { it.id }
+        }
+    }
                 onDelete = {
-                    pendingDeleteBooks = listOf(it)
-                    showDeleteConfirm = true
+                    triggerDeleteCategoryBooks(listOf(it))
                 },
                 onFavorite = { viewModel.updateBook(it.copy(isFavorite = !it.isFavorite)) },
                 onCustomCover = { coverSourceBook = it },
@@ -817,8 +824,8 @@ private fun CategoryBooksPage(
                     if (!isEditing) selectedBookIds = emptySet()
                 },
                 onDelete = {
-                    pendingDeleteBooks = books.filter { it.id in selectedBookIds }
-                    showDeleteConfirm = true
+                    val targets = books.filter { it.id in selectedBookIds }
+                    triggerDeleteCategoryBooks(targets)
                 },
                 onTags = { showBatchTagSheet = true },
                 onMove = { showBatchMoveSheet = true },
@@ -830,8 +837,7 @@ private fun CategoryBooksPage(
             BookContextMenuOverlay(
                 state = contextMenuState,
                 onDelete = {
-                    pendingDeleteBooks = listOf(it)
-                    showDeleteConfirm = true
+                    triggerDeleteCategoryBooks(listOf(it))
                 },
                 onFavorite = { viewModel.updateBook(it.copy(isFavorite = !it.isFavorite)) },
                 onCustomCover = { coverSourceBook = it },
@@ -970,25 +976,7 @@ private fun CategoryBooksPage(
             )
         }
     }
-    if (showDeleteConfirm) {
-        val targets = pendingDeleteBooks.ifEmpty {
-            books.filter { it.id in selectedBookIds }
-        }
-        CloudAwareBookDeleteDialog(
-            bookCount = targets.size,
-            hasRemoteBooks = targets.any { it.remoteFileName != null },
-            onDismiss = {
-                showDeleteConfirm = false
-                pendingDeleteBooks = emptyList()
-            },
-            onDelete = { mode ->
-                pendingDeleteMode = mode
-                pendingDeleteBooks = targets
-                deletingBookIds = targets.mapTo(mutableSetOf()) { it.id }
-                showDeleteConfirm = false
-            }
-        )
-    }
+
 }
 
 @Composable

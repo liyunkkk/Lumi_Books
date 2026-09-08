@@ -88,7 +88,6 @@ import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookDeleteMode
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
 import com.huangder.lumibooks.ui.components.ConfigurableActivityBack
-import com.huangder.lumibooks.ui.components.CloudAwareBookDeleteDialog
 import com.huangder.lumibooks.ui.components.EditInputDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassDialogHost
@@ -309,7 +308,11 @@ fun BookDetailsScreen(
         }
         FloatingDetailTag(
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp),
-            onDelete = { deleteOpen = true }, onEdit = { editing = true }, onMove = { moveOpen = true },
+            onDelete = {
+                val mode = if (book.remoteFileName != null) BookDeleteMode.LOCAL_AND_CLOUD else BookDeleteMode.LOCAL_ONLY
+                homeViewModel.deleteBook(book, mode)
+                onBack()
+            }, onEdit = { editing = true }, onMove = { moveOpen = true },
             onNotes = { context.startActivity(Intent(context, BookNotesActivity::class.java).putExtra(BookNotesActivity.EXTRA_BOOK_ID, book.id)) },
             onRead = { onOpenReader(book.id) }
         )
@@ -341,16 +344,7 @@ fun BookDetailsScreen(
         )
     }
     if (coverOpen) CustomCoverSourceSheet(book, { coverOpen = false }, { coverOpen = false; coverTarget = book; coverPicker.launch("image/*") }, { coverOpen = false; CoverSearchActivity.start(context, book.id, book.title) })
-    if (deleteOpen) CloudAwareBookDeleteDialog(
-        bookCount = 1,
-        hasRemoteBooks = book.remoteFileName != null,
-        onDismiss = { deleteOpen = false },
-        onDelete = { mode: BookDeleteMode ->
-            homeViewModel.deleteBook(book, mode)
-            deleteOpen = false
-            onBack()
-        }
-    )
+
 }
 
 @Composable private fun BookHero(book: Book, folder: String, onCover: () -> Unit) {

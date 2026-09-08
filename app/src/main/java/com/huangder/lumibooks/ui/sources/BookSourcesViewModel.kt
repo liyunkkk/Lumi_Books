@@ -3,13 +3,20 @@ package com.huangder.lumibooks.ui.sources
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.legado.app.data.entities.BookSource
+import io.legado.app.help.http.okHttpClient
 import io.legado.app.model.Debug
+import io.legado.app.utils.GSON
+import io.legado.app.utils.fromJsonArray
+import io.legado.app.utils.fromJsonObject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.Request
 
 enum class SourceFilter {
     ALL,
@@ -26,8 +33,11 @@ class BookSourcesViewModel : ViewModel() {
     val selectedGroup = MutableStateFlow<String?>(null)
     val filterStatus = MutableStateFlow(SourceFilter.ALL)
 
+    // 刷新版本计数器：用于强制通知 StateFlow 与 Compose 响应式刷新
+    val refreshTick = MutableStateFlow(0L)
+
     // 动态提取分组列表
-    val groups: StateFlow<List<String>> = allSources.combine(MutableStateFlow(Unit)) { sources, _ ->
+    val groups: StateFlow<List<String>> = combine(allSources, refreshTick) { sources, _ ->
         sources.flatMap { it.bookSourceGroup?.split(",", ";", "，", "；")?.map(String::trim) ?: emptyList() }
             .filter { it.isNotBlank() }
             .distinct()
@@ -39,8 +49,9 @@ class BookSourcesViewModel : ViewModel() {
         allSources,
         searchQuery,
         selectedGroup,
-        filterStatus
-    ) { sources, query, group, filter ->
+        filterStatus,
+        refreshTick
+    ) { sources, query, group, filter, _ ->
         sources.filter { source ->
             // 1. 搜索过滤
             val matchesQuery = query.isBlank() ||
@@ -83,6 +94,10 @@ class BookSourcesViewModel : ViewModel() {
     private val _editingSource = MutableStateFlow<BookSource?>(null)
     val editingSource: StateFlow<BookSource?> = _editingSource
 
+    // ─── 待确认导入状态 ──────────────────────────────────────────────
+    private val _pendingImportSources = MutableStateFlow<List<BookSource>?>(null)
+    val pendingImportSources: StateFlow<List<BookSource>?> = _pendingImportSources
+
     fun setSearchQuery(query: String) {
         searchQuery.value = query
     }
@@ -95,25 +110,109 @@ class BookSourcesViewModel : ViewModel() {
         filterStatus.value = filter
     }
 
-    fun importFromJson(json: String) {
-        if (_loading.value) return
-        viewModelScope.launch {
-            _loading.value = true
-            BookSourceRepository.importFromJson(json)
-                .onSuccess { _operationMessage.value = "成功导入 $it 个书源" }
-                .onFailure { _operationMessage.value = "导入失败：${it.message}" }
-            _loading.value = false
+    /** 解析 JSON 书源数据并放入待导入确认状态 */
+    fun prepareImportFromJson(json: String) {
+        runCatching {
+            val trimmed = json.trim()
+            val sources: List<BookSource> = if (trimmed.startsWith("[")) {
+                GSON.fromJsonArray<BookSource>(trimmed).getOrThrow()
+            } else {
+                val single = GSON.fromJsonObject<BookSource>(trimmed).getOrThrow()
+                listOf(single)
+            }
+            if (sources.isEmpty()) {
+                error("未解析到任何书源，请检查 JSON 格式")
+            }
+            _pendingImportSources.value = sources
+        }.onFailure {
+            _operationMessage.value = "解析书源失败：${it.message}"
         }
     }
 
-    fun importFromUrl(url: String) {
+    /** 从网络下载书源并放入待导入确认状态 */
+    fun prepareImportFromUrl(url: String) {
         if (_loading.value) return
         viewModelScope.launch {
             _loading.value = true
-            BookSourceRepository.importFromUrl(url)
-                .onSuccess { _operationMessage.value = "成功从网络导入 $it 个书源" }
-                .onFailure { _operationMessage.value = "网络导入失败：${it.message}" }
-            _loading.value = false
+            try {
+                val cleanUrl = url.trim()
+                if (!cleanUrl.startsWith("http://", ignoreCase = true) &&
+                    !cleanUrl.startsWith("https://", ignoreCase = true)
+                ) {
+                    error("请输入合法的 HTTP/HTTPS 网络链接")
+                }
+                val body = withContext(Dispatchers.IO) {
+                    val request = Request.Builder()
+                        .url(cleanUrl)
+                        .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Lumi/1.0")
+                        .build()
+                    val response = okHttpClient.newCall(request).execute()
+                    if (!response.isSuccessful) {
+                        error("网络请求失败: HTTP ${response.code}")
+                    }
+                    response.body?.string() ?: error("书源响应内容为空")
+                }
+                prepareImportFromJson(body)
+            } catch (e: Exception) {
+                _operationMessage.value = "拉取网络书源失败：${e.message}"
+            } finally {
+                _loading.value = false
+            }
+        }
+    }
+
+    fun cancelPendingImport() {
+        _pendingImportSources.value = null
+    }
+
+    /** 确认导入：支持自定义分组与覆盖更新选项 */
+    fun confirmImport(
+        sources: List<BookSource>,
+        targetGroup: String?,
+        overrideExisting: Boolean
+    ) {
+        if (_loading.value) return
+        viewModelScope.launch {
+            _loading.value = true
+            try {
+                val currentSources = allSources.value
+                val existingUrls = currentSources.map { it.bookSourceUrl }.toSet()
+
+                val finalSources = sources.map { src ->
+                    val groupStr = targetGroup?.trim()
+                    val finalGroup = if (!groupStr.isNullOrBlank()) {
+                        val existingGroups = src.bookSourceGroup
+                            ?.split(",", ";", "，", "；")
+                            ?.map(String::trim)
+                            ?.filter(String::isNotBlank)
+                            ?.toMutableSet() ?: mutableSetOf()
+                        existingGroups.add(groupStr)
+                        existingGroups.joinToString(",")
+                    } else {
+                        src.bookSourceGroup
+                    }
+                    src.copy(bookSourceGroup = finalGroup)
+                }
+
+                val toSave = if (overrideExisting) {
+                    finalSources
+                } else {
+                    finalSources.filter { it.bookSourceUrl !in existingUrls }
+                }
+
+                if (toSave.isEmpty()) {
+                    _operationMessage.value = "未导入任何书源（目标书源已全部存在且未选择覆盖）"
+                } else {
+                    BookSourceRepository.saveAll(toSave)
+                    refreshTick.value++
+                    _operationMessage.value = "成功导入 ${toSave.size} 个书源"
+                }
+            } catch (e: Exception) {
+                _operationMessage.value = "导入失败：${e.message}"
+            } finally {
+                _pendingImportSources.value = null
+                _loading.value = false
+            }
         }
     }
 
@@ -121,6 +220,7 @@ class BookSourcesViewModel : ViewModel() {
         viewModelScope.launch {
             val newStatus = !source.enabled
             BookSourceRepository.setEnabled(source.bookSourceUrl, newStatus)
+            refreshTick.value++
         }
     }
 
@@ -128,12 +228,14 @@ class BookSourcesViewModel : ViewModel() {
         viewModelScope.launch {
             val newStatus = !source.enabledExplore
             BookSourceRepository.setExploreEnabled(source.bookSourceUrl, newStatus)
+            refreshTick.value++
         }
     }
 
     fun delete(source: BookSource) {
         viewModelScope.launch {
             BookSourceRepository.delete(source.bookSourceUrl)
+            refreshTick.value++
             _operationMessage.value = "已删除书源: ${source.bookSourceName.ifBlank { source.bookSourceUrl }}"
         }
     }
@@ -141,6 +243,7 @@ class BookSourcesViewModel : ViewModel() {
     fun deleteAll() {
         viewModelScope.launch {
             BookSourceRepository.deleteAll()
+            refreshTick.value++
             _operationMessage.value = "已清空所有书源"
         }
     }
@@ -149,6 +252,7 @@ class BookSourcesViewModel : ViewModel() {
         viewModelScope.launch {
             BookSourceRepository.save(source)
                 .onSuccess {
+                    refreshTick.value++
                     _operationMessage.value = "书源「${source.bookSourceName}」已保存"
                     _editingSource.value = null
                 }
@@ -183,7 +287,6 @@ class BookSourcesViewModel : ViewModel() {
         stopDebug()
         _isDebugging.value = true
         _debugLogs.value = listOf("⇒ 启动测试: $key", "⇒ 书源: ${source.bookSourceName} (${source.bookSourceUrl})")
-
         Debug.callback = object : Debug.Callback {
             override fun printLog(state: Int, msg: String) {
                 val current = _debugLogs.value.toMutableList()

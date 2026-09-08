@@ -25,6 +25,7 @@ import com.huangder.lumibooks.domain.model.TagNameValidator
 import com.huangder.lumibooks.domain.repository.BookRepository
 import com.huangder.lumibooks.domain.repository.FolderRepository
 import com.huangder.lumibooks.domain.repository.ReadingRepository
+import com.huangder.lumibooks.ui.discover.OnlineBookRepository
 import com.huangder.lumibooks.domain.repository.TagRepository
 import com.huangder.lumibooks.util.FileUtils
 import com.huangder.lumibooks.util.TimeUtils
@@ -232,6 +233,24 @@ class HomeViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true)
             try {
                 bookRepository.getAllBooks().collectLatest { books ->
+                    // 治理书库历史多书源同名在线小说：同一部小说只保留进度最高或最新一本，其余静默平滑移除
+                    val onlineBooks = books.filter { it.filePath.startsWith(OnlineBookRepository.SCHEME) }
+                    val duplicates = onlineBooks.groupBy { "${it.title.trim()}###${it.author.trim()}" }
+                        .filter { it.value.size > 1 }
+                    if (duplicates.isNotEmpty()) {
+                        viewModelScope.launch(Dispatchers.IO) {
+                            duplicates.forEach { (_, groupList) ->
+                                val keep = groupList.maxWithOrNull(
+                                    compareBy<Book> { it.readingProgress > 0 }
+                                        .thenBy { it.lastReadTime }
+                                ) ?: groupList.first()
+                                groupList.filter { it.id != keep.id }.forEach { toRemove ->
+                                    bookRepository.deleteBook(toRemove)
+                                }
+                            }
+                        }
+                    }
+
                     val sortedBooks = sortBooks(books, _uiState.value.sortBy)
                     _uiState.value = _uiState.value.copy(
                         books = sortedBooks,

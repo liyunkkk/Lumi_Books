@@ -139,7 +139,7 @@ fun BookSourcesScreen(
             runCatching {
                 context.contentResolver.openInputStream(it)?.use { input ->
                     val json = input.readBytes().decodeToString()
-                    viewModel.importFromJson(json)
+                    viewModel.prepareImportFromJson(json)
                 }
             }.onFailure {
                 // 由 ViewModel 或异常提示
@@ -411,7 +411,21 @@ fun BookSourcesScreen(
             onDismiss = { showUrlImportDialog = false },
             onConfirm = { url ->
                 showUrlImportDialog = false
-                viewModel.importFromUrl(url)
+                viewModel.prepareImportFromUrl(url)
+            }
+        )
+    }
+
+    // 导入确认弹窗（支持分组选择与覆盖更新提示）
+    val pendingImportSources by viewModel.pendingImportSources.collectAsState()
+    pendingImportSources?.let { sources ->
+        ImportSourceConfirmDialog(
+            sources = sources,
+            allSources = allSources,
+            availableGroups = groups,
+            onDismiss = { viewModel.cancelPendingImport() },
+            onConfirm = { group, overrideExisting ->
+                viewModel.confirmImport(sources, group, overrideExisting)
             }
         )
     }
@@ -1475,4 +1489,157 @@ private fun GlassDropdownMenuItem(
             )
         }
     }
+}
+// ─── 导入书源确认弹窗（分组选择与覆盖提示） ────────────────────────
+@Composable
+private fun ImportSourceConfirmDialog(
+    sources: List<BookSource>,
+    allSources: List<BookSource>,
+    availableGroups: List<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (group: String?, overrideExisting: Boolean) -> Unit
+) {
+    val appTheme = LocalAppTheme.current
+    val isLiquidGlass = appTheme == "liquid_glass"
+    val existingCount = remember(sources, allSources) {
+        val existingUrls = allSources.map { it.bookSourceUrl }.toSet()
+        sources.count { it.bookSourceUrl in existingUrls }
+    }
+    var overrideExisting by remember { mutableStateOf(true) }
+    var selectedGroup by remember { mutableStateOf<String?>(null) }
+    var customGroupText by remember { mutableStateOf("") }
+
+    LiquidGlassAlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "添加书源",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = AppColors.TextPrimary
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "共解析到 ${sources.size} 个书源",
+                    fontSize = 14.sp,
+                    color = AppColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                if (existingCount > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = AppColors.Accent.copy(alpha = 0.10f),
+                        border = BorderStroke(1.dp, AppColors.Accent.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "⚠️ 检测到其中 $existingCount 个书源已存在于本地",
+                                fontSize = 13.sp,
+                                color = AppColors.Accent,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "覆盖更新已存在书源",
+                                    fontSize = 13.sp,
+                                    color = AppColors.TextPrimary
+                                )
+                                LiquidGlassSwitch(
+                                    checked = overrideExisting,
+                                    onCheckedChange = { overrideExisting = it }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Text(
+                    text = "归属分组：",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = AppColors.TextSecondary
+                )
+
+                if (availableGroups.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        availableGroups.take(8).forEach { grp ->
+                            val isSelected = selectedGroup == grp
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) AppColors.Accent.copy(alpha = 0.18f) else AppColors.CardBg,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) AppColors.Accent else AppColors.Divider.copy(alpha = 0.5f)
+                                ),
+                                modifier = Modifier.clickable {
+                                    if (selectedGroup == grp) {
+                                        selectedGroup = null
+                                    } else {
+                                        selectedGroup = grp
+                                        customGroupText = grp
+                                    }
+                                }
+                            ) {
+                                Text(
+                                    text = grp,
+                                    fontSize = 12.sp,
+                                    color = if (isSelected) AppColors.Accent else AppColors.TextPrimary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = customGroupText,
+                    onValueChange = {
+                        customGroupText = it
+                        selectedGroup = it.ifBlank { null }
+                    },
+                    placeholder = {
+                        Text("自定义新分组（留空则保持书源自带分组）", fontSize = 12.sp, color = AppColors.TextSecondary.copy(alpha = 0.6f))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp),
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val groupToApply = customGroupText.trim().ifBlank { selectedGroup }
+                    onConfirm(groupToApply, overrideExisting)
+                },
+                shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
+            ) {
+                Text("立即导入", color = Color.White)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消", color = AppColors.TextSecondary)
+            }
+        }
+    )
 }
