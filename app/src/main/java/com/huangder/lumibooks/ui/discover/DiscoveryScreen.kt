@@ -1,6 +1,13 @@
 package com.huangder.lumibooks.ui.discover
 
 import io.legado.app.data.entities.rule.ExploreKind
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import coil.request.ImageRequest
+import coil.request.CachePolicy
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -203,6 +210,19 @@ fun DiscoveryScreen(
         }
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.pauseAllLoading()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 96.dp
 
@@ -387,30 +407,7 @@ fun DiscoveryScreen(
                     color = AppColors.TextSecondary,
                     modifier = Modifier.padding(horizontal = AppSpace.lg, vertical = 6.dp)
                 )
-            } else if (exploreKinds.isNotEmpty()) {
-                // 分类标签栏
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(horizontal = AppSpace.lg, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(exploreKinds, key = { it.title + (it.url ?: "") }) {
-                        val selected = selectedKind == it
-                        Text(
-                            text = it.title,
-                            fontSize = 13.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (selected) Color.White else AppColors.TextPrimary,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(if (selected) AppColors.Accent else AppColors.CardBg)
-                                .clickable { viewModel.selectKind(it) }
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
-                    }
-                }
             }
-
             // 内容展示区：流媒体一级多分类横滑流优先，搜索模式或单分类按 layoutMode 分流
             when {
                 // 1. 流媒体模式：非搜索状态且多分类流已准备
@@ -430,6 +427,9 @@ fun DiscoveryScreen(
                             contentPadding = PaddingValues(top = 8.dp, bottom = bottomPadding)
                         ) {
                             items(categorySections, key = { it.kind.title + (it.kind.url ?: "") }) { section ->
+                                LaunchedEffect(section.kind.url) {
+                                    viewModel.ensureCategoryLoaded(section.kind)
+                                }
                                 MediaCategorySectionRow(
                                     section = section,
                                     onBookClick = { viewModel.showBookActions(it) },
@@ -634,8 +634,16 @@ private fun DiscoveryBookCover(
         contentAlignment = Alignment.Center
     ) {
         if (!coverUrl.isNullOrBlank() && !loadFailed) {
+            val context = androidx.compose.ui.platform.LocalContext.current
             AsyncImage(
-                model = coverUrl,
+                model = remember(coverUrl) {
+                    coil.request.ImageRequest.Builder(context)
+                        .data(coverUrl)
+                        .crossfade(true)
+                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                        .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                        .build()
+                },
                 contentDescription = name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
@@ -806,6 +814,34 @@ private fun DiscoveryBookActionDialog(
     LaunchedEffect(Unit) {
         animState = true
     }
+    var bookIntro by remember(book.bookUrl) { mutableStateOf<String?>(book.intro?.trim()) }
+    var isIntroLoading by remember(book.bookUrl) { mutableStateOf(false) }
+
+    LaunchedEffect(book.bookUrl) {
+        if (!bookIntro.isNullOrBlank()) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            val cached = runCatching { io.legado.app.data.appDb.bookDao.getBook(book.bookUrl) }.getOrNull()
+            val cachedIntro = cached?.getDisplayIntro()?.trim() ?: cached?.intro?.trim()
+            if (!cachedIntro.isNullOrBlank()) {
+                bookIntro = cachedIntro
+                return@withContext
+            }
+            val source = runCatching { io.legado.app.data.appDb.bookSourceDao.getBookSource(book.origin) }.getOrNull()
+            if (source != null) {
+                isIntroLoading = true
+                runCatching {
+                    val targetBook = book.toBook().apply { infoHtml = null }
+                    val detailed = io.legado.app.model.webBook.WebBook.getBookInfoAwait(source, targetBook)
+                    val rawIntro = detailed.getDisplayIntro().orEmpty().ifBlank { detailed.intro.orEmpty() }.trim()
+                    if (rawIntro.isNotBlank()) {
+                        runCatching { io.legado.app.data.appDb.bookDao.insert(detailed) }
+                        bookIntro = rawIntro
+                    }
+                }
+                isIntroLoading = false
+            }
+        }
+    }
     val contentScale by animateFloatAsState(
         targetValue = if (animState) 1f else 0.88f,
         animationSpec = spring(dampingRatio = 0.72f, stiffness = 280f),
@@ -920,7 +956,7 @@ private fun DiscoveryBookActionDialog(
             }
 
             // 简介全文（可滚动，消除截断）
-            val intro = book.intro?.trim()
+            val intro = bookIntro ?: book.intro?.trim()
             Spacer(Modifier.height(14.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -933,7 +969,7 @@ private fun DiscoveryBookActionDialog(
                     fontWeight = FontWeight.SemiBold,
                     color = AppColors.TextPrimary
                 )
-                if (isLoadingDetail && intro.isNullOrBlank()) {
+                if ((isLoadingDetail || isIntroLoading) && intro.isNullOrBlank()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -964,7 +1000,7 @@ private fun DiscoveryBookActionDialog(
                 Text(
                     text = when {
                         !intro.isNullOrBlank() -> intro
-                        isLoadingDetail -> "正在从书源拉取书籍简介与章节信息..."
+                        isLoadingDetail || isIntroLoading -> "正在从书源拉取书籍简介与章节信息..."
                         else -> "暂无该书籍简介信息"
                     },
                     fontSize = 12.sp,

@@ -82,43 +82,6 @@ fun CardFlowHomeScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // 底部封面柔和弥散光晕层（Ambient Glow）
-        // 采集当前在读书籍封面色彩进行 50dp 超大高斯模糊，让浮动液态玻璃导航栏后方永远拥有通透丰富的折射介质
-        if (displayBooks.isNotEmpty()) {
-            val activeCover = displayBooks.getOrNull(pagerState.currentPage)?.coverPath
-                ?: displayBooks.firstOrNull()?.coverPath
-            if (!activeCover.isNullOrBlank()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp)
-                        .align(Alignment.BottomCenter)
-                        .graphicsLayer { alpha = 0.28f }
-                ) {
-                    AsyncImage(
-                        model = activeCover,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .blur(radius = 50.dp),
-                        contentScale = ContentScale.Crop
-                    )
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.background.copy(alpha = 0.10f),
-                                        MaterialTheme.colorScheme.background.copy(alpha = 0.55f)
-                                    )
-                                )
-                            )
-                    )
-                }
-            }
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()

@@ -335,37 +335,81 @@ class DiscoveryViewModel @Inject constructor(
         _activeBook.value = null
     }
 
+    private val activeSectionJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+
     /**
-     * 并发拉取流媒体分类流（选取前 8 个分类，每个分类拉取第 1 页书籍）
+     * 加载书源全部有效分类（全量支持，利用内存快照 0 毫秒秒开显示，首屏拉取前 4 个，其余按需懒加载）
      */
     private fun loadCategorySections(source: BookSource, kinds: List<ExploreKind>) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isLoadingSections.value = true
-            val targetKinds = kinds.take(8)
-            // 先用占位数据占位
-            _categorySections.value = targetKinds.map { CategorySection(kind = it, books = emptyList(), isLoading = true) }
+        pauseAllLoading()
+        val sections = kinds.map { kind ->
+            val cached = DiscoveryMemoryCache.cache[kind.url ?: ""]
+            CategorySection(
+                kind = kind,
+                books = cached ?: emptyList(),
+                isLoading = cached == null
+            )
+        }
+        _categorySections.value = sections
+        _isLoadingSections.value = false
 
-            val loadedSections = coroutineScope {
-                targetKinds.map { kind ->
-                    async {
-                        val url = kind.url ?: return@async CategorySection(kind = kind, books = emptyList(), isLoading = false)
-                        val result = runCatching {
-                            WebBook.exploreBookAwait(source, url, page = 1)
-                        }.getOrNull()
-                        CategorySection(
-                            kind = kind,
-                            books = result ?: emptyList(),
-                            isLoading = false
-                        )
-                    }
-                }.awaitAll()
-            }
-
-            _categorySections.value = loadedSections.filter { it.books.isNotEmpty() }
-            _isLoadingSections.value = false
+        // 首屏预先拉取前 4 个可见分类
+        kinds.take(4).forEach { kind ->
+            ensureCategoryLoaded(kind)
         }
     }
 
+    /**
+     * 视口按需懒加载单个分类（已有缓存或正在加载则跳过，杜绝冗余网络请求）
+     */
+    fun ensureCategoryLoaded(kind: ExploreKind) {
+        val url = kind.url ?: return
+        if (DiscoveryMemoryCache.cache.containsKey(url)) {
+            val cached = DiscoveryMemoryCache.cache[url] ?: emptyList()
+            updateSectionBooks(kind, cached, false)
+            return
+        }
+        if (activeSectionJobs.containsKey(url)) return
+        val source = _selectedSource.value ?: return
+
+        val job = viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                WebBook.exploreBookAwait(source, url, page = 1)
+            }.getOrNull()
+            val books = result ?: emptyList()
+            if (books.isNotEmpty()) {
+                DiscoveryMemoryCache.cache[url] = books
+            }
+            updateSectionBooks(kind, books, false)
+            activeSectionJobs.remove(url)
+        }
+        activeSectionJobs[url] = job
+    }
+
+    private fun updateSectionBooks(kind: ExploreKind, books: List<SearchBook>, isLoading: Boolean) {
+        val currentList = _categorySections.value.toMutableList()
+        val index = currentList.indexOfFirst { it.kind.title == kind.title && it.kind.url == kind.url }
+        if (index >= 0) {
+            currentList[index] = CategorySection(
+                kind = kind,
+                books = books,
+                isLoading = isLoading
+            )
+            _categorySections.value = currentList
+        }
+    }
+
+    /**
+     * 切后台（ON_STOP）或切书源时物理中断全部网络请求 Job，彻底杜绝待机能耗与连接挂起，保障手机 Deep Doze 深度睡眠
+     */
+    fun pauseAllLoading() {
+        activeSectionJobs.values.forEach { it.cancel() }
+        activeSectionJobs.clear()
+        detailJob?.cancel()
+        _loadingDetail.value = false
+        _isLoadingSections.value = false
+        _isLoadingCategoryDetail.value = false
+    }
     /**
      * 进入流媒体二级分类页面（3 列垂直瀑布流）
      */
@@ -374,8 +418,9 @@ class DiscoveryViewModel @Inject constructor(
         _categoryDetailPage.value = 1
         _categoryDetailBooks.value = emptyList()
         _hasMoreCategoryDetail.value = true
-        // 先复用已有缓存展示
-        val preloaded = _categorySections.value.firstOrNull { it.kind == kind }?.books
+        // 先复用已有内存缓存 0 毫秒秒开展示
+        val preloaded = DiscoveryMemoryCache.cache[kind.url ?: ""]
+            ?: _categorySections.value.firstOrNull { it.kind == kind }?.books
         if (!preloaded.isNullOrEmpty()) {
             _categoryDetailBooks.value = preloaded
         }
@@ -473,3 +518,7 @@ data class CategorySection(
     val books: List<SearchBook> = emptyList(),
     val isLoading: Boolean = false
 )
+
+object DiscoveryMemoryCache {
+    val cache = java.util.concurrent.ConcurrentHashMap<String, List<SearchBook>>()
+}
