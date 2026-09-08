@@ -157,6 +157,7 @@ fun DiscoveryScreen(
     val isLoadingMore by viewModel.isLoadingMore.collectAsState()
     val hasMore by viewModel.hasMore.collectAsState()
     val layoutMode by viewModel.layoutMode.collectAsState()
+    val effectiveLayoutMode = if (layoutMode == 1) 3 else layoutMode
     val activeBook by viewModel.activeBook.collectAsState()
     val isInLibrary by viewModel.isInLibrary.collectAsState()
     val loadingDetail by viewModel.loadingDetail.collectAsState()
@@ -296,7 +297,7 @@ fun DiscoveryScreen(
                                         LiquidGlassMenuItem(
                                             label = context.getString(R.string.bookshelf_standard_grid),
                                             icon = Icons.Outlined.GridView,
-                                            selected = layoutMode == 2,
+                                            selected = (if (layoutMode == 1) 3 else layoutMode) == 2,
                                             onClick = {
                                                 menuHost.dismiss()
                                                 viewModel.setLayoutMode(2)
@@ -305,19 +306,10 @@ fun DiscoveryScreen(
                                         LiquidGlassMenuItem(
                                             label = context.getString(R.string.bookshelf_compact_grid),
                                             icon = Icons.Outlined.ViewModule,
-                                            selected = layoutMode == 3,
+                                            selected = (if (layoutMode == 1) 3 else layoutMode) == 3,
                                             onClick = {
                                                 menuHost.dismiss()
                                                 viewModel.setLayoutMode(3)
-                                            }
-                                        ),
-                                        LiquidGlassMenuItem(
-                                            label = context.getString(R.string.bookshelf_list_layout),
-                                            icon = Icons.Outlined.ViewList,
-                                            selected = layoutMode == 1,
-                                            onClick = {
-                                                menuHost.dismiss()
-                                                viewModel.setLayoutMode(1)
                                             }
                                         )
                                     )
@@ -328,10 +320,9 @@ fun DiscoveryScreen(
                     modifier = Modifier.onGloballyPositioned { layoutAnchorBounds = it.boundsInRoot() }
                 ) {
                     Icon(
-                        imageVector = when (layoutMode) {
-                            1 -> Icons.Outlined.ViewList
-                            3 -> Icons.Outlined.ViewModule
-                            else -> Icons.Outlined.GridView
+                        imageVector = when (if (layoutMode == 1) 3 else layoutMode) {
+                            2 -> Icons.Outlined.GridView
+                            else -> Icons.Outlined.ViewModule
                         },
                         contentDescription = "切换布局",
                         tint = AppColors.TextPrimary
@@ -433,6 +424,7 @@ fun DiscoveryScreen(
                                 }
                                 MediaCategorySectionRow(
                                     section = section,
+                                    layoutMode = effectiveLayoutMode,
                                     onBookClick = { viewModel.showBookActions(it) },
                                     onMoreClick = { viewModel.openCategoryDetail(section.kind) }
                                 )
@@ -487,30 +479,7 @@ fun DiscoveryScreen(
                         }
                     }
                 }
-                layoutMode == 1 -> {
-                    // 列表布局
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(start = AppSpace.lg, end = AppSpace.lg, top = 6.dp, bottom = bottomPadding),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        items(displayBooks, key = { it.bookUrl }) {
-                            DiscoveryBookListItem(book = it, onClick = { viewModel.showBookActions(it) })
-                        }
-                        if (isLoadingMore) {
-                            item {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = AppColors.Accent)
-                                }
-                            }
-                        }
-                    }
-                }
-                layoutMode == 2 -> {
+                effectiveLayoutMode == 2 -> {
                     // 标准网格布局（2列）
                     LazyVerticalGrid(
                         state = gridState2,
@@ -579,6 +548,7 @@ fun DiscoveryScreen(
                 isLoading = isLoadingCategoryDetail,
                 hasMore = hasMoreCategoryDetail,
                 bottomPadding = bottomPadding,
+                layoutMode = effectiveLayoutMode,
                 onBack = { viewModel.closeCategoryDetail() },
                 onLoadMore = { viewModel.loadMoreCategoryDetail() },
                 onBookClick = { viewModel.showBookActions(it) },
@@ -1324,6 +1294,7 @@ private fun MediaBookCard(
 @Composable
 private fun MediaCategorySectionRow(
     section: CategorySection,
+    layoutMode: Int,
     onBookClick: (SearchBook) -> Unit,
     onMoreClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -1379,7 +1350,7 @@ private fun MediaCategorySectionRow(
                     MediaBookCard(
                         book = book,
                         onClick = { onBookClick(book) },
-                        cardWidth = 106.dp
+                        cardWidth = if (layoutMode == 2) 132.dp else 106.dp
                     )
                 }
             }
@@ -1398,6 +1369,7 @@ private fun MediaCategoryDetailView(
     isLoading: Boolean,
     hasMore: Boolean,
     bottomPadding: androidx.compose.ui.unit.Dp,
+    layoutMode: Int,
     onBack: () -> Unit,
     onLoadMore: () -> Unit,
     onBookClick: (SearchBook) -> Unit,
@@ -1466,7 +1438,7 @@ private fun MediaCategoryDetailView(
         } else {
             LazyVerticalGrid(
                 state = gridState,
-                columns = GridCells.Fixed(3),
+                columns = GridCells.Fixed(if (layoutMode == 2) 2 else 3),
                 contentPadding = PaddingValues(
                     start = 14.dp,
                     end = 14.dp,

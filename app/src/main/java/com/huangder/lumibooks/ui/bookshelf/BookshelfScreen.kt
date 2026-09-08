@@ -252,6 +252,7 @@ fun BookshelfScreen(
         uiState.tags.forEach { tag ->
             add(BookshelfFilterTab(BookshelfFilter.Tag(tag.id), tag.name))
         }
+        add(BookshelfFilterTab(BookshelfFilter.Hidden, "已隐藏"))
     }
 
     LaunchedEffect(uiState.tags) {
@@ -476,11 +477,36 @@ fun BookshelfScreen(
     val currentPath = remember(uiState.folders, renderedFolderId) {
         folderPath(uiState.folders, renderedFolderId)
     }
-    val visibleFolders = remember(uiState.folders, renderedFolderId) {
-        directChildFolders(uiState.folders, renderedFolderId)
+    val isHiddenFilter = selectedFilter == BookshelfFilter.Hidden
+    val visibleFolders = remember(uiState.folders, renderedFolderId, uiState.hiddenFolderIds, isHiddenFilter) {
+        if (isHiddenFilter) {
+            if (renderedFolderId == null) {
+                uiState.folders.filter { it.id in uiState.hiddenFolderIds }
+            } else {
+                directChildFolders(uiState.folders, renderedFolderId)
+            }
+        } else {
+            directChildFolders(uiState.folders, renderedFolderId).filter { it.id !in uiState.hiddenFolderIds }
+        }
     }
-    val currentLevelBooks = remember(uiState.books, uiState.bookFolderLinks, renderedFolderId) {
-        booksAtFolderLevel(uiState.books, uiState.bookFolderLinks, renderedFolderId)
+    val currentLevelBooks = remember(uiState.books, uiState.bookFolderLinks, renderedFolderId, uiState.hiddenBookIds, uiState.hiddenFolderIds, isHiddenFilter) {
+        val folderIdsByBookId = uiState.bookFolderLinks.groupBy({ it.bookId }, { it.folderId })
+        if (isHiddenFilter) {
+            if (renderedFolderId == null) {
+                uiState.books.filter { book ->
+                    book.id in uiState.hiddenBookIds
+                }
+            } else {
+                booksAtFolderLevel(uiState.books, uiState.bookFolderLinks, renderedFolderId)
+            }
+        } else {
+            booksAtFolderLevel(uiState.books, uiState.bookFolderLinks, renderedFolderId).filter { book ->
+                if (book.id in uiState.hiddenBookIds) return@filter false
+                val folders = folderIdsByBookId[book.id].orEmpty()
+                if (folders.any { it in uiState.hiddenFolderIds }) return@filter false
+                true
+            }
+        }
     }
     val folderCounts = remember(uiState.folders, uiState.bookFolderLinks) {
         folderBookCounts(uiState.folders, uiState.bookFolderLinks)
@@ -521,6 +547,7 @@ fun BookshelfScreen(
         is BookshelfFilter.Tag -> currentLevelBooks.filter { book ->
             filter.tagId in tagIdsByBook[book.id].orEmpty()
         }
+        BookshelfFilter.Hidden -> currentLevelBooks
     }
 
     val openFolder: (LibraryFolder) -> Unit = { folder ->
@@ -1040,8 +1067,28 @@ fun BookshelfScreen(
             )
         }
 
+        val selectedBook = contextMenuState.selectedBook
+        val isBookNowReadingHidden = selectedBook != null && selectedBook.id in uiState.hiddenFromNowReadingBookIds
+        val isBookHidden = selectedBook != null && (selectedBook.id in uiState.hiddenBookIds || selectedFilter == BookshelfFilter.Hidden)
+
         BookContextMenuOverlay(
             state = contextMenuState,
+            isNowReadingHidden = isBookNowReadingHidden,
+            isHidden = isBookHidden,
+            onToggleHideNowReading = { book ->
+                viewModel.toggleHideBookFromNowReading(book.id)
+                val willBeHidden = book.id !in uiState.hiddenFromNowReadingBookIds
+                onMessage(if (willBeHidden) "已隐藏该书在主页的在读卡片" else "已恢复该书在主页的在读卡片")
+            },
+            onToggleHideBook = { book ->
+                if (book.id in uiState.hiddenBookIds || selectedFilter == BookshelfFilter.Hidden) {
+                    viewModel.unhideBook(book.id)
+                    onMessage("已移出隐藏，书籍恢复到正常书架")
+                } else {
+                    viewModel.hideBook(book.id)
+                    onMessage("书籍已隐藏，可在顶部【已隐藏】分类找回")
+                }
+            },
             onDelete = { book ->
                 booksPendingDeletion = listOf(book)
                 showBatchDeleteConfirm = true
@@ -1072,6 +1119,10 @@ fun BookshelfScreen(
             }
         )
 
+        val selectedFolder = folderContextMenuState.selectedFolder
+        val isFolderNowReadingHidden = selectedFolder != null && selectedFolder.id in uiState.hiddenFromNowReadingFolderIds
+        val isFolderHidden = selectedFolder != null && (selectedFolder.id in uiState.hiddenFolderIds || selectedFilter == BookshelfFilter.Hidden)
+
         FolderContextMenuOverlay(
             state = folderContextMenuState,
             bookCount = folderContextMenuState.selectedFolder
@@ -1080,6 +1131,22 @@ fun BookshelfScreen(
             previewBooks = folderContextMenuState.selectedFolder
                 ?.let { folderPreviewBooks[it.id] }
                 .orEmpty(),
+            isNowReadingHidden = isFolderNowReadingHidden,
+            isHidden = isFolderHidden,
+            onToggleHideNowReading = { folder ->
+                viewModel.toggleHideFolderFromNowReading(folder.id)
+                val willBeHidden = folder.id !in uiState.hiddenFromNowReadingFolderIds
+                onMessage(if (willBeHidden) "已隐藏该分类在主页的在读卡片" else "已恢复该分类在主页的在读卡片")
+            },
+            onToggleHideFolder = { folder ->
+                if (folder.id in uiState.hiddenFolderIds || selectedFilter == BookshelfFilter.Hidden) {
+                    viewModel.unhideFolder(folder.id)
+                    onMessage("已移出隐藏，分类恢复到正常书架")
+                } else {
+                    viewModel.hideFolder(folder.id)
+                    onMessage("分类已隐藏，可在顶部【已隐藏】分类找回")
+                }
+            },
             onRename = { folder ->
                 pendingFolderMenuAction = PendingFolderMenuAction(
                     PendingFolderMenuActionType.Rename,
@@ -2159,6 +2226,7 @@ private sealed interface BookshelfFilter {
     data object Txt : BookshelfFilter
     data object Favorites : BookshelfFilter
     data class Tag(val tagId: String) : BookshelfFilter
+    data object Hidden : BookshelfFilter
 }
 
 private data class BookshelfFilterTab(

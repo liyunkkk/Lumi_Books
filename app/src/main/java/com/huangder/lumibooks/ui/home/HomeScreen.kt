@@ -147,8 +147,26 @@ fun HomeScreen(
             onReadingGoalSheetVisibleChange(visible)
         }
     }
-    val booksByLastRead = remember(uiState.books) {
-        uiState.books.sortedByDescending { it.lastReadTime }
+    val activeReadingBooks = remember(
+        uiState.books,
+        uiState.bookFolderLinks,
+        uiState.hiddenBookIds,
+        uiState.hiddenFromNowReadingBookIds,
+        uiState.hiddenFolderIds,
+        uiState.hiddenFromNowReadingFolderIds
+    ) {
+        val hiddenFolderIdSet = uiState.hiddenFolderIds + uiState.hiddenFromNowReadingFolderIds
+        val folderIdsByBookId = uiState.bookFolderLinks.groupBy({ it.bookId }, { it.folderId })
+        uiState.books.filter { book ->
+            if (book.id in uiState.hiddenBookIds) return@filter false
+            if (book.id in uiState.hiddenFromNowReadingBookIds) return@filter false
+            val folderIds = folderIdsByBookId[book.id].orEmpty()
+            if (folderIds.any { it in hiddenFolderIdSet }) return@filter false
+            true
+        }
+    }
+    val booksByLastRead = remember(activeReadingBooks) {
+        activeReadingBooks.sortedByDescending { it.lastReadTime }
     }
     val lastReadBook = booksByLastRead.firstOrNull()
     val recentBooks = remember(booksByLastRead, lastReadBook) {
@@ -161,7 +179,7 @@ fun HomeScreen(
     CompositionLocalProvider(LocalShowCoverProgress provides uiState.showCoverProgress) {
         if (uiState.homeScreenMode == com.huangder.lumibooks.data.local.DataStoreManager.HOME_SCREEN_MODE_CARD_FLOW) {
             CardFlowHomeScreen(
-                books = uiState.books,
+                books = activeReadingBooks,
                 todayReadingTime = uiState.todayReadingTime,
                 dailyGoal = uiState.dailyGoal,
                 streakDays = uiState.streakDays,
