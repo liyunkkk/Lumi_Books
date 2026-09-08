@@ -56,6 +56,9 @@ import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.ViewList
 import androidx.compose.material.icons.outlined.ViewModule
+import androidx.compose.material.icons.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkBorder
 import androidx.compose.material.icons.rounded.Close
@@ -146,6 +149,15 @@ fun DiscoveryScreen(
     val layoutMode by viewModel.layoutMode.collectAsState()
     val activeBook by viewModel.activeBook.collectAsState()
     val isInLibrary by viewModel.isInLibrary.collectAsState()
+    val loadingDetail by viewModel.loadingDetail.collectAsState()
+
+    // 流媒体分类流状态
+    val categorySections by viewModel.categorySections.collectAsState()
+    val isLoadingSections by viewModel.isLoadingSections.collectAsState()
+    val activeCategoryDetail by viewModel.activeCategoryDetail.collectAsState()
+    val categoryDetailBooks by viewModel.categoryDetailBooks.collectAsState()
+    val isLoadingCategoryDetail by viewModel.isLoadingCategoryDetail.collectAsState()
+    val hasMoreCategoryDetail by viewModel.hasMoreCategoryDetail.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     var showSourcePickerSheet by remember { mutableStateOf(false) }
     LaunchedEffect(initialSearchQuery) {
@@ -397,8 +409,34 @@ fun DiscoveryScreen(
                 }
             }
 
-            // 内容展示区：按 layoutMode 分流（持久化）
+            // 内容展示区：流媒体一级多分类横滑流优先，搜索模式或单分类按 layoutMode 分流
             when {
+                // 1. 流媒体模式：非搜索状态且多分类流已准备
+                searchResults.isEmpty() && (categorySections.isNotEmpty() || isLoadingSections) -> {
+                    if (isLoadingSections && categorySections.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(top = 120.dp),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            CircularProgressIndicator(color = AppColors.Accent)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(top = 8.dp, bottom = bottomPadding)
+                        ) {
+                            items(categorySections, key = { it.kind.title + (it.kind.url ?: "") }) { section ->
+                                MediaCategorySectionRow(
+                                    section = section,
+                                    onBookClick = { viewModel.showBookActions(it) },
+                                    onMoreClick = { viewModel.openCategoryDetail(section.kind) }
+                                )
+                            }
+                        }
+                    }
+                }
                 loading && displayBooks.isEmpty() -> Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -530,7 +568,23 @@ fun DiscoveryScreen(
             }
         }
 
-        val loadingDetail by viewModel.loadingDetail.collectAsState()
+        // 流媒体二级分类详情页浮层（参考图 4：返回箭头 + 分类名 + 3 列瀑布流海报墙）
+        activeCategoryDetail?.let { kind ->
+            MediaCategoryDetailView(
+                kind = kind,
+                books = categoryDetailBooks,
+                isLoading = isLoadingCategoryDetail,
+                hasMore = hasMoreCategoryDetail,
+                bottomPadding = bottomPadding,
+                onBack = { viewModel.closeCategoryDetail() },
+                onLoadMore = { viewModel.loadMoreCategoryDetail() },
+                onBookClick = { viewModel.showBookActions(it) },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = statusBarTop)
+            )
+        }
+
         // 图书操作与详情浮层（对齐书库图 3 操作浮层）
         activeBook?.let { book ->
             DiscoveryBookActionDialog(
@@ -1173,6 +1227,241 @@ private fun DiscoverySourcePickerSheet(
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
             content()
+        }
+    }
+}
+
+/**
+ * 流媒体风格海报卡片（竖直海报封面 + 书名 + 作者）
+ */
+@Composable
+private fun MediaBookCard(
+    book: SearchBook,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    cardWidth: androidx.compose.ui.unit.Dp = 108.dp
+) {
+    Column(
+        modifier = modifier
+            .width(cardWidth)
+            .clickable(onClick = onClick)
+    ) {
+        DiscoveryBookCover(
+            coverUrl = book.coverUrl,
+            name = book.name,
+            author = book.author,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.72f)
+                .shadow(3.dp, RoundedCornerShape(12.dp))
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = book.name,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = AppColors.TextPrimary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 17.sp
+        )
+        if (book.author.isNotBlank()) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = book.author,
+                fontSize = 11.sp,
+                color = AppColors.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * 流媒体一级分类行（分类名 + 右侧箭头 > + 横滑海报流）
+ */
+@Composable
+private fun MediaCategorySectionRow(
+    section: CategorySection,
+    onBookClick: (SearchBook) -> Unit,
+    onMoreClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = AppSpace.lg, end = AppSpace.md, top = 10.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = section.kind.title,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = AppColors.TextPrimary,
+                letterSpacing = (-0.2).sp
+            )
+            IconButton(
+                onClick = onMoreClick,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.KeyboardArrowRight,
+                    contentDescription = "查看更多",
+                    tint = AppColors.TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        if (section.isLoading && section.books.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = AppColors.Accent
+                )
+            }
+        } else if (section.books.isNotEmpty()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = AppSpace.lg),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(section.books, key = { it.bookUrl }) { book ->
+                    MediaBookCard(
+                        book = book,
+                        onClick = { onBookClick(book) },
+                        cardWidth = 106.dp
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+/**
+ * 流媒体二级分类页面（参考图 4：返回箭头 + 分类标题 + 3 列瀑布流网格）
+ */
+@Composable
+private fun MediaCategoryDetailView(
+    kind: io.legado.app.data.entities.ExploreKind,
+    books: List<SearchBook>,
+    isLoading: Boolean,
+    hasMore: Boolean,
+    bottomPadding: androidx.compose.ui.unit.Dp,
+    onBack: () -> Unit,
+    onLoadMore: () -> Unit,
+    onBookClick: (SearchBook) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val gridState = rememberLazyGridState()
+
+    val shouldLoadMore = remember {
+        derivedStateOf {
+            val info = gridState.layoutInfo
+            val total = info.totalItemsCount
+            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            total > 0 && last >= total - 4
+        }
+    }
+    LaunchedEffect(shouldLoadMore.value) {
+        if (shouldLoadMore.value && hasMore && !isLoading) {
+            onLoadMore()
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(AppColors.WindowBg)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(AppColors.CardBg)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = "返回",
+                    tint = AppColors.TextPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = kind.title,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = AppColors.TextPrimary,
+                letterSpacing = (-0.3).sp
+            )
+        }
+
+        if (books.isEmpty() && isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 100.dp),
+                contentAlignment = Alignment.TopCenter
+            ) {
+                CircularProgressIndicator(color = AppColors.Accent)
+            }
+        } else {
+            LazyVerticalGrid(
+                state = gridState,
+                columns = GridCells.Fixed(3),
+                contentPadding = PaddingValues(
+                    start = 14.dp,
+                    end = 14.dp,
+                    top = 6.dp,
+                    bottom = bottomPadding
+                ),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(books, key = { it.bookUrl }) { book ->
+                    MediaBookCard(
+                        book = book,
+                        onClick = { onBookClick(book) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (isLoading) {
+                    item(span = { GridItemSpan(3) }) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.dp,
+                                color = AppColors.Accent
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

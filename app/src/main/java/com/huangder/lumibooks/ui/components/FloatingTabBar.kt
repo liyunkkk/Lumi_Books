@@ -307,9 +307,9 @@ fun FloatingTabBar(
         }
     } ?: Modifier
     val liquidSurfaceColor = if (isDark) {
-        Color(0xFF121214).copy(alpha = 0.34f - transparency * 0.16f)
+        Color(0xFF121214).copy(alpha = 0.14f - transparency * 0.08f)
     } else {
-        Color(0xFFF7F9FC).copy(alpha = 0.26f - transparency * 0.12f)
+        Color(0xFFF7F9FC).copy(alpha = 0.08f - transparency * 0.05f)
     }
     val tabsBackdrop = rememberLayerBackdrop()
     val combinedTabsBackdrop = if (isLiquidGlass && liquidGlassBackdrop != null) {
@@ -568,7 +568,7 @@ fun FloatingTabBar(
             }
 
             if (isLiquidGlass) {
-                // 次表面微反射天光与内高光弧（纯白背景下依然呈现通透晶莹的凸起液态水滴质感）
+                // 顶部晶莹反光弧（纯高光无实底，确保 100% 澄澈通透不遮挡底层）
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -577,19 +577,21 @@ fun FloatingTabBar(
                             if (isDark) {
                                 Brush.verticalGradient(
                                     colors = listOf(
-                                        Color.White.copy(alpha = 0.08f),
-                                        Color.Black.copy(alpha = 0.22f)
-                                    )
+                                        Color.White.copy(alpha = 0.06f),
+                                        Color.Transparent
+                                    ),
+                                    startY = 0f,
+                                    endY = 40f
                                 )
                             } else {
-                                Brush.linearGradient(
+                                Brush.verticalGradient(
                                     colors = listOf(
-                                        Color.White.copy(alpha = 0.32f),
-                                        Color.White.copy(alpha = 0.12f),
-                                        Color(0xFFE6EEF8).copy(alpha = 0.18f)
+                                        Color.White.copy(alpha = 0.16f),
+                                        Color.White.copy(alpha = 0.02f),
+                                        Color.Transparent
                                     ),
-                                    start = Offset.Zero,
-                                    end = Offset.Infinite
+                                    startY = 0f,
+                                    endY = 50f
                                 )
                             }
                         )
@@ -801,7 +803,7 @@ fun NavSettingsButton(
 
     if (isLiquidGlass && liquidGlassBackdrop != null) {
         val fallback = if (isDark) Color.Black else Color.White
-        val scrim = if (isDark) Color.Black.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.85f)
+        val scrim = if (isDark) Color.Black.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.12f)
         LiquidGlassSurface(
             shape = CircleShape,
             fallbackColor = fallback,
