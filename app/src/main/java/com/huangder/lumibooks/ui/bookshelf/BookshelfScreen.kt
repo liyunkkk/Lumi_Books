@@ -147,6 +147,13 @@ import com.huangder.lumibooks.ui.discover.OnlineBookRepository
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.data.entities.BookSource
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.heightIn
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppRadius
 import com.huangder.lumibooks.ui.theme.AppSpace
@@ -195,6 +202,7 @@ fun BookshelfScreen(
     val folderTransitionAlpha = remember { Animatable(1f) }
     val folderTransitionOffset = remember { Animatable(0f) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val contextMenuState = rememberBookContextMenuState()
     val folderContextMenuState = rememberFolderContextMenuState()
@@ -1109,7 +1117,7 @@ fun BookshelfScreen(
                 changeSourceTargetBook = book
                 changeSourceResults = emptyList()
                 isSearchingChangeSources = true
-                coroutineScope.launch {
+                scope.launch {
                     try {
                         val title = book.title.trim()
                         val allSources = withContext<List<BookSource>>(Dispatchers.IO) {
@@ -1460,7 +1468,7 @@ fun BookshelfScreen(
                 onSelectSource = { targetSearchBook ->
                     val target = changeSourceTargetBook
                     if (target != null) {
-                        coroutineScope.launch(Dispatchers.IO) {
+                        scope.launch(Dispatchers.IO) {
                             val newEngineBookUrl = targetSearchBook.bookUrl
                             val newFilePath = OnlineBookRepository.SCHEME + newEngineBookUrl
                             val engineBook = appDb.bookDao.getBook(newEngineBookUrl)
