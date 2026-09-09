@@ -375,10 +375,10 @@ fun ReplaceRulesScreen(
                         ruleToDelete = null
                         Toast.makeText(context, "规则已删除", Toast.LENGTH_SHORT).show()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 10.dp)
                 ) {
-                    Text("删除", color = Color.White)
+                    Text("删除", color = MaterialTheme.colorScheme.onError)
                 }
             },
             dismissButton = {
@@ -462,26 +462,26 @@ private fun ReplaceRuleCard(
             ) {
                 Surface(
                     shape = RoundedCornerShape(4.dp),
-                    color = if (rule.isRegex) Color(0xFFE0F2FE) else Color(0xFFF3F4F6)
+                    color = if (rule.isRegex) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Text(
                         text = if (rule.isRegex) "正则" else "纯文本",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
-                        color = if (rule.isRegex) Color(0xFF0369A1) else Color(0xFF4B5563),
+                        color = if (rule.isRegex) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
                 val scopeText = if (rule.scope.isNullOrBlank()) "全局生效" else "限定: ${rule.scope}"
                 Surface(
                     shape = RoundedCornerShape(4.dp),
-                    color = if (rule.scope.isNullOrBlank()) Color(0xFFECFDF5) else Color(0xFFFEF3C7)
+                    color = if (rule.scope.isNullOrBlank()) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer
                 ) {
                     Text(
                         text = scopeText,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
-                        color = if (rule.scope.isNullOrBlank()) Color(0xFF047857) else Color(0xFFB45309),
+                        color = if (rule.scope.isNullOrBlank()) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -490,12 +490,12 @@ private fun ReplaceRuleCard(
                 if (rule.scopeContent) {
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFFEDE9FE)
+                        color = MaterialTheme.colorScheme.secondaryContainer
                     ) {
                         Text(
                             text = "正文",
                             fontSize = 11.sp,
-                            color = Color(0xFF6D28D9),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                         )
                     }
@@ -503,12 +503,12 @@ private fun ReplaceRuleCard(
                 if (rule.scopeTitle) {
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFFFCE7F3)
+                        color = MaterialTheme.colorScheme.tertiaryContainer
                     ) {
                         Text(
                             text = "标题",
                             fontSize = 11.sp,
-                            color = Color(0xFFBE185D),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                         )
                     }
@@ -536,7 +536,7 @@ private fun ReplaceRuleCard(
                     Text(
                         text = if (rule.replacement.isEmpty()) "➔ [直接清除]" else "➔ 替换为: ${rule.replacement}",
                         fontSize = 12.sp,
-                        color = if (rule.replacement.isEmpty()) Color(0xFFE53935) else AppColors.TextSecondary
+                        color = if (rule.replacement.isEmpty()) MaterialTheme.colorScheme.error else AppColors.TextSecondary
                     )
                 }
             }

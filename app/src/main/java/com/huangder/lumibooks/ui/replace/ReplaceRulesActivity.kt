@@ -61,7 +61,19 @@ class ReplaceRulesActivity : ComponentActivity() {
                 else -> systemDarkMode
             }
 
-            EBookReaderTheme(darkTheme = isDark) {
+            val appTheme by dataStoreManager.appTheme
+                .collectAsState(initial = launchTheme.appTheme)
+            val appAccentColor by dataStoreManager.appAccentColor
+                .collectAsState(initial = launchTheme.appAccentColor)
+            val eInkMode by dataStoreManager.eInkMode
+                .collectAsState(initial = launchTheme.eInkMode)
+
+            EBookReaderTheme(
+                darkTheme = isDark,
+                appTheme = appTheme,
+                appAccentColor = appAccentColor,
+                eInkMode = eInkMode
+            ) {
                 ReplaceRulesScreen(
                     initialBookName = bookName,
                     initialPattern = pattern,
