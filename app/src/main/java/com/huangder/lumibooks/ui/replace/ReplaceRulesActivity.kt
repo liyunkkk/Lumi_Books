@@ -2,6 +2,7 @@ package com.huangder.lumibooks.ui.replace
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,7 +15,6 @@ import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.ui.theme.EBookReaderTheme
 import com.huangder.lumibooks.util.LaunchThemeController
 import com.huangder.lumibooks.util.LocaleHelper
-import com.huangder.lumibooks.util.isNightModeEnabled
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -60,12 +60,8 @@ class ReplaceRulesActivity : ComponentActivity() {
                 "light" -> false
                 else -> systemDarkMode
             }
-            val appTheme by dataStoreManager.appTheme
-                .collectAsState(initial = launchTheme.appTheme)
-            val eInkMode by dataStoreManager.eInkMode
-                .collectAsState(initial = launchTheme.eInkMode)
 
-            EBookReaderTheme(darkTheme = isDark, appTheme = appTheme, eInkMode = eInkMode) {
+            EBookReaderTheme(darkTheme = isDark) {
                 ReplaceRulesScreen(
                     initialBookName = bookName,
                     initialPattern = pattern,
@@ -73,5 +69,15 @@ class ReplaceRulesActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        systemDarkMode = (newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+    }
+
+    private fun Configuration.isNightModeEnabled(): Boolean {
+        return (uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
     }
 }
