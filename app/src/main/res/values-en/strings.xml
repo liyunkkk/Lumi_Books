@@ -1413,7 +1413,7 @@
     <string name="pdf_annotation_highlighter">Highlighter</string>
     <string name="pdf_annotation_eraser">Eraser</string>
 
-    <string name="replace_rules_title">Purify & Replace Rules</string>
+    <string name="replace_rules_title">Purify &amp; Replace Rules</string>
     <string name="replace_rules_summary">Filter ads, watermarks and spam in chapter content</string>
     <string name="replace_rules_add">New Rule</string>
     <string name="replace_rules_import">Import</string>
