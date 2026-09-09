@@ -456,10 +456,10 @@ fun BookSourcesScreen(
                         showDeleteAllConfirm = false
                         viewModel.deleteAll()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 10.dp)
                 ) {
-                    Text("确认清空", color = Color.White)
+                    Text("确认清空", color = MaterialTheme.colorScheme.onError)
                 }
             },
             dismissButton = {
@@ -739,10 +739,10 @@ private fun SourceItemCard(
                         showDeleteDialog = false
                         onDelete()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     shape = RoundedCornerShape(if (isLiquidGlass) 16.dp else 10.dp)
                 ) {
-                    Text("删除", color = Color.White)
+                    Text("删除", color = MaterialTheme.colorScheme.onError)
                 }
             },
             dismissButton = {
@@ -961,7 +961,7 @@ private fun SourceDebugDialog(
                         Button(
                             onClick = onStopDebug,
                             shape = RoundedCornerShape(if (isLiquidGlass) 14.dp else 10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                         ) {
                             Icon(Icons.Outlined.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(4.dp))
@@ -988,14 +988,14 @@ private fun SourceDebugDialog(
                         .fillMaxWidth()
                         .weight(1f)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF141416))
-                        .border(1.dp, Color(0xFF2C2C2E), RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
                         .padding(10.dp)
                 ) {
                     if (debugLogs.isEmpty()) {
                         Text(
                             text = "输入搜索词（默认「完美世界」），点击开始调试即可观察全链路请求和解析过程。",
-                            color = Color(0xFF7E7E82),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
                             fontFamily = FontFamily.Monospace,
                             modifier = Modifier.align(Alignment.Center)
@@ -1007,10 +1007,10 @@ private fun SourceDebugDialog(
                         ) {
                             items(debugLogs) { log ->
                                 val logColor = when {
-                                    log.contains("Error") || log.contains("失败") || log.contains("异常") -> Color(0xFFFF6B6B)
-                                    log.contains("⇒") || log.contains("︾") || log.contains("︽") -> Color(0xFF4AF626)
-                                    log.contains("完成") || log.contains("成功") -> Color(0xFF64D2FF)
-                                    else -> Color(0xFFD0D0D2)
+                                    log.contains("Error") || log.contains("失败") || log.contains("异常") -> MaterialTheme.colorScheme.error
+                                    log.contains("⇒") || log.contains("︾") || log.contains("︽") -> MaterialTheme.colorScheme.primary
+                                    log.contains("完成") || log.contains("成功") -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.onSurface
                                 }
                                 Text(
                                     text = log,
@@ -1423,7 +1423,7 @@ private fun EditSourceDialog(
                             .padding(16.dp)
                     ) {
                         jsonError?.let {
-                            Text(it, color = Color.Red, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
+                            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
                         }
                         OutlinedTextField(
                             value = jsonText,
