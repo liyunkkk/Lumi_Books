@@ -135,6 +135,7 @@
     <string name="startup_screen_home">홈</string>
     <string name="startup_screen_bookshelf">서재</string>
     <string name="startup_screen_statistics">통계</string>
+    <string name="startup_screen_discover">발견</string>
     <string name="label_dark_mode">다크 모드</string>
     <string name="dark_mode_system">시스템 설정 따르기</string>
     <string name="dark_mode_light">라이트</string>
@@ -1343,4 +1344,24 @@
     <string name="pdf_annotation_pen">펜</string>
     <string name="pdf_annotation_highlighter">형광펜</string>
     <string name="pdf_annotation_eraser">지우개</string>
+
+    <string name="replace_rules_title">정화 및 치환 규칙</string>
+    <string name="replace_rules_summary">본문 및 제목의 광고, 워터마크 필터링</string>
+    <string name="replace_rules_add">새 규칙</string>
+    <string name="replace_rules_import">가져오기</string>
+    <string name="replace_rules_export">내보내기</string>
+    <string name="replace_rules_load_preset">추천 프리셋 불러오기</string>
+    <string name="replace_rule_name">규칙 이름</string>
+    <string name="replace_rule_pattern">패턴 / 정규식</string>
+    <string name="replace_rule_replacement">바꿀 내용 (비워두면 제거)</string>
+    <string name="replace_rule_scope">적용 범위 (도서명 또는 도메인, 비워두면 전체)</string>
+    <string name="replace_rule_is_regex">정규식 사용</string>
+    <string name="replace_rule_scope_content">본문에 적용</string>
+    <string name="replace_rule_scope_title">제목에 적용</string>
+    <string name="menu_purify">정화</string>
+    <string name="reader_purify_rules">정화 규칙</string>
+    <string name="add_purify_rule_success">정화 규칙이 저장되었습니다</string>
+    <string name="replace_rules_empty_hint">정화 규칙이 없습니다. 새 규칙 추가, 가져오기 또는 프리셋을 불러오세요.</string>
+    <string name="replace_rules_clipboard_import">클립보드에서 가져오기</string>
+    <string name="replace_rules_file_import">파일에서 가져오기</string>
 </resources>

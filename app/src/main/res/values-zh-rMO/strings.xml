@@ -135,6 +135,7 @@
     <string name="startup_screen_home">首頁</string>
     <string name="startup_screen_bookshelf">書庫</string>
     <string name="startup_screen_statistics">統計</string>
+    <string name="startup_screen_discover">發現頁</string>
     <string name="label_dark_mode">深色模式</string>
     <string name="dark_mode_system">跟隨系統</string>
     <string name="dark_mode_light">淺色</string>
@@ -1342,4 +1343,24 @@
     <string name="pdf_annotation_pen">畫筆</string>
     <string name="pdf_annotation_highlighter">螢光筆</string>
     <string name="pdf_annotation_eraser">擦膠</string>
+
+    <string name="replace_rules_title">淨化替換規則</string>
+    <string name="replace_rules_summary">過濾正文與標題中的廣告、浮水印和垃圾內容</string>
+    <string name="replace_rules_add">新建規則</string>
+    <string name="replace_rules_import">匯入規則</string>
+    <string name="replace_rules_export">匯出規則</string>
+    <string name="replace_rules_load_preset">載入推薦預置規則</string>
+    <string name="replace_rule_name">規則名稱</string>
+    <string name="replace_rule_pattern">匹配內容 / 規則運算式</string>
+    <string name="replace_rule_replacement">替換為 (留空表示直接清除)</string>
+    <string name="replace_rule_scope">作用範圍 (書名或網域名稱，留空全域生效)</string>
+    <string name="replace_rule_is_regex">是否為正則表達式</string>
+    <string name="replace_rule_scope_content">作用於正文</string>
+    <string name="replace_rule_scope_title">作用於標題</string>
+    <string name="menu_purify">淨化</string>
+    <string name="reader_purify_rules">淨化規則</string>
+    <string name="add_purify_rule_success">淨化規則已儲存並生效</string>
+    <string name="replace_rules_empty_hint">暫無淨化替換規則，可點擊右上角新建、匯入或載入推薦規則</string>
+    <string name="replace_rules_clipboard_import">從剪貼簿匯入</string>
+    <string name="replace_rules_file_import">從檔案匯入</string>
 </resources>

@@ -591,7 +591,8 @@ class MainActivity : ComponentActivity() {
                                 bookshelfLayoutMode?.let { configuredBookshelfLayoutMode ->
                                 val startupRoute = when (configuredStartupScreen) {
                                     DataStoreManager.STARTUP_SCREEN_BOOKSHELF -> Screen.Bookshelf.route
-                                    DataStoreManager.STARTUP_SCREEN_STATISTICS -> Screen.Statistics.route
+                                    DataStoreManager.STARTUP_SCREEN_DISCOVER,
+                                    DataStoreManager.STARTUP_SCREEN_STATISTICS -> Screen.Discover.route
                                     else -> Screen.Home.route
                                 }
                                 MainNavGraph(

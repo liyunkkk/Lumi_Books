@@ -167,12 +167,13 @@ class DataStoreManager @Inject constructor(
 
         const val STARTUP_SCREEN_HOME = "home"
         const val STARTUP_SCREEN_BOOKSHELF = "bookshelf"
+        const val STARTUP_SCREEN_DISCOVER = "discover"
         const val STARTUP_SCREEN_STATISTICS = "statistics"
         const val DEFAULT_STARTUP_SCREEN = STARTUP_SCREEN_HOME
 
         fun normalizeStartupScreen(value: String?): String = when (value) {
             STARTUP_SCREEN_BOOKSHELF -> STARTUP_SCREEN_BOOKSHELF
-            STARTUP_SCREEN_STATISTICS -> STARTUP_SCREEN_STATISTICS
+            STARTUP_SCREEN_DISCOVER, STARTUP_SCREEN_STATISTICS -> STARTUP_SCREEN_DISCOVER
             else -> STARTUP_SCREEN_HOME
         }
 

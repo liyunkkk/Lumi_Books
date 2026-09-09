@@ -1,4 +1,5 @@
 package com.huangder.lumibooks.ui.reader
+import com.huangder.lumibooks.util.parser.PurifyEngine
 import io.legado.app.data.appDb
 import io.legado.app.data.entities.SearchBook
 import io.legado.app.model.webBook.WebBook
@@ -2681,6 +2682,27 @@ class ReaderViewModel @Inject constructor(
     /**
      * 跳转到指定章节（由Slider调用）
      */
+    
+    /**
+     * 刷新当前章节（在修改净化规则或排版参数后重新排版与渲染）
+     */
+    fun reloadCurrentChapter() {
+        viewModelScope.launch {
+            parser?.clearHtmlCache()
+            preloadCache.clear()
+            val state = _uiState.value
+            _uiState.value = state.copy(
+                pageReady = false,
+                chapterHtml = ""
+            )
+            if (!state.useNewEngine) {
+                loadChapterContent(startPage = state.currentPageIndex)
+            } else {
+                _uiState.value = _uiState.value.copy(pageReady = true)
+            }
+        }
+    }
+
     fun setChapter(chapterIndex: Int) {
         val state = _uiState.value
         if (chapterIndex == state.currentChapterIndex) return
@@ -3170,11 +3192,20 @@ class ReaderViewModel @Inject constructor(
 
         val isTxt = raw !is Spanned
         var skipFirstParagraphIndent = false
+        val rawText = if (isTxt) {
+            PurifyEngine.purifyText(
+                raw.toString(),
+                _uiState.value.book?.title.orEmpty(),
+                _uiState.value.book?.sourceId.orEmpty()
+            )
+        } else {
+            raw
+        }
         val chapterText = if (isTxt) {
             val parsedChapterTitle = _uiState.value.chapterTitles.getOrNull(index)?.trim().orEmpty()
             if (parsedChapterTitle.isNotEmpty()) {
                 skipFirstParagraphIndent = true
-                val rawStr = raw.toString()
+                val rawStr = rawText.toString()
                 val newlineIdx = rawStr.indexOf('\n')
                 val firstLine = if (newlineIdx >= 0) rawStr.substring(0, newlineIdx).trim() else rawStr.trim()
 
