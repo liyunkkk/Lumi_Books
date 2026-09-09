@@ -3196,7 +3196,7 @@ class ReaderViewModel @Inject constructor(
             PurifyEngine.purifyText(
                 raw.toString(),
                 _uiState.value.book?.title.orEmpty(),
-                _uiState.value.book?.sourceId.orEmpty()
+                ""
             )
         } else {
             raw
