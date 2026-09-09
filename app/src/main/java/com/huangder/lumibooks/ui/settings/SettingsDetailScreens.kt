@@ -1,4 +1,7 @@
 package com.huangder.lumibooks.ui.settings
+import androidx.compose.material.icons.outlined.CleaningServices
+import io.legado.app.data.appDb
+import com.huangder.lumibooks.ui.replace.ReplaceRulesActivity
 
 import android.content.Intent
 import android.net.Uri
@@ -344,6 +347,8 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     LaunchedEffect(Unit) { viewModel.refreshInstalledTtsEngines() }
+    ReplaceRulesManagerCard()
+    Spacer(Modifier.height(12.dp))
     TxtTocRulesManagerCard(viewModel)
     Spacer(Modifier.height(12.dp))
     DetailCard {
@@ -1041,6 +1046,37 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
 }
 
 @Composable
+private fun ReplaceRulesManagerCard() {
+    val context = LocalContext.current
+    val rules by appDb.replaceRuleDao.flowAll().collectAsState(initial = emptyList())
+
+    DetailCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    context.startActivity(Intent(context, ReplaceRulesActivity::class.java))
+                }
+                .padding(AppSpace.md),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Outlined.CleaningServices, null, tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(AppSpace.md))
+            Column(Modifier.weight(1f)) {
+                Text(stringResource(R.string.replace_rules_title), fontSize = AppType.Body, color = AppColors.TextPrimary)
+                val activeCount = rules.count { it.isEnabled }
+                Text(
+                    "${rules.size} 条净化替换规则 (${activeCount} 条启用)，过滤正文与标题广告",
+                    fontSize = AppType.Caption,
+                    color = AppColors.TextSecondary
+                )
+            }
+            Icon(Icons.Outlined.ChevronRight, null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+@Composable
 private fun TxtTocRulesManagerCard(viewModel: SettingsViewModel) {
     val context = LocalContext.current
     val rules by viewModel.txtTocCustomRules.collectAsState(initial = emptyList())
@@ -1264,7 +1300,7 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
     val startupScreenOptions = listOf(
         DataStoreManager.STARTUP_SCREEN_HOME to stringResource(R.string.startup_screen_home),
         DataStoreManager.STARTUP_SCREEN_BOOKSHELF to stringResource(R.string.startup_screen_bookshelf),
-        DataStoreManager.STARTUP_SCREEN_STATISTICS to stringResource(R.string.startup_screen_statistics)
+        DataStoreManager.STARTUP_SCREEN_DISCOVER to stringResource(R.string.startup_screen_discover)
     )
     val homeScreenModeOptions = listOf(
         DataStoreManager.HOME_SCREEN_MODE_CLASSIC to stringResource(R.string.home_screen_mode_classic),

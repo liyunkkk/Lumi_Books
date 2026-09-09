@@ -135,6 +135,7 @@
     <string name="startup_screen_home">ホーム</string>
     <string name="startup_screen_bookshelf">ライブラリ</string>
     <string name="startup_screen_statistics">統計</string>
+    <string name="startup_screen_discover">発見</string>
     <string name="label_dark_mode">ダークモード</string>
     <string name="dark_mode_system">システム設定に従う</string>
     <string name="dark_mode_light">ライト</string>
@@ -1343,4 +1344,24 @@
     <string name="pdf_annotation_pen">ペン</string>
     <string name="pdf_annotation_highlighter">蛍光ペン</string>
     <string name="pdf_annotation_eraser">消しゴム</string>
+
+    <string name="replace_rules_title">浄化・置換ルール</string>
+    <string name="replace_rules_summary">本文と見出しの広告、ウォーターマークを浄化</string>
+    <string name="replace_rules_add">新規ルール</string>
+    <string name="replace_rules_import">インポート</string>
+    <string name="replace_rules_export">エクスポート</string>
+    <string name="replace_rules_load_preset">プリセットを読み込む</string>
+    <string name="replace_rule_name">ルール名</string>
+    <string name="replace_rule_pattern">パターン / 正規表現</string>
+    <string name="replace_rule_replacement">置換後 (空欄で削除)</string>
+    <string name="replace_rule_scope">適用範囲 (書名またはドメイン、空欄で全体適用)</string>
+    <string name="replace_rule_is_regex">正規表現を使用</string>
+    <string name="replace_rule_scope_content">本文に適用</string>
+    <string name="replace_rule_scope_title">見出しに適用</string>
+    <string name="menu_purify">浄化</string>
+    <string name="reader_purify_rules">浄化ルール</string>
+    <string name="add_purify_rule_success">浄化ルールを保存しました</string>
+    <string name="replace_rules_empty_hint">浄化ルールがありません。追加、インポート、またはプリセットを読み込んでください</string>
+    <string name="replace_rules_clipboard_import">クリップボードからインポート</string>
+    <string name="replace_rules_file_import">ファイルからインポート</string>
 </resources>

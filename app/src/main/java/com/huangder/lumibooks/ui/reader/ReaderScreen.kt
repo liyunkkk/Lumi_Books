@@ -1,4 +1,6 @@
 package com.huangder.lumibooks.ui.reader
+import androidx.compose.material.icons.outlined.CleaningServices
+import com.huangder.lumibooks.ui.replace.ReplaceRulesActivity
 import androidx.compose.material.icons.outlined.Sync
 import io.legado.app.data.entities.SearchBook
 
@@ -1263,6 +1265,13 @@ fun ReaderScreen(
     var showMenuSettings by remember { mutableStateOf(false) }
     var showReplaceInput by remember { mutableStateOf(false) }
     var replaceSelection by remember { mutableStateOf<ReplaceSelectionInfo?>(null) }
+    var showQuickPurifyDialog by remember { mutableStateOf(false) }
+    var purifyDialogText by remember { mutableStateOf("") }
+    val purifyRulesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        viewModel.reloadCurrentChapter()
+    }
     fun resetSelectionSubmenus() {
         showHighlightColorPicker = false
         pendingAnnotationColorTarget = null
@@ -1316,7 +1325,7 @@ fun ReaderScreen(
 
     // 处理返回键：触发退出动画，而不是直接关闭
     val isAnySheetOpen = showNotesList || showNoteInput || showToc || showThemeSheet ||
-        showAdvancedSheet || showSearch || showTxtEncodingDialog || showTxtTocDialog || showReplaceInput || showChangeSourceDialog
+        showAdvancedSheet || showSearch || showTxtEncodingDialog || showTxtTocDialog || showReplaceInput || showQuickPurifyDialog || showChangeSourceDialog
     val bookmarkPullSupported = (isBookLayout && !isBookLayoutContinuousScroll) ||
         (uiState.useNewEngine && !renderedContinuousScrollMode && !isVerticalWriting)
     val bookmarkPullEnabled = bookmarkPullSupported &&
@@ -2669,6 +2678,15 @@ fun ReaderScreen(
                     isTxtBook = isTxtBook,
                     isOnlineBook = isOnlineBook,
                     isRefreshingOnlineBook = isRefreshingOnlineBook,
+                    onPurifyRulesClick = {
+                        viewModel.hideMenu()
+                        val bookName = uiState.book?.title
+                        purifyRulesLauncher.launch(
+                            Intent(context, ReplaceRulesActivity::class.java).apply {
+                                bookName?.let { putExtra(ReplaceRulesActivity.EXTRA_BOOK_NAME, it) }
+                            }
+                        )
+                    },
                     onChangeSource = {
                         viewModel.hideMenu()
                         showChangeSourceDialog = true
@@ -3563,6 +3581,17 @@ fun ReaderScreen(
         onDeleteUnderline = {
             removeSelectedAnnotation("underline")
         },
+        onPurify = {
+            val fresh = if (isBookLayout) null else readViewRef.value?.getSelectionInfo()
+            val text = fresh?.selectedText ?: selectionState?.selectedText
+            selectionState = null
+            showHighlightColorPicker = false
+            clearActiveTextSelection()
+            if (!text.isNullOrBlank()) {
+                purifyDialogText = text
+                showQuickPurifyDialog = true
+            }
+        },
         onReplace = {
             // 替换功能：仅TXT书籍支持
             if (uiState.book?.format?.name != "TXT") {
@@ -3665,6 +3694,95 @@ fun ReaderScreen(
             replaceSelection = null
         }
     )
+    if (showQuickPurifyDialog) {
+        var rulePattern by remember(purifyDialogText) { mutableStateOf(purifyDialogText) }
+        var ruleReplacement by remember { mutableStateOf("") }
+        var onlyThisBook by remember { mutableStateOf(true) }
+        var isRegex by remember { mutableStateOf(false) }
+
+        LiquidGlassAlertDialog(
+            onDismissRequest = { showQuickPurifyDialog = false },
+            title = {
+                Text(
+                    text = "一键添加净化规则",
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = AppColors.TextPrimary
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = rulePattern,
+                        onValueChange = { rulePattern = it },
+                        label = { Text("净化内容 (匹配文本)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 3
+                    )
+                    OutlinedTextField(
+                        value = ruleReplacement,
+                        onValueChange = { ruleReplacement = it },
+                        label = { Text("替换为 (留空直接删除)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("仅对当前书籍生效", fontSize = 14.sp, color = AppColors.TextPrimary)
+                        Switch(checked = onlyThisBook, onCheckedChange = { onlyThisBook = it })
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("使用正则表达式", fontSize = 14.sp, color = AppColors.TextPrimary)
+                        Switch(checked = isRegex, onCheckedChange = { isRegex = it })
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (rulePattern.isNotBlank()) {
+                            scope.launch(Dispatchers.IO) {
+                                val bookName = uiState.book?.title
+                                val newRule = io.legado.app.data.entities.ReplaceRule(
+                                    name = if (onlyThisBook && !bookName.isNullOrBlank()) "$bookName-净化" else "划词净化",
+                                    pattern = rulePattern,
+                                    replacement = ruleReplacement,
+                                    scope = if (onlyThisBook) bookName else null,
+                                    isRegex = isRegex,
+                                    scopeContent = true,
+                                    scopeTitle = false,
+                                    isEnabled = true
+                                )
+                                io.legado.app.data.appDb.replaceRuleDao.insert(newRule)
+                                withContext(Dispatchers.Main) {
+                                    showQuickPurifyDialog = false
+                                    Toast.makeText(context, R.string.add_purify_rule_success, Toast.LENGTH_SHORT).show()
+                                    viewModel.reloadCurrentChapter()
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Text("保存并净化")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showQuickPurifyDialog = false }) {
+                    Text("取消", color = AppColors.TextSecondary)
+                }
+            }
+        )
+    }
 
     if (uiState.showEpubLayoutHint) {
         ReaderFirstOpenHintDialog(
@@ -4654,6 +4772,7 @@ private fun ReaderTopBar(
     isTxtBook: Boolean = false,
     isOnlineBook: Boolean = false,
     isRefreshingOnlineBook: Boolean = false,
+    onPurifyRulesClick: () -> Unit = {},
     onChangeSource: () -> Unit = {},
     onRefreshSource: () -> Unit = {},
     onEditClick: () -> Unit = {},
@@ -4671,7 +4790,7 @@ private fun ReaderTopBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (isTxtBook || isOnlineBook) 250.dp else 140.dp)
+            .height(if (isTxtBook || isOnlineBook) 290.dp else 190.dp)
     ) {
         if (!isLiquidGlass) {
             Box(
@@ -4741,6 +4860,15 @@ private fun ReaderTopBar(
                     forceSolid = forceSolidButtons,
                         onClick = onBookmarkToggle
                     )
+                ReaderTopBarButton(
+                    icon = Icons.Outlined.CleaningServices,
+                    contentDescription = stringResource(R.string.reader_purify_rules),
+                    tint = contentColor,
+                    backgroundColor = controlBackground,
+                    contentScrimColor = glassContentScrimColor,
+                    forceSolid = forceSolidButtons,
+                    onClick = onPurifyRulesClick
+                )
                     if (isOnlineBook) {
                         ReaderTopBarButton(
                             icon = Icons.Outlined.Sync,
@@ -7488,6 +7616,7 @@ private fun SelectionMenuOverlay(
     onCopy: () -> Unit,
     onViewNote: () -> Unit,
     onReplace: () -> Unit = {},
+    onPurify: () -> Unit = {},
     onMenuSettings: () -> Unit = {},
     onColorPicked: (Int) -> Unit = {},
     onChangeHighlightColor: (Int) -> Unit = {},
@@ -7532,6 +7661,7 @@ private fun SelectionMenuOverlay(
         if (isMenuEnabled(selectionMenuItems, MENU_KEY_DICTIONARY)) add(stringResource(R.string.menu_dictionary))
         if (isMenuEnabled(selectionMenuItems, MENU_KEY_SEARCH)) add(stringResource(R.string.menu_search))
         if (isMenuEnabled(selectionMenuItems, MENU_KEY_COPY)) add(stringResource(R.string.menu_copy))
+        add(stringResource(R.string.menu_purify))
         if (isTxtBook && isMenuEnabled(selectionMenuItems, MENU_KEY_REPLACE)) add(stringResource(R.string.menu_replace))
     }
     val actionChipHorizontalPadding = if (isLiquidGlass) 10.dp else 16.dp
@@ -7800,6 +7930,7 @@ private fun SelectionMenuOverlay(
                             if (isMenuEnabled(selectionMenuItems, MENU_KEY_DICTIONARY)) add(Pair(stringResource(R.string.menu_dictionary), onDictionary))
                             if (isMenuEnabled(selectionMenuItems, MENU_KEY_SEARCH)) add(Pair(stringResource(R.string.menu_search), onSearch))
                             if (isMenuEnabled(selectionMenuItems, MENU_KEY_COPY)) add(Pair(stringResource(R.string.menu_copy), onCopy))
+                            add(Pair(stringResource(R.string.menu_purify), onPurify))
                             if (isTxtBook && isMenuEnabled(selectionMenuItems, MENU_KEY_REPLACE)) add(Pair(stringResource(R.string.menu_replace), onReplace))
                         }
                         SelectionMenuPill(
