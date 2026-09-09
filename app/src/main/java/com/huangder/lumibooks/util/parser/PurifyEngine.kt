@@ -13,12 +13,14 @@ object PurifyEngine {
 
     /** 获取默认预置推荐规则列表（可供用户一键导入或在首次使用时初始化） */
     fun getPresetRules(): List<ReplaceRule> {
+        val luoxiaPattern = "(?i)([\s·*_=-]*落[\s·*_=-]*霞[\s·*_=-]*读[\s·*_=-]*书[-=]*[a-zA-Z0-9.\s]*[-=]*|#\$--[a-zA-Z0-9.\s]+-=|luoxiadushu\.com|l\s+u\s+o\s+x\s+i\s+a\s+d\s+u\s+s\s+h\s+u|落[\s·*_=-]*霞[\s·*_=-]*读[\s·*_=-]*书)"
+        val watermarkPattern = "(?i)(最新章节请访问|请记住本书首发域名|本章未完，请翻页|手机用户请浏览.*阅读|纯文字在线阅读)"
         return listOf(
             ReplaceRule(
                 id = 10001L,
                 name = "落霞读书去广告水印",
                 group = "推荐预置",
-                pattern = "(?i)([\x{1F415}\x{1F436}]?\s*落[\s·*_\-=]*霞[\s·*_\-=]*读[\s·*_\-=]*书[\-=]*[a-zA-Z0-9\.\s]*[\-=]*|#\$\-\-[a-zA-Z0-9\.\s]+\-=|luoxiadushu\.com|l\s*u\s*o\s*x\s*i\s*a\s*d\s*u\s*s\s*h\s*u|落[\s·*_\-=]*霞[\s·*_\-=]*读[\s·*_\-=]*书)",
+                pattern = luoxiaPattern,
                 replacement = "",
                 isRegex = true,
                 scopeContent = true,
@@ -30,7 +32,7 @@ object PurifyEngine {
                 id = 10002L,
                 name = "通用防盗水印清理",
                 group = "推荐预置",
-                pattern = "(?i)(最新章节请访问|请记住本书首发域名|本章未完，请翻页|手机用户请浏览.*阅读|纯文字在线阅读)",
+                pattern = watermarkPattern,
                 replacement = "",
                 isRegex = true,
                 scopeContent = true,
@@ -121,8 +123,7 @@ object PurifyEngine {
                 useReplace = true
             )
             if (contentObj.textList.isNotEmpty()) {
-                contentObj.textList.joinToString("
-")
+                contentObj.textList.joinToString("\n")
             } else {
                 purifyText(rawContent, book.name, book.origin)
             }
