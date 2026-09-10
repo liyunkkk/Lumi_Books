@@ -65,8 +65,8 @@ class ReplaceRulesActivity : ComponentActivity() {
                 .collectAsState(initial = launchTheme.appTheme)
             val appAccentColor by dataStoreManager.appAccentColor
                 .collectAsState(initial = launchTheme.appAccentColor)
-            val eInkMode by dataStoreManager.eInkMode
-                .collectAsState(initial = launchTheme.eInkMode)
+            val eInkMode by dataStoreManager.eInkModeEnabled
+                .collectAsState(initial = launchTheme.eInkModeEnabled)
 
             EBookReaderTheme(
                 darkTheme = isDark,
