@@ -1,4 +1,11 @@
 package com.huangder.lumibooks.ui.settings
+import android.content.Context
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import androidx.compose.material.icons.outlined.Widgets
+import com.huangder.lumibooks.widget.CoverFlowWidgetProvider
+import com.huangder.lumibooks.widget.ContinueReadingWidgetProvider
+import com.huangder.lumibooks.widget.QuoteWidgetProvider
 import androidx.compose.material.icons.outlined.CleaningServices
 import io.legado.app.data.appDb
 import com.huangder.lumibooks.ui.replace.ReplaceRulesActivity
@@ -1421,9 +1428,70 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
             )
         }
     }
-
     Spacer(Modifier.height(12.dp))
-
+    DetailCard {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(AppSpace.md)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Widgets,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(Modifier.width(AppSpace.md))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        stringResource(R.string.widget_section_title),
+                        fontSize = AppType.Body,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AppColors.TextPrimary
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        stringResource(R.string.widget_section_desc),
+                        fontSize = AppType.Caption,
+                        color = AppColors.TextSecondary
+                    )
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            WidgetPinActionRow(
+                title = stringResource(R.string.widget_cover_flow_name),
+                sizeTag = stringResource(R.string.widget_size_cover_flow),
+                description = stringResource(R.string.widget_cover_flow_desc_short),
+                isRecommended = true,
+                onPin = { pinAppWidget(context, CoverFlowWidgetProvider::class.java) }
+            )
+            SettingsDivider()
+            WidgetPinActionRow(
+                title = stringResource(R.string.widget_continue_name),
+                sizeTag = stringResource(R.string.widget_size_square),
+                description = stringResource(R.string.widget_continue_desc_short),
+                isRecommended = false,
+                onPin = { pinAppWidget(context, ContinueReadingWidgetProvider::class.java) }
+            )
+            SettingsDivider()
+            WidgetPinActionRow(
+                title = stringResource(R.string.widget_quote_name),
+                sizeTag = stringResource(R.string.widget_size_square),
+                description = stringResource(R.string.widget_quote_desc_short),
+                isRecommended = false,
+                onPin = { pinAppWidget(context, QuoteWidgetProvider::class.java) }
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = stringResource(R.string.widget_pin_permission_hint),
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                color = AppColors.TextSecondary
+            )
+        }
+    }
+    Spacer(Modifier.height(12.dp))
     DetailCard {
         Row(
             modifier = Modifier
@@ -3698,6 +3766,109 @@ private fun DetailCard(
 @Composable
 private fun SettingsDivider() {
     Box(Modifier.fillMaxWidth().padding(horizontal = AppSpace.md).height(0.5.dp).background(AppColors.Divider))
+}
+
+@Composable
+private fun WidgetPinActionRow(
+    title: String,
+    sizeTag: String,
+    description: String,
+    isRecommended: Boolean,
+    onPin: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onPin)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    fontSize = AppType.Body,
+                    fontWeight = FontWeight.Medium,
+                    color = AppColors.TextPrimary
+                )
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(AppColors.BgGray)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = sizeTag,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = AppColors.TextSecondary
+                    )
+                }
+                if (isRecommended) {
+                    Spacer(Modifier.width(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.widget_recommended_badge),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = description,
+                fontSize = AppType.Caption,
+                color = AppColors.TextSecondary
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.primary)
+                .clickable(onClick = onPin)
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Add,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(2.dp))
+                Text(
+                    text = stringResource(R.string.action_add_to_home),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
+private fun pinAppWidget(context: Context, providerClass: Class<*>) {
+    val appWidgetManager = context.getSystemService(AppWidgetManager::class.java)
+    if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
+        val myProvider = ComponentName(context, providerClass)
+        val success = appWidgetManager.requestPinAppWidget(myProvider, null, null)
+        if (success) {
+            Toast.makeText(context, R.string.widget_pin_requested, Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, R.string.widget_pin_failed, Toast.LENGTH_LONG).show()
+        }
+    } else {
+        Toast.makeText(context, R.string.widget_pin_not_supported, Toast.LENGTH_LONG).show()
+    }
 }
 
 @Composable
