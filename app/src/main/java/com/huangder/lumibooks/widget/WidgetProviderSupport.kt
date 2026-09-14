@@ -23,6 +23,7 @@ internal fun AppWidgetProvider.runWidgetUpdate(
     tag: String,
     block: suspend () -> Unit
 ) {
+    // goAsync() 在非 onReceive 上下文（嵌套调用）或部分厂商 ROM 下可能返回 null
     val pendingResult = goAsync()
     CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
         try {
@@ -30,7 +31,7 @@ internal fun AppWidgetProvider.runWidgetUpdate(
         } catch (error: Throwable) {
             Log.e(tag, "Unable to update app widget", error)
         } finally {
-            pendingResult.finish()
+            pendingResult?.finish()
         }
     }
 }

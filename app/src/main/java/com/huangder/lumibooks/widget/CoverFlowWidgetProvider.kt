@@ -86,13 +86,20 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
     private fun updateAsync(context: Context, appWidgetIds: IntArray) {
         if (appWidgetIds.isEmpty()) return
         runWidgetUpdate(TAG) {
-            val appContext = context.applicationContext
-            val localizedContext = LocaleHelper.applyLanguage(appContext)
-            val entryPoint = appContext.widgetDataEntryPoint()
-            val bookDao = entryPoint.bookDao()
-            val dataStoreManager = entryPoint.dataStoreManager()
-            val rawBooks = bookDao.getRecentCoverFlowBooks(MAX_DISPLAY_BOOKS)
-            val manager = AppWidgetManager.getInstance(appContext)
+            updateInternal(context, appWidgetIds)
+        }
+    }
+
+    /** 核心渲染逻辑（suspend），可安全嵌套调用（翻书后触发刷新）。 */
+    private suspend fun updateInternal(context: Context, appWidgetIds: IntArray) {
+        if (appWidgetIds.isEmpty()) return
+        val appContext = context.applicationContext
+        val localizedContext = LocaleHelper.applyLanguage(appContext)
+        val entryPoint = appContext.widgetDataEntryPoint()
+        val bookDao = entryPoint.bookDao()
+        val dataStoreManager = entryPoint.dataStoreManager()
+        val rawBooks = bookDao.getRecentCoverFlowBooks(MAX_DISPLAY_BOOKS)
+        val manager = AppWidgetManager.getInstance(appContext)
 
             // 主题与外观
             val accentHex = dataStoreManager.appAccentColor.firstOrNull() ?: DEFAULT_APP_ACCENT_HEX
@@ -198,9 +205,7 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                 }
                 manager.updateAppWidget(appWidgetId, views)
             }
-        }
     }
-
     private fun cycleWidgetIndex(context: Context, appWidgetId: Int, delta: Int) {
         val appContext = context.applicationContext
         runWidgetUpdate(TAG) {
@@ -211,18 +216,18 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                 val current = prefs.getInt(keyForIndex(appWidgetId), 0)
                 val next = (current + delta + count) % count
                 prefs.edit().putInt(keyForIndex(appWidgetId), next).apply()
-                updateAsync(appContext, intArrayOf(appWidgetId))
+                updateInternal(appContext, intArrayOf(appWidgetId))
             }
         }
     }
-
     private fun setWidgetIndex(context: Context, appWidgetId: Int, targetIndex: Int) {
         val appContext = context.applicationContext
         val prefs = getWidgetPrefs(appContext)
         prefs.edit().putInt(keyForIndex(appWidgetId), targetIndex).apply()
-        updateAsync(appContext, intArrayOf(appWidgetId))
+        runWidgetUpdate(TAG) {
+            updateInternal(appContext, intArrayOf(appWidgetId))
+        }
     }
-
     companion object {
         private const val TAG = "CoverFlowWidget"
         const val ACTION_REFRESH = "com.huangder.lumibooks.widget.action.REFRESH_COVER_FLOW"
