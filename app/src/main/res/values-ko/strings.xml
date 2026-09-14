@@ -1364,4 +1364,11 @@
     <string name="replace_rules_empty_hint">정화 규칙이 없습니다. 새 규칙 추가, 가져오기 또는 프리셋을 불러오세요.</string>
     <string name="replace_rules_clipboard_import">클립보드에서 가져오기</string>
     <string name="replace_rules_file_import">파일에서 가져오기</string>
+    <string name="widget_prev_book">이전 책</string>
+    <string name="widget_next_book">다음 책</string>
+    <string name="widget_background_opacity">배경 불투명도</string>
+    <string name="widget_theme_mode">위젯 색상</string>
+    <string name="widget_theme_follow_app">앱 따르기</string>
+    <string name="widget_theme_light">라이트</string>
+    <string name="widget_theme_dark">다크</string>
 </resources>

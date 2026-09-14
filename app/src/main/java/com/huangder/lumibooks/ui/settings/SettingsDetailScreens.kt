@@ -4,8 +4,6 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import androidx.compose.material.icons.outlined.Widgets
 import com.huangder.lumibooks.widget.CoverFlowWidgetProvider
-import com.huangder.lumibooks.widget.ContinueReadingWidgetProvider
-import com.huangder.lumibooks.widget.QuoteWidgetProvider
 import androidx.compose.material.icons.outlined.CleaningServices
 import io.legado.app.data.appDb
 import com.huangder.lumibooks.ui.replace.ReplaceRulesActivity
@@ -1466,21 +1464,25 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
                 isRecommended = true,
                 onPin = { pinAppWidget(context, CoverFlowWidgetProvider::class.java) }
             )
+            // —— 小组件外观：背景不透明度 ——
+            Spacer(Modifier.height(4.dp))
             SettingsDivider()
-            WidgetPinActionRow(
-                title = stringResource(R.string.widget_continue_name),
-                sizeTag = stringResource(R.string.widget_size_square),
-                description = stringResource(R.string.widget_continue_desc_short),
-                isRecommended = false,
-                onPin = { pinAppWidget(context, ContinueReadingWidgetProvider::class.java) }
-            )
+            Spacer(Modifier.height(4.dp))
+            SettingsSliderItem(
+                Icons.Outlined.Opacity,
+                stringResource(R.string.widget_background_opacity),
+                uiState.widgetBackgroundOpacity.toFloat(),
+                0f..100f,
+                "${uiState.widgetBackgroundOpacity}%",
+                step = 5f,
+                verticalPadding = 12.dp
+            ) { viewModel.saveWidgetBackgroundOpacity(it.roundToInt()) }
+            // —— 小组件外观：配色模式（跟随 App / 浅色 / 深色） ——
+            Spacer(Modifier.height(4.dp))
             SettingsDivider()
-            WidgetPinActionRow(
-                title = stringResource(R.string.widget_quote_name),
-                sizeTag = stringResource(R.string.widget_size_square),
-                description = stringResource(R.string.widget_quote_desc_short),
-                isRecommended = false,
-                onPin = { pinAppWidget(context, QuoteWidgetProvider::class.java) }
+            WidgetThemeModeRow(
+                selected = uiState.widgetThemeMode,
+                onSelect = { viewModel.saveWidgetThemeMode(it) }
             )
             Spacer(Modifier.height(10.dp))
             Text(
@@ -3915,7 +3917,6 @@ private fun SettingsSliderItem(
         )
     }
 }
-
 @Composable
 private fun FontTypeRow(selected: String, onSelect: (String) -> Unit) {
     val options = listOf(
@@ -3927,6 +3928,29 @@ private fun FontTypeRow(selected: String, onSelect: (String) -> Unit) {
         Icon(Icons.Outlined.FontDownload, null, tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(AppSpace.md))
         Text(stringResource(R.string.font_label), fontSize = AppType.Body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(AppSpace.xs)) {
+            options.forEach { (key, label) ->
+                val sel = key == selected
+                Box(
+                    Modifier.clip(RoundedCornerShape(AppRadius.sm)).background(if (sel) AppColors.Accent else AppColors.BgGray)
+                        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onSelect(key) }
+                        .padding(horizontal = AppSpace.sm, vertical = AppSpace.xs)
+                ) { Text(label, fontSize = AppType.Caption, color = if (sel) Color.White else AppColors.TextSecondary, fontWeight = if (sel) FontWeight.Medium else FontWeight.Normal) }
+            }
+        }
+    }
+}
+@Composable
+private fun WidgetThemeModeRow(selected: String, onSelect: (String) -> Unit) {
+    val options = listOf(
+        "follow_app" to stringResource(R.string.widget_theme_follow_app),
+        "light" to stringResource(R.string.widget_theme_light),
+        "dark" to stringResource(R.string.widget_theme_dark)
+    )
+    Row(Modifier.fillMaxWidth().padding(horizontal = AppSpace.md, vertical = AppSpace.md), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.Widgets, null, tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(AppSpace.md))
+        Text(stringResource(R.string.widget_theme_mode), fontSize = AppType.Body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(AppSpace.xs)) {
             options.forEach { (key, label) ->
                 val sel = key == selected

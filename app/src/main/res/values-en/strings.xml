@@ -1147,6 +1147,13 @@
     <string name="widget_preview_book_title">Book title</string>
     <string name="widget_preview_author">Author</string>
     <string name="widget_quote_preview_attribution">“Book title” · Author</string>
+    <string name="widget_prev_book">Previous book</string>
+    <string name="widget_next_book">Next book</string>
+    <string name="widget_background_opacity">Background opacity</string>
+    <string name="widget_theme_mode">Widget color scheme</string>
+    <string name="widget_theme_follow_app">Follow app</string>
+    <string name="widget_theme_light">Light</string>
+    <string name="widget_theme_dark">Dark</string>
     <string name="more_options">More options</string>
     <string name="bookshelf_layout">Bookshelf layout</string>
     <string name="bookshelf_compact_grid">Compact grid</string>

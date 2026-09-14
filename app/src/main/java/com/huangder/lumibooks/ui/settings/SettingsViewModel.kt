@@ -204,6 +204,16 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            dataStoreManager.widgetBackgroundOpacity.collectLatest { opacity ->
+                _uiState.value = _uiState.value.copy(widgetBackgroundOpacity = opacity)
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.widgetThemeMode.collectLatest { mode ->
+                _uiState.value = _uiState.value.copy(widgetThemeMode = mode)
+            }
+        }
+        viewModelScope.launch {
             dataStoreManager.motionPreference.collectLatest { preference ->
                 _uiState.value = _uiState.value.copy(motionPreference = preference)
             }
@@ -557,6 +567,27 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(darkMode = mode)
         viewModelScope.launch {
             dataStoreManager.saveDarkMode(mode)
+        }
+    }
+
+    fun saveWidgetBackgroundOpacity(opacity: Int) {
+        val clamped = opacity.coerceIn(0, 100)
+        if (_uiState.value.widgetBackgroundOpacity == clamped) return
+        _uiState.value = _uiState.value.copy(widgetBackgroundOpacity = clamped)
+        viewModelScope.launch {
+            dataStoreManager.saveWidgetBackgroundOpacity(clamped)
+        }
+    }
+
+    fun saveWidgetThemeMode(mode: String) {
+        val normalized = when (mode) {
+            "light", "dark" -> mode
+            else -> "follow_app"
+        }
+        if (_uiState.value.widgetThemeMode == normalized) return
+        _uiState.value = _uiState.value.copy(widgetThemeMode = normalized)
+        viewModelScope.launch {
+            dataStoreManager.saveWidgetThemeMode(normalized)
         }
     }
 

@@ -1363,4 +1363,11 @@
     <string name="replace_rules_empty_hint">暫無淨化替換規則，可點擊右上角新建、匯入或載入推薦規則</string>
     <string name="replace_rules_clipboard_import">從剪貼簿匯入</string>
     <string name="replace_rules_file_import">從檔案匯入</string>
+    <string name="widget_prev_book">上一本</string>
+    <string name="widget_next_book">下一本</string>
+    <string name="widget_background_opacity">背景不透明度</string>
+    <string name="widget_theme_mode">小工具配色</string>
+    <string name="widget_theme_follow_app">跟隨 App 深淺色</string>
+    <string name="widget_theme_light">淺色</string>
+    <string name="widget_theme_dark">深色</string>
 </resources>
