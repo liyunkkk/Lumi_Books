@@ -2,15 +2,25 @@ package com.huangder.lumibooks.widget
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapShader
+import android.graphics.BitmapFactory
+import android.graphics.Camera
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
+import android.graphics.PorterDuffXfermode
+import android.graphics.RadialGradient
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
+import android.text.TextPaint
+import com.huangder.lumibooks.data.local.model.CoverFlowBookData
 import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -18,267 +28,222 @@ import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/**
- * App 主页同款 3D 景深封面流渲染器（widget 版）。
- *
- * 视觉规范完全对齐 CardFlowHomeScreen：
- * - 卡片宽高比 0.68（竖版）
- * - rotationY = -offset * 20°（左右卡片向内收拢叠放）
- * - scale = 1 - absOffset * 0.12（相邻卡片约 0.88）
- * - 相邻书露出约 40% 封面
- * - 中心卡正下方：书名（粗体）+ 作者（次级色）
- */
-internal object Book3DCoverRenderer {
+object Book3DCoverRenderer {
 
-    private const val CARD_ASPECT = 0.68f
-    private const val CARD_CORNER_RATIO = 0.10f // 圆角 / 卡片宽
-    private const val GUTTER_RATIO = 0.30f      // 相邻卡水平步进 / 卡片宽（露出约 40%）
+    private data class SlotConfig(
+        val offset: Int,
+        val rotationY: Float,
+        val scale: Float,
+        val xOffsetRatio: Float,
+        val yOffsetRatio: Float,
+        val brightness: Float,
+        val shadowAlpha: Float
+    )
+
+    private val SLOTS = listOf(
+        SlotConfig(-2, 48f, 0.72f, -1.02f, 0.04f, 0.65f, 0.20f),
+        SlotConfig(2, -48f, 0.72f, 1.02f, 0.04f, 0.65f, 0.20f),
+        SlotConfig(-1, 32f, 0.86f, -0.56f, 0.02f, 0.84f, 0.28f),
+        SlotConfig(1, -32f, 0.86f, 0.56f, 0.02f, 0.84f, 0.28f),
+        SlotConfig(0, -2f, 1.00f, 0.00f, 0.00f, 1.00f, 0.38f)
+    )
 
     fun render(
         context: Context,
-        books: List<CoverFlowBookDataCompat>,
+        books: List<CoverFlowBookData>,
         selectedIndex: Int,
         widthPx: Int,
         heightPx: Int,
         accentColor: Int,
-        isDark: Boolean,
-        backgroundOpacity: Int = 100
+        isDark: Boolean
     ): Bitmap {
-        if (widthPx <= 0 || heightPx <= 0) {
-            return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-        }
-        val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
+        val targetWidth = widthPx.coerceAtLeast(300)
+        val targetHeight = heightPx.coerceAtLeast(200)
+        val output = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
 
-        // 背景（可透明）
-        if (backgroundOpacity > 0) {
-            val bgAlpha = (backgroundOpacity.coerceIn(0, 100) * 2.55f).roundToInt()
-            val bgBase = if (isDark) 0xFF1C1C1E.toInt() else 0xFFF7F7FA.toInt()
-            val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = (bgBase and 0x00FFFFFF) or (bgAlpha shl 24)
+        if (books.isEmpty()) {
+            drawEmptyState(canvas, targetWidth, targetHeight, isDark)
+            return output
+        }
+
+        val clampedSelected = selectedIndex.coerceIn(0, books.size - 1)
+        val density = context.resources.displayMetrics.density
+
+        // 主书尺寸微调饱满化，完美还原图二
+        val bookWidth = (targetWidth * 0.44f).coerceIn(105f * density, 185f * density)
+        val bookHeight = (bookWidth * 1.45f).coerceAtMost(targetHeight * 0.80f)
+        val centerX = targetWidth * 0.50f
+        val centerY = targetHeight * 0.45f
+
+        for (slot in SLOTS) {
+            val bookIndex = if (books.size >= 5) {
+                (clampedSelected + slot.offset + books.size * 2) % books.size
+            } else {
+                val target = clampedSelected + slot.offset
+                if (target in books.indices) target else continue
             }
-            canvas.drawRoundRect(
-                RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat()),
-                widthPx * 0.085f,
-                widthPx * 0.085f,
-                bgPaint
-            )
-        }
 
-        if (books.isEmpty()) return bitmap
+            val book = books[bookIndex]
+            val x = centerX + bookWidth * slot.xOffsetRatio
+            val y = centerY + bookHeight * slot.yOffsetRatio
 
-        val index = selectedIndex.coerceIn(0, books.size - 1)
-
-        // 排版参数：书名区按比例预留（主页里书名在卡片下方）
-        val titleBandRatio = 0.16f
-        val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (isDark) 0xFFF5F5F7.toInt() else 0xFF111111.toInt()
-            typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-            textSize = heightPx * 0.046f
-            textAlign = Paint.Align.CENTER
-        }
-        val authorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (isDark) 0xFFAEAEB2.toInt() else 0xFF6E6E73.toInt()
-            typeface = Typeface.DEFAULT
-            textSize = heightPx * 0.034f
-            textAlign = Paint.Align.CENTER
-        }
-        val titleBandPx = heightPx * titleBandRatio
-
-        // 舞台区域
-        val stageTop = 0f
-        val stageBottom = heightPx - titleBandPx
-        val stageHeight = stageBottom - stageTop
-
-        // 卡片尺寸：以高度定尺寸，保证 3 张卡 + 露边都在画布内
-        val cardHeight = stageHeight * 0.94f
-        val cardWidth = cardHeight * CARD_ASPECT
-        val gutter = cardWidth * GUTTER_RATIO
-        // 三张卡总宽 = cardWidth + 2 * gutter（左右卡被中心卡遮住约 60%）
-        val totalSpread = cardWidth + 2 * gutter
-        val scaleDown = min(1f, widthPx * 0.96f / totalSpread)
-        val drawCardWidth = cardWidth * scaleDown
-        val drawCardHeight = cardHeight * scaleDown
-        val drawGutter = gutter * scaleDown
-
-        val centerX = widthPx / 2f
-        val cardTop = stageTop + (stageHeight - drawCardHeight) / 2f
-
-        // 解码 5 本书封面（带 URL 下载缓存）
-        val covers = books.take(5).map { loadCoverBitmap(context, it.coverPath, (drawCardHeight * 1.6f).roundToInt()) }
-        val displayIndex = index.coerceIn(0, covers.size - 1)
-        val centerBook = books[displayIndex]
-
-        // 绘制顺序：外侧 → 内侧 → 中心（远→近，保证叠放正确）
-        val layerSpecs = buildList {
-            add(-2); add(2); add(-1); add(1); add(0)
-        }
-        for (slot in layerSpecs) {
-            val bookIdx = displayIndex + slot
-            if (bookIdx < 0 || bookIdx >= covers.size) continue
-            val cover = covers[bookIdx]
-            val pageOffset = slot.toFloat()
-            // —— 完全对齐主页 CardFlowHomeScreen 变换公式 ——
-            val absOffset = abs(pageOffset)
-            val scale = 1f - (absOffset * 0.12f).coerceIn(0f, 0.18f)
-            val rotationY = -pageOffset.coerceIn(-1.5f, 1.5f) * 20f
-            val alpha = 1f - (absOffset * 0.18f).coerceIn(0f, 0.30f)
-            // translationX: -pageOffset * 10dp（主页逻辑，中心卡稍向滑动反方向平移）
-            val translationX = -pageOffset * drawGutter * 0.18f
-
-            draw3DCard(
+            // 1. 地面阴影光晕
+            drawBookFloorShadow(
                 canvas = canvas,
-                bitmap = cover,
-                book = books[bookIdx],
-                centerX = centerX,
-                cardTop = cardTop,
-                cardWidth = drawCardWidth,
-                cardHeight = drawCardHeight,
-                gutter = drawGutter,
-                pageOffset = pageOffset,
-                scale = scale,
-                rotationY = rotationY,
-                alpha = alpha,
-                translationX = translationX,
-                isDark = isDark,
-                accentColor = accentColor,
-                isCenter = slot == 0,
-                coverTargetSize = (drawCardHeight * 1.6f).roundToInt()
+                x = x,
+                y = y + (bookHeight * slot.scale * 0.5f) - 2f * density,
+                width = bookWidth * slot.scale * 0.95f,
+                height = 14f * density * slot.scale,
+                alpha = slot.shadowAlpha,
+                isDark = isDark
+            )
+
+            // 2. 带立体质感的封面
+            val coverBitmap = getOrGenerateCover(
+                context = context,
+                book = book,
+                targetWidth = bookWidth.roundToInt(),
+                targetHeight = bookHeight.roundToInt(),
+                density = density,
+                isDark = isDark
+            )
+
+            // 3. 3D 旋转与投影
+            drawTransformedBook(
+                canvas = canvas,
+                cover = coverBitmap,
+                x = x,
+                y = y,
+                bookWidth = bookWidth,
+                bookHeight = bookHeight,
+                rotationY = slot.rotationY,
+                scale = slot.scale,
+                brightness = slot.brightness
             )
         }
 
-        // 中心书名 + 作者（主页同款：卡片下方居中）
-        val cy = stageBottom + titleBandPx * 0.40f
-        canvas.drawText(ellipsize(centerBook.title, titlePaint, widthPx * 0.86f), centerX, cy, titlePaint)
-        if (centerBook.author.isNotBlank()) {
-            canvas.drawText(
-                ellipsize(centerBook.author, authorPaint, widthPx * 0.86f),
-                centerX,
-                cy + titleBandPx * 0.42f,
-                authorPaint
-            )
-        }
-        return bitmap
+        // 4. 底部 5 个小圆点指示器（图二原版样式）
+        drawIndicators(
+            canvas = canvas,
+            count = min(books.size, 5),
+            activeIndex = if (books.size >= 5) clampedSelected % 5 else clampedSelected,
+            targetWidth = targetWidth,
+            targetHeight = targetHeight,
+            density = density,
+            accentColor = accentColor,
+            isDark = isDark
+        )
+
+        return output
     }
 
-    /** 单张 3D 卡片：透视 + 圆角 + 阴影 + 书脊渐变 + 无封面回退。 */
-    private fun draw3DCard(
+    private fun drawTransformedBook(
         canvas: Canvas,
-        bitmap: Bitmap?,
-        book: CoverFlowBookDataCompat,
-        centerX: Float,
-        cardTop: Float,
-        cardWidth: Float,
-        cardHeight: Float,
-        gutter: Float,
-        pageOffset: Float,
-        scale: Float,
+        cover: Bitmap,
+        x: Float,
+        y: Float,
+        bookWidth: Float,
+        bookHeight: Float,
         rotationY: Float,
-        alpha: Float,
-        translationX: Float,
-        isDark: Boolean,
-        accentColor: Int,
-        isCenter: Boolean,
-        coverTargetSize: Int
+        scale: Float,
+        brightness: Float
     ) {
-        val saveCount = canvas.save()
-        val pivotX = centerX + pageOffset * gutter + translationX
-        val pivotY = cardTop + cardHeight / 2f
-        canvas.translate(pivotX, pivotY)
-        canvas.scale(scale, scale)
-        // 透视旋转（cameraDistance = 16 * density 的等效投影强度）
-        applyPerspectiveRotation(canvas, rotationY)
-        canvas.translate(-cardWidth / 2f, -cardHeight / 2f)
-
-        val cardAlpha = (alpha * 255).roundToInt().coerceIn(40, 255)
-        val radius = cardWidth * CARD_CORNER_RATIO
-        val cardRect = RectF(0f, 0f, cardWidth, cardHeight)
-
-        // 中心卡阴影（主页 center 20dp / 侧卡 6dp 阴影）
-        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = if (isDark) 0x66000000 else 0x40000000
-            setShadowLayer(if (isCenter) cardWidth * 0.06f else cardWidth * 0.02f, 0f, cardHeight * 0.02f, color)
-        }
-        canvas.drawRoundRect(cardRect, radius, radius, shadowPaint)
-
-        // 封面 / 回退生成封面
-        val coverPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.alpha = cardAlpha
-        }
-        if (bitmap != null && !bitmap.isRecycled) {
-            val shader = BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-            val matrix = Matrix()
-            val scaleMat = maxOf(cardWidth / bitmap.width, cardHeight / bitmap.height)
-            matrix.setScale(scaleMat, scaleMat)
-            matrix.postTranslate((cardWidth - bitmap.width * scaleMat) / 2f, (cardHeight - bitmap.height * scaleMat) / 2f)
-            shader.setLocalMatrix(matrix)
-            coverPaint.shader = shader
-            canvas.drawRoundRect(cardRect, radius, radius, coverPaint)
-            coverPaint.shader = null
-        } else {
-            // 生成式回退封面：从书名取色渐变 + 缩写
-            val hue = (abs(book.title.hashCode()) % 360).toFloat()
-            val topColor = Color.HSVToColor(floatArrayOf(hue, 0.42f, if (isDark) 0.30f else 0.62f))
-            val bottomColor = Color.HSVToColor(floatArrayOf((hue + 28f) % 360f, 0.50f, if (isDark) 0.16f else 0.38f))
-            val gradient = android.graphics.LinearGradient(
-                0f, 0f, 0f, cardHeight, topColor, bottomColor, Shader.TileMode.CLAMP
-            )
-            coverPaint.shader = gradient
-            canvas.drawRoundRect(cardRect, radius, radius, coverPaint)
-            coverPaint.shader = null
-            // 中心缩写文字
-            val initial = book.title.trim().take(1).ifEmpty { "书" }
-            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = 0xEEFFFFFF.toInt()
-                textSize = cardWidth * 0.30f
-                textAlign = Paint.Align.CENTER
-                typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
-            }
-            val textY = cardHeight / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
-            canvas.drawText(initial, cardWidth / 2f, textY, textPaint)
-        }
-
-        // 书脊高光（左缘亮线，模拟 3D 旋转受光面）
-        val spineWidth = cardWidth * 0.045f
-        val spinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = android.graphics.LinearGradient(
-                0f, 0f, spineWidth * 2.4f, 0f,
-                0x66FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP
-            )
-        }
-        canvas.drawRoundRect(RectF(0f, 0f, spineWidth * 2.4f, cardHeight), radius, radius, spinePaint)
-
-        // 中心卡底部进度指示条（accent 色）
-        if (isCenter && book.readingProgress > 0f) {
-            val barH = cardHeight * 0.020f
-            val barW = cardWidth * book.readingProgress.coerceIn(0f, 1f)
-            val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = accentColor }
-            canvas.drawRoundRect(
-                RectF(0f, cardHeight - barH, barW, cardHeight),
-                barH / 2f, barH / 2f, barPaint
-            )
-        }
-        canvas.restoreToCount(saveCount)
-    }
-
-    /**
-     * Y 轴透视旋转（围绕当前画布原点，即卡片中心）。
-     * 使用 android.graphics.Camera 默认相机距离，产生经典 CoverFlow 透视；
-     * 若验证后需要更平缓的透视，可调小 setRotationY 前的插值或后续微调。
-     */
-    private fun applyPerspectiveRotation(canvas: Canvas, rotationY: Float) {
-        val camera = android.graphics.Camera()
+        val camera = Camera()
+        val matrix = Matrix()
         camera.save()
         camera.rotateY(rotationY)
-        val matrix = Matrix()
         camera.getMatrix(matrix)
         camera.restore()
-        canvas.concat(matrix)
+
+        matrix.preTranslate(-bookWidth / 2f, -bookHeight / 2f)
+        matrix.postScale(scale, scale)
+        matrix.postTranslate(x, y)
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        if (brightness < 1.0f) {
+            val darkness = ((1.0f - brightness) * 255).roundToInt().coerceIn(0, 255)
+            paint.colorFilter = PorterDuffColorFilter(
+                Color.argb(darkness, 0, 0, 0),
+                PorterDuff.Mode.SRC_ATOP
+            )
+        }
+        canvas.drawBitmap(cover, matrix, paint)
     }
 
-    /** 加载封面：本地文件直读，https URL 下载并缓存到 filesDir/widget_covers/。 */
-    private fun loadCoverBitmap(context: Context, coverPath: String?, targetSizePx: Int): Bitmap? {
-        if (coverPath.isNullOrBlank() || targetSizePx <= 0) return null
+    private fun drawBookFloorShadow(
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        width: Float,
+        height: Float,
+        alpha: Float,
+        isDark: Boolean
+    ) {
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            val shadowColor = if (isDark) Color.BLACK else Color.argb((alpha * 255).roundToInt(), 20, 20, 30)
+            shader = RadialGradient(
+                x, y,
+                (width / 2f).coerceAtLeast(10f),
+                intArrayOf(shadowColor, Color.TRANSPARENT),
+                floatArrayOf(0.2f, 1.0f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        val shadowRect = RectF(x - width / 2f, y - height / 2f, x + width / 2f, y + height / 2f)
+        canvas.drawOval(shadowRect, shadowPaint)
+    }
+
+    private fun getOrGenerateCover(
+        context: Context,
+        book: CoverFlowBookData,
+        targetWidth: Int,
+        targetHeight: Int,
+        density: Float,
+        isDark: Boolean
+    ): Bitmap {
+        val decoded = loadCoverBitmap(context, book.coverPath, targetWidth, targetHeight)
+        val result = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(result)
+        val radius = 8f * density
+        val rect = RectF(0f, 0f, targetWidth.toFloat(), targetHeight.toFloat())
+
+        if (decoded != null) {
+            val roundedCover = createRoundedBitmap(decoded, targetWidth, targetHeight, radius)
+            canvas.drawBitmap(roundedCover, 0f, 0f, null)
+        } else {
+            drawProceduralCover(canvas, rect, book, radius, density)
+        }
+
+        // 书脊立体光影
+        val spinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                0f, 0f, targetWidth * 0.12f, 0f,
+                intArrayOf(
+                    Color.argb(90, 0, 0, 0),
+                    Color.argb(30, 255, 255, 255),
+                    Color.TRANSPARENT
+                ),
+                floatArrayOf(0f, 0.25f, 1f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRoundRect(rect, radius, radius, spinePaint)
+
+        // 边框微描边
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1f * density
+            color = if (isDark) Color.argb(40, 255, 255, 255) else Color.argb(30, 0, 0, 0)
+        }
+        canvas.drawRoundRect(rect, radius, radius, borderPaint)
+        return result
+    }
+
+    private fun loadCoverBitmap(context: Context, coverPath: String?, targetWidth: Int, targetHeight: Int): Bitmap? {
+        if (coverPath.isNullOrBlank() || targetWidth <= 0 || targetHeight <= 0) return null
+        val targetSizePx = maxOf(targetWidth, targetHeight)
         if (coverPath.startsWith("http://") || coverPath.startsWith("https://")) {
             val cached = downloadToCache(context, coverPath) ?: return null
             return decodeCoverFile(cached.absolutePath, targetSizePx)
@@ -292,74 +257,196 @@ internal object Book3DCoverRenderer {
         val target = File(cacheDir, "$key.img")
         if (target.isFile && target.length() > 0) return target
         return try {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            conn.connectTimeout = 6000
-            conn.readTimeout = 6000
-            conn.instanceFollowRedirects = true
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) LumiBooksWidget")
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-                conn.disconnect()
-                return null
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 4000
+                readTimeout = 4000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile)")
             }
-            val tmp = File(cacheDir, "$key.tmp")
-            conn.inputStream.use { input ->
-                tmp.outputStream().use { output ->
-                    input.copyTo(output, 16 * 1024)
+            if (conn.responseCode in 200..299) {
+                val tmp = File(cacheDir, "$key.tmp")
+                conn.inputStream.use { input ->
+                    FileOutputStream(tmp).use { output ->
+                        input.copyTo(output)
+                    }
                 }
+                if (tmp.length() > 0 && isValidImage(tmp)) {
+                    if (target.exists()) target.delete()
+                    if (tmp.renameTo(target)) target else null
+                } else {
+                    tmp.delete()
+                    null
+                }
+            } else {
+                null
             }
-            conn.disconnect()
-            // 校验确为图片再落盘
-            val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            android.graphics.BitmapFactory.decodeFile(tmp.absolutePath, opts)
-            if (opts.outWidth <= 0 || opts.outHeight <= 0) {
-                tmp.delete()
-                return null
-            }
-            if (tmp.renameTo(target)) target else null
-        } catch (t: Throwable) {
+        } catch (_: Throwable) {
             null
         }
     }
 
-    private fun decodeCoverFile(path: String, targetSizePx: Int): Bitmap? {
-        return decodeWidgetCover(path, targetSizePx)
+    private fun isValidImage(file: File): Boolean {
+        return try {
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, opts)
+            opts.outWidth > 0 && opts.outHeight > 0
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     private fun md5(input: String): String {
-        val digest = MessageDigest.getInstance("MD5")
-        return digest.digest(input.toByteArray()).joinToString("") { "%02x".format(it) }
+        val bytes = MessageDigest.getInstance("MD5").digest(input.toByteArray())
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 
-    private fun ellipsize(text: String, paint: Paint, maxWidth: Float): String {
-        if (text.isBlank()) return text
-        if (paint.measureText(text) <= maxWidth) return text
-        var end = text.length
-        while (end > 1 && paint.measureText(text.take(end) + "…") > maxWidth) {
-            end--
+    private fun drawProceduralCover(
+        canvas: Canvas,
+        rect: RectF,
+        book: CoverFlowBookData,
+        radius: Float,
+        density: Float
+    ) {
+        val hash = abs(book.title.hashCode())
+        val palette = COVER_PALETTES[hash % COVER_PALETTES.size]
+        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                rect.left, rect.top, rect.right, rect.bottom,
+                palette.first, palette.second,
+                Shader.TileMode.CLAMP
+            )
         }
-        return text.take(end) + "…"
-    }
-}
+        canvas.drawRoundRect(rect, radius, radius, bgPaint)
 
-/** 渲染器与 Provider 之间的轻量数据载体（与 CoverFlowBookData 字段对齐）。 */
-internal data class CoverFlowBookDataCompat(
-    val bookId: String,
-    val title: String,
-    val author: String,
-    val coverPath: String?,
-    val readingProgress: Float
-) {
-    companion object {
-        fun from(books: List<com.huangder.lumibooks.data.local.model.CoverFlowBookData>): List<CoverFlowBookDataCompat> {
-            return books.map {
-                CoverFlowBookDataCompat(
-                    bookId = it.bookId,
-                    title = it.title,
-                    author = it.author,
-                    coverPath = it.coverPath,
-                    readingProgress = it.readingProgress
-                )
+        val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.2f * density
+            color = Color.argb(70, 255, 255, 255)
+        }
+        val innerRect = RectF(rect).apply { inset(6f * density, 6f * density) }
+        canvas.drawRoundRect(innerRect, radius - 2f * density, radius - 2f * density, framePaint)
+
+        val titlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 14f * density
+            typeface = Typeface.DEFAULT_BOLD
+            textAlign = Paint.Align.CENTER
+        }
+        val authorPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(190, 255, 255, 255)
+            textSize = 10f * density
+            typeface = Typeface.DEFAULT
+            textAlign = Paint.Align.CENTER
+        }
+        val titleX = rect.centerX()
+        val titleY = rect.centerY() - 6f * density
+        val titleText = if (book.title.length > 8) book.title.take(7) + "…" else book.title
+        canvas.drawText(titleText, titleX, titleY, titlePaint)
+        val authorText = if (book.author.isNotBlank()) book.author.take(6) else "未知作者"
+        canvas.drawText(authorText, titleX, titleY + 16f * density, authorPaint)
+    }
+
+    private fun createRoundedBitmap(
+        source: Bitmap,
+        targetWidth: Int,
+        targetHeight: Int,
+        radius: Float
+    ): Bitmap {
+        val output = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val rect = RectF(0f, 0f, targetWidth.toFloat(), targetHeight.toFloat())
+
+        val scale = maxOf(targetWidth.toFloat() / source.width, targetHeight.toFloat() / source.height)
+        val scaledW = source.width * scale
+        val scaledH = source.height * scale
+        val dx = (targetWidth - scaledW) / 2f
+        val dy = (targetHeight - scaledH) / 2f
+
+        canvas.drawRoundRect(rect, radius, radius, paint)
+        paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        val matrix = Matrix().apply {
+            postScale(scale, scale)
+            postTranslate(dx, dy)
+        }
+        canvas.drawBitmap(source, matrix, paint)
+        return output
+    }
+
+    private fun decodeCoverFile(filePath: String, targetSizePx: Int): Bitmap? {
+        val file = File(filePath)
+        if (!file.isFile || file.length() == 0L) return null
+        return try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(filePath, options)
+            if (options.outWidth <= 0 || options.outHeight <= 0) return null
+
+            var sample = 1
+            var w = options.outWidth
+            var h = options.outHeight
+            while (w > targetSizePx * 2 || h > targetSizePx * 2) {
+                sample *= 2
+                w /= 2
+                h /= 2
             }
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            BitmapFactory.decodeFile(filePath, decodeOptions)
+        } catch (_: Throwable) {
+            null
         }
     }
+
+    private fun drawIndicators(
+        canvas: Canvas,
+        count: Int,
+        activeIndex: Int,
+        targetWidth: Int,
+        targetHeight: Int,
+        density: Float,
+        accentColor: Int,
+        isDark: Boolean
+    ) {
+        if (count <= 1) return
+        val dotRadius = 2.5f * density
+        val spacing = 7f * density
+        val totalWidth = count * (dotRadius * 2) + (count - 1) * spacing
+        var startX = (targetWidth - totalWidth) / 2f + dotRadius
+        val dotY = targetHeight - 12f * density
+
+        val activePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = if (isDark) Color.WHITE else Color.argb(200, 40, 40, 50)
+        }
+        val inactivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = if (isDark) Color.argb(60, 255, 255, 255) else Color.argb(50, 0, 0, 0)
+        }
+
+        for (i in 0 until count) {
+            val paint = if (i == activeIndex) activePaint else inactivePaint
+            canvas.drawCircle(startX, dotY, dotRadius, paint)
+            startX += dotRadius * 2 + spacing
+        }
+    }
+
+    private fun drawEmptyState(canvas: Canvas, width: Int, height: Int, isDark: Boolean) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (isDark) Color.argb(80, 255, 255, 255) else Color.argb(80, 0, 0, 0)
+            textSize = 14f
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("暂无书籍", width / 2f, height / 2f, paint)
+    }
+
+    private val COVER_PALETTES = listOf(
+        Color.parseColor("#1B2A4A") to Color.parseColor("#2E4A7D"),
+        Color.parseColor("#2C3E50") to Color.parseColor("#4CA1AF"),
+        Color.parseColor("#1E3C72") to Color.parseColor("#2A5298"),
+        Color.parseColor("#373B44") to Color.parseColor("#4286F4"),
+        Color.parseColor("#283048") to Color.parseColor("#859398"),
+        Color.parseColor("#141E30") to Color.parseColor("#243B55")
+    )
 }
