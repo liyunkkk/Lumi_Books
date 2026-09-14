@@ -373,34 +373,95 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
             isDark: Boolean,
             density: Float
         ): Bitmap {
-            val bitmap = Bitmap.createBitmap(widthPx.coerceAtLeast(10), heightPx.coerceAtLeast(10), Bitmap.Config.ARGB_8888)
+            val w = widthPx.coerceAtLeast(20)
+            val h = heightPx.coerceAtLeast(20)
+            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             if (opacityPercent <= 0) return bitmap
             val canvas = Canvas(bitmap)
-            val alpha = (opacityPercent.coerceIn(0, 100) * 255f / 100f).roundToInt()
-            val radius = 24f * density
-            val rect = RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat())
 
+            val baseAlpha = (opacityPercent.coerceIn(0, 100) * 255f / 100f)
+            val radius = 26f * density
+            val rect = RectF(0f, 0f, w.toFloat(), h.toFloat())
+
+            // 1. 液态玻璃基底（Liquid Glass Substrate）：带有角度与垂向光泽折射
             val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.FILL
-                color = if (isDark) {
-                    Color.argb(alpha, 28, 32, 40)
+                shader = if (isDark) {
+                    android.graphics.LinearGradient(
+                        0f, 0f, 0f, h.toFloat(),
+                        intArrayOf(
+                            Color.argb((baseAlpha * 0.82f).roundToInt(), 40, 46, 58),
+                            Color.argb((baseAlpha * 0.65f).roundToInt(), 24, 28, 38),
+                            Color.argb((baseAlpha * 0.75f).roundToInt(), 18, 22, 30)
+                        ),
+                        floatArrayOf(0f, 0.55f, 1f),
+                        android.graphics.Shader.TileMode.CLAMP
+                    )
                 } else {
-                    Color.argb(alpha, 248, 249, 251)
+                    android.graphics.LinearGradient(
+                        0f, 0f, 0f, h.toFloat(),
+                        intArrayOf(
+                            Color.argb((baseAlpha * 0.94f).roundToInt(), 255, 255, 255),
+                            Color.argb((baseAlpha * 0.72f).roundToInt(), 245, 248, 252),
+                            Color.argb((baseAlpha * 0.55f).roundToInt(), 232, 237, 245)
+                        ),
+                        floatArrayOf(0f, 0.45f, 1f),
+                        android.graphics.Shader.TileMode.CLAMP
+                    )
                 }
             }
             canvas.drawRoundRect(rect, radius, radius, fillPaint)
 
+            // 2. 顶部微光晶体高光线（Top Specular Ridge Highlight）——原图液态玻璃关键印记
+            val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 1.2f * density
+                shader = android.graphics.LinearGradient(
+                    0f, 0f, w.toFloat(), 0f,
+                    intArrayOf(
+                        Color.TRANSPARENT,
+                        if (isDark) Color.argb((baseAlpha * 0.55f).roundToInt(), 255, 255, 255)
+                        else Color.argb((baseAlpha * 0.85f).roundToInt(), 255, 255, 255),
+                        Color.TRANSPARENT
+                    ),
+                    floatArrayOf(0.1f, 0.5f, 0.9f),
+                    android.graphics.Shader.TileMode.CLAMP
+                )
+            }
+            val highlightRect = RectF(rect).apply { inset(1f * density, 1f * density) }
+            canvas.drawRoundRect(highlightRect, radius - 1f * density, radius - 1f * density, highlightPaint)
+
+            // 3. 全局柔和微光双色边框（Dual-Tone Crystal Rim）
             val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                strokeWidth = 1f * density
-                color = if (isDark) {
-                    Color.argb((alpha * 0.4f).roundToInt(), 255, 255, 255)
+                strokeWidth = 0.8f * density
+                shader = if (isDark) {
+                    android.graphics.LinearGradient(
+                        0f, 0f, 0f, h.toFloat(),
+                        intArrayOf(
+                            Color.argb((baseAlpha * 0.50f).roundToInt(), 255, 255, 255),
+                            Color.argb((baseAlpha * 0.20f).roundToInt(), 160, 180, 200),
+                            Color.argb((baseAlpha * 0.35f).roundToInt(), 200, 220, 255)
+                        ),
+                        floatArrayOf(0f, 0.6f, 1f),
+                        android.graphics.Shader.TileMode.CLAMP
+                    )
                 } else {
-                    Color.argb((alpha * 0.35f).roundToInt(), 215, 220, 226)
+                    android.graphics.LinearGradient(
+                        0f, 0f, 0f, h.toFloat(),
+                        intArrayOf(
+                            Color.argb((baseAlpha * 0.75f).roundToInt(), 255, 255, 255),
+                            Color.argb((baseAlpha * 0.30f).roundToInt(), 210, 220, 235),
+                            Color.argb((baseAlpha * 0.45f).roundToInt(), 255, 255, 255)
+                        ),
+                        floatArrayOf(0f, 0.6f, 1f),
+                        android.graphics.Shader.TileMode.CLAMP
+                    )
                 }
             }
-            val insetRect = RectF(rect).apply { inset(0.5f * density, 0.5f * density) }
-            canvas.drawRoundRect(insetRect, radius, radius, strokePaint)
+            val borderRect = RectF(rect).apply { inset(0.4f * density, 0.4f * density) }
+            canvas.drawRoundRect(borderRect, radius - 0.4f * density, radius - 0.4f * density, strokePaint)
+
             return bitmap
         }
     }
