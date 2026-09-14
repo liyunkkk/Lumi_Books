@@ -264,6 +264,8 @@ class DataStoreManager @Inject constructor(
         private val LIQUID_GLASS_HDR_HIGHLIGHT_ENABLED = booleanPreferencesKey("liquid_glass_hdr_highlight_enabled")
         private val CARD_OUTLINES_ENABLED = booleanPreferencesKey("card_outlines_enabled")
         private val DARK_MODE = stringPreferencesKey("dark_mode")
+        private val WIDGET_BACKGROUND_OPACITY = intPreferencesKey("widget_background_opacity")
+        private val WIDGET_THEME_MODE = stringPreferencesKey("widget_theme_mode")
         private val ENTRANCE_ANIMATIONS_ENABLED = booleanPreferencesKey("entrance_animations_enabled")
         private val MOTION_PREFERENCE = stringPreferencesKey("motion_preference")
         private val E_INK_MODE_ENABLED = booleanPreferencesKey("e_ink_mode_enabled")
@@ -804,6 +806,19 @@ class DataStoreManager @Inject constructor(
 
     val darkMode: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[DARK_MODE] ?: "system"
+    }
+
+    /** 桌面小组件背景不透明度（0-100，默认 100 全不透明） */
+    val widgetBackgroundOpacity: Flow<Int> = context.dataStore.data.map { preferences ->
+        (preferences[WIDGET_BACKGROUND_OPACITY] ?: 100).coerceIn(0, 100)
+    }
+
+    /** 桌面小组件配色模式："follow_app"（默认）/ "light" / "dark" */
+    val widgetThemeMode: Flow<String> = context.dataStore.data.map { preferences ->
+        when (preferences[WIDGET_THEME_MODE]) {
+            "light", "dark" -> preferences[WIDGET_THEME_MODE]!!
+            else -> "follow_app"
+        }
     }
 
     val entranceAnimationsEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -2063,6 +2078,21 @@ class DataStoreManager @Inject constructor(
     suspend fun saveDarkMode(mode: String) {
         context.dataStore.edit { preferences ->
             preferences[DARK_MODE] = mode
+        }
+    }
+
+    suspend fun saveWidgetBackgroundOpacity(opacity: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[WIDGET_BACKGROUND_OPACITY] = opacity.coerceIn(0, 100)
+        }
+    }
+
+    suspend fun saveWidgetThemeMode(mode: String) {
+        context.dataStore.edit { preferences ->
+            preferences[WIDGET_THEME_MODE] = when (mode) {
+                "light", "dark" -> mode
+                else -> "follow_app"
+            }
         }
     }
 

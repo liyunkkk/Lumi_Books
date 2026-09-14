@@ -1,12 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  尺寸规范（修复"拉大后缩不回"问题）：
+  - minWidth/minHeight = 最小添加尺寸（4x2）
+  - minResizeWidth/minResizeHeight = 缩放下限（2x2，保证可缩小）
+  - maxResizeWidth/maxResizeHeight = 放大上限（5x3，防止锁死大尺寸）
+  - targetCellWidth/Height = 预添加默认格数
+-->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/widget_cover_flow_description"
     android:initialLayout="@layout/widget_cover_flow"
-    android:maxResizeHeight="380dp"
-    android:maxResizeWidth="530dp"
-    android:minHeight="180dp"
-    android:minResizeHeight="180dp"
-    android:minResizeWidth="320dp"
+    android:maxResizeHeight="330dp"
+    android:maxResizeWidth="500dp"
+    android:minHeight="110dp"
+    android:minResizeHeight="110dp"
+    android:minResizeWidth="180dp"
     android:minWidth="320dp"
     android:previewLayout="@layout/widget_cover_flow"
     android:resizeMode="horizontal|vertical"

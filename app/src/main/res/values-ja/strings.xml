@@ -1364,4 +1364,11 @@
     <string name="replace_rules_empty_hint">浄化ルールがありません。追加、インポート、またはプリセットを読み込んでください</string>
     <string name="replace_rules_clipboard_import">クリップボードからインポート</string>
     <string name="replace_rules_file_import">ファイルからインポート</string>
+    <string name="widget_prev_book">前の本</string>
+    <string name="widget_next_book">次の本</string>
+    <string name="widget_background_opacity">背景の不透明度</string>
+    <string name="widget_theme_mode">ウィジェットの配色</string>
+    <string name="widget_theme_follow_app">アプリに合わせる</string>
+    <string name="widget_theme_light">ライト</string>
+    <string name="widget_theme_dark">ダーク</string>
 </resources>

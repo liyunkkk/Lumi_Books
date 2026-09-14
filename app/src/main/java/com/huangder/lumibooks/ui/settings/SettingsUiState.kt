@@ -74,6 +74,8 @@ data class SettingsUiState(
     val liquidGlassHdrHighlightEnabled: Boolean = false,
     val cardOutlinesEnabled: Boolean = false,
     val darkMode: String = "system",       // "system" / "light" / "dark"
+    val widgetBackgroundOpacity: Int = 100, // 桌面小组件背景不透明度 0-100
+    val widgetThemeMode: String = "follow_app", // 小组件配色 "follow_app" / "light" / "dark"
     val motionPreference: String = "standard", // "standard" / "reduced"
     val entranceAnimationsEnabled: Boolean = true,
     val eInkModeEnabled: Boolean = false,

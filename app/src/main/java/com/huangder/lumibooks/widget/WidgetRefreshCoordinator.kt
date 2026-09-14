@@ -36,7 +36,6 @@ class WidgetRefreshCoordinator @Inject constructor(
                 .distinctUntilChanged()
                 .debounce(REFRESH_DEBOUNCE_MILLIS)
                 .collect {
-                    ContinueReadingWidgetProvider.requestUpdate(context)
                     CoverFlowWidgetProvider.requestUpdate(context)
                 }
         }
@@ -45,7 +44,6 @@ class WidgetRefreshCoordinator @Inject constructor(
                 .distinctUntilChanged()
                 .debounce(REFRESH_DEBOUNCE_MILLIS)
                 .collect {
-                    QuoteWidgetProvider.requestUpdate(context)
                     CoverFlowWidgetProvider.requestUpdate(context)
                 }
         }
@@ -55,13 +53,39 @@ class WidgetRefreshCoordinator @Inject constructor(
                 .drop(1)
                 .debounce(REFRESH_DEBOUNCE_MILLIS)
                 .collect {
-                    ContinueReadingWidgetProvider.requestUpdate(context)
-                    QuoteWidgetProvider.requestUpdate(context)
                     CoverFlowWidgetProvider.requestUpdate(context)
                 }
         }
         scope.launch {
             dataStoreManager.appAccentColor
+                .distinctUntilChanged()
+                .drop(1)
+                .debounce(REFRESH_DEBOUNCE_MILLIS)
+                .collect {
+                    CoverFlowWidgetProvider.requestUpdate(context)
+                }
+        }
+        // 小组件外观配置（背景不透明度 / 深浅色）变化即时重绘
+        scope.launch {
+            dataStoreManager.widgetBackgroundOpacity
+                .distinctUntilChanged()
+                .drop(1)
+                .debounce(REFRESH_DEBOUNCE_MILLIS)
+                .collect {
+                    CoverFlowWidgetProvider.requestUpdate(context)
+                }
+        }
+        scope.launch {
+            dataStoreManager.widgetThemeMode
+                .distinctUntilChanged()
+                .drop(1)
+                .debounce(REFRESH_DEBOUNCE_MILLIS)
+                .collect {
+                    CoverFlowWidgetProvider.requestUpdate(context)
+                }
+        }
+        scope.launch {
+            dataStoreManager.darkMode
                 .distinctUntilChanged()
                 .drop(1)
                 .debounce(REFRESH_DEBOUNCE_MILLIS)

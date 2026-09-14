@@ -1,4 +1,5 @@
 package com.huangder.lumibooks.widget
+
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
@@ -11,22 +12,31 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.Bundle
 import android.view.View
 import android.widget.RemoteViews
 import com.huangder.lumibooks.R
-import com.huangder.lumibooks.data.local.model.CoverFlowBookData
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
 import com.huangder.lumibooks.domain.model.parseAppAccentArgb
 import com.huangder.lumibooks.util.LocaleHelper
 import kotlinx.coroutines.flow.firstOrNull
-import org.json.JSONObject
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
+/**
+ * 3D 景深在读精选（App 主页同款，等比缩小版）
+ *
+ * - 视觉：Book3DCoverRenderer 离屏渲染主页同款 3D 卡片流（0.68 宽高比 / ±20° rotationY / scale 0.88 / 露出 40%）
+ * - 交互：左半区点击 = 上一本，右半区 = 下一本，中心 = 打开书；底部按钮 = 续读 / 书架 / 详情
+ * - 封面：本地文件 + https URL 下载缓存（filesDir/widget_covers/）
+ * - 外观：背景不透明度（0-100）与配色（跟随 App / 浅色 / 深色）由 DataStore 驱动
+ */
 class CoverFlowWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        val appWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+        val appWidgetId = intent.getIntExtra(
+            AppWidgetManager.EXTRA_APPWIDGET_ID,
+            AppWidgetManager.INVALID_APPWIDGET_ID
+        )
         when (intent.action) {
             ACTION_PREV -> {
                 if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
@@ -63,6 +73,16 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
         updateAsync(context, appWidgetIds)
     }
 
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle?
+    ) {
+        // 用户拖拽缩放小组件后，按新尺寸重新渲染 3D 舞台
+        updateAsync(context, intArrayOf(appWidgetId))
+    }
+
     private fun updateAsync(context: Context, appWidgetIds: IntArray) {
         if (appWidgetIds.isEmpty()) return
         runWidgetUpdate(TAG) {
@@ -70,39 +90,36 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
             val localizedContext = LocaleHelper.applyLanguage(appContext)
             val entryPoint = appContext.widgetDataEntryPoint()
             val bookDao = entryPoint.bookDao()
-            val noteDao = entryPoint.noteDao()
             val dataStoreManager = entryPoint.dataStoreManager()
-
             val rawBooks = bookDao.getRecentCoverFlowBooks(MAX_DISPLAY_BOOKS)
+            val manager = AppWidgetManager.getInstance(appContext)
+
+            // 主题与外观
             val accentHex = dataStoreManager.appAccentColor.firstOrNull() ?: DEFAULT_APP_ACCENT_HEX
             val accentColor = try {
                 parseAppAccentArgb(accentHex)
             } catch (_: Throwable) {
                 Color.parseColor(DEFAULT_APP_ACCENT_HEX)
             }
-
-            val darkModeSetting = dataStoreManager.darkMode.firstOrNull().orEmpty()
-            val systemDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-            val isDark = when (darkModeSetting) {
+            val widgetThemeMode = dataStoreManager.widgetThemeMode.firstOrNull() ?: "follow_app"
+            val backgroundOpacity = dataStoreManager.widgetBackgroundOpacity.firstOrNull() ?: 100
+            val appDarkModeSetting = dataStoreManager.darkMode.firstOrNull().orEmpty()
+            val systemDark = (appContext.resources.configuration.uiMode and
+                Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            val isDark = when (widgetThemeMode) {
                 "dark" -> true
                 "light" -> false
-                else -> systemDark
+                else -> when (appDarkModeSetting) {
+                    "dark" -> true
+                    "light" -> false
+                    else -> systemDark
+                }
             }
 
-            val manager = AppWidgetManager.getInstance(appContext)
             val density = appContext.resources.displayMetrics.density
-            val canvasWidthPx = (200 * density).roundToInt().coerceIn(400, 580)
-            val canvasHeightPx = (140 * density).roundToInt().coerceIn(280, 400)
-            val pillWidthPx = (74 * density).roundToInt().coerceAtLeast(80)
-            val pillHeightPx = (30 * density).roundToInt().coerceAtLeast(32)
-            val pillBitmap = createPillBitmap(pillWidthPx, pillHeightPx, accentColor, 15f * density)
 
             appWidgetIds.forEach { appWidgetId ->
-                val views = RemoteViews(
-                    localizedContext.packageName,
-                    R.layout.widget_cover_flow
-                )
-
+                val views = RemoteViews(localizedContext.packageName, R.layout.widget_cover_flow)
                 if (rawBooks.isEmpty()) {
                     views.setViewVisibility(R.id.widget_coverflow_content, View.GONE)
                     views.setViewVisibility(R.id.widget_coverflow_empty, View.VISIBLE)
@@ -117,63 +134,43 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                 } else {
                     views.setViewVisibility(R.id.widget_coverflow_content, View.VISIBLE)
                     views.setViewVisibility(R.id.widget_coverflow_empty, View.GONE)
-
                     val prefs = getWidgetPrefs(appContext)
                     val storedIndex = prefs.getInt(keyForIndex(appWidgetId), 0)
                     val selectedIndex = storedIndex.coerceIn(0, rawBooks.size - 1)
                     val currentBook = rawBooks[selectedIndex]
 
-                    // 1. Render 3D Cover Flow Bitmap
+                    // 按真实视图尺寸渲染（含 onAppWidgetOptionsChanged 后的新尺寸）
+                    val options = manager.getAppWidgetOptions(appWidgetId)
+                    var canvasWidth = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH)
+                    var canvasHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT)
+                    if (canvasWidth <= 0) canvasWidth = (200 * density).roundToInt()
+                    if (canvasHeight <= 0) canvasHeight = (140 * density).roundToInt()
+                    // dp → px
+                    canvasWidth = (canvasWidth * density).roundToInt()
+                    canvasHeight = (canvasHeight * density).roundToInt()
+                    // 底部操作条约 46dp，从舞台中扣除
+                    canvasHeight = (canvasHeight - 46 * density).roundToInt().coerceAtLeast(120)
+
+                    // 渲染主页同款 3D 景深位图（含 URL 封面下载缓存）
                     val coverFlowBitmap = Book3DCoverRenderer.render(
                         context = appContext,
-                        books = rawBooks,
+                        books = CoverFlowBookDataCompat.from(rawBooks),
                         selectedIndex = selectedIndex,
-                        widthPx = canvasWidthPx,
-                        heightPx = canvasHeightPx,
+                        widthPx = canvasWidth,
+                        heightPx = canvasHeight,
                         accentColor = accentColor,
-                        isDark = isDark
+                        isDark = isDark,
+                        backgroundOpacity = backgroundOpacity
                     )
                     views.setImageViewBitmap(R.id.widget_coverflow_canvas, coverFlowBitmap)
 
-                    // 2. Resolve Quote & Chapter info
-                    val rawQuote = noteDao.getLatestQuoteForBook(currentBook.bookId)
-                    val quote = resolveQuote(rawQuote, currentBook.title)
-                    val chapter = extractChapterInfo(currentBook.locatorJson, currentBook.readingProgress)
-                    val percent = (currentBook.readingProgress.coerceIn(0f, 1f) * 100f).roundToInt()
-
-                    // 3. Set text views
-                    views.setTextViewText(R.id.widget_book_title, currentBook.title)
-                    views.setTextViewText(R.id.widget_book_author, if (currentBook.author.isNotBlank()) "${currentBook.author} 著" else "")
-                    views.setTextViewText(R.id.widget_book_quote, quote)
-                    views.setTextViewText(R.id.widget_progress_text, "已读 $percent%")
-                    views.setTextViewText(R.id.widget_chapter_text, chapter)
-
-                    // 4. Progress bar
-                    views.setProgressBar(
-                        R.id.widget_progress_bar,
-                        1000,
-                        (currentBook.readingProgress.coerceIn(0f, 1f) * 1000f).roundToInt(),
-                        false
-                    )
-
-                    // 5. Button accent tint
+                    // 底部按钮染色（accent 主按钮）
+                    val pillWidthPx = (84 * density).roundToInt().coerceAtLeast(96)
+                    val pillHeightPx = (30 * density).roundToInt().coerceAtLeast(32)
+                    val pillBitmap = createPillBitmap(pillWidthPx, pillHeightPx, accentColor, 15f * density)
                     views.setImageViewBitmap(R.id.widget_btn_continue_bg, pillBitmap)
 
-                    // 6. Clicks & PendingIntents
-                    views.setOnClickPendingIntent(
-                        R.id.widget_header_tag,
-                        openBookshelfPendingIntent(appContext, HEADER_REQUEST_CODE_BASE + appWidgetId)
-                    )
-                    views.setOnClickPendingIntent(
-                        R.id.widget_btn_history,
-                        openBookDetailsPendingIntent(appContext, HISTORY_REQUEST_CODE_BASE + appWidgetId, currentBook.bookId)
-                    )
-                    views.setOnClickPendingIntent(
-                        R.id.widget_btn_more,
-                        coverFlowActionPendingIntent(appContext, appWidgetId, ACTION_NEXT)
-                    )
-
-                    // Touch zones on the 3D cover flow
+                    // 翻书与打开
                     views.setOnClickPendingIntent(
                         R.id.widget_touch_prev,
                         coverFlowActionPendingIntent(appContext, appWidgetId, ACTION_PREV)
@@ -186,8 +183,6 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                         R.id.widget_touch_read,
                         openBookPendingIntent(appContext, READ_TOUCH_REQUEST_CODE_BASE + appWidgetId, currentBook.bookId)
                     )
-
-                    // Bottom Action Buttons
                     views.setOnClickPendingIntent(
                         R.id.widget_btn_continue_wrap,
                         openBookPendingIntent(appContext, CONTINUE_REQUEST_CODE_BASE + appWidgetId, currentBook.bookId)
@@ -201,7 +196,6 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                         openBookDetailsPendingIntent(appContext, DETAILS_REQUEST_CODE_BASE + appWidgetId, currentBook.bookId)
                     )
                 }
-
                 manager.updateAppWidget(appWidgetId, views)
             }
         }
@@ -240,10 +234,7 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
         private const val MAX_DISPLAY_BOOKS = 5
         private const val PREFS_NAME = "cover_flow_widget_prefs"
         private fun keyForIndex(widgetId: Int) = "index_$widgetId"
-
         private const val EMPTY_REQUEST_CODE_BASE = 60_000
-        private const val HEADER_REQUEST_CODE_BASE = 70_000
-        private const val HISTORY_REQUEST_CODE_BASE = 80_000
         private const val READ_TOUCH_REQUEST_CODE_BASE = 90_000
         private const val CONTINUE_REQUEST_CODE_BASE = 100_000
         private const val BOOKSHELF_REQUEST_CODE_BASE = 110_000
@@ -262,52 +253,10 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
             )
         }
 
-        private fun resolveQuote(latestNote: String?, bookTitle: String): String {
-            val clean = latestNote?.trim()
-                ?.removePrefix("“")?.removeSuffix("”")
-                ?.removePrefix("\"")?.removeSuffix("\"")
-            if (!clean.isNullOrBlank()) {
-                val trimmed = clean.take(48)
-                return "“$trimmed${if (clean.length > 48) "…" else ""}”"
-            }
-            val curated = listOf(
-                "生活不能等待别人来安排，要自己去争取和奋斗。",
-                "读一本好书，就是在和许多高尚的人谈话。",
-                "世间万物皆有灵性，唯有读书使心灵开阔。",
-                "行万里路，读万卷书。",
-                "愿每一页文字，都能抚平浮躁与疲惫。",
-                "在书页之间，与未知的自我重逢。"
-            )
-            val index = abs(bookTitle.hashCode()) % curated.size
-            return "“${curated[index]}”"
-        }
-
-        private fun extractChapterInfo(locatorJson: String?, readingProgress: Float): String {
-            if (!locatorJson.isNullOrBlank()) {
-                try {
-                    val json = JSONObject(locatorJson)
-                    val title = json.optString("title").trim()
-                    if (title.isNotEmpty()) {
-                        return if (title.length > 14) title.take(13) + "…" else title
-                    }
-                    val loc = json.optJSONObject("locations")
-                    if (loc != null) {
-                        val pos = loc.optInt("position", -1)
-                        val total = loc.optInt("total", -1)
-                        if (pos > 0 && total > 0) return "第 $pos / $total 章"
-                        if (pos > 0) return "第 $pos 章"
-                    }
-                } catch (_: Throwable) {}
-            }
-            val percent = (readingProgress.coerceIn(0f, 1f) * 100f).roundToInt()
-            return if (percent > 0) "已读 $percent%" else "未开始阅读"
-        }
         private fun createPillBitmap(widthPx: Int, heightPx: Int, color: Int, radiusPx: Float): Bitmap {
             val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                this.color = color
-            }
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
             val rect = RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat())
             canvas.drawRoundRect(rect, radiusPx, radiusPx, paint)
             return bitmap
