@@ -17,6 +17,11 @@ interface NoteDao {
     fun getNotesByBookId(bookId: String): Flow<List<NoteEntity>>
 
     @Query(
+        "SELECT selectedText FROM notes WHERE bookId = :bookId AND TRIM(selectedText) <> '' ORDER BY createdAt DESC LIMIT 1"
+    )
+    suspend fun getLatestQuoteForBook(bookId: String): String?
+
+    @Query(
         "SELECT notes.id AS noteId, notes.bookId AS bookId, " +
             "notes.selectedText AS selectedText, notes.note AS noteText, " +
             "books.title AS bookTitle, books.author AS bookAuthor " +

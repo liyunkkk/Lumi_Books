@@ -1191,6 +1191,10 @@
     <string name="backup_webdav_link">WebDAV 同步</string>
     <string name="widget_continue_name">继续阅读</string>
     <string name="widget_continue_description">继续阅读最近一本书</string>
+    <string name="widget_cover_flow_name">3D 景深在读精选</string>
+    <string name="widget_cover_flow_description">立体 3D 展台展示近期在读书籍，沉浸式浏览与继续阅读</string>
+    <string name="widget_bookshelf">加入书架</string>
+    <string name="widget_view_details">查看详情</string>
     <string name="widget_quote_name">随机摘录</string>
     <string name="widget_quote_description">展示随机高亮或笔记摘录</string>
     <string name="widget_no_recent_book">暂无可继续阅读的书籍</string>

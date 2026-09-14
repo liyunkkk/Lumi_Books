@@ -9,6 +9,7 @@ import androidx.room.Upsert
 import androidx.room.Update
 import com.huangder.lumibooks.data.local.entity.BookEntity
 import com.huangder.lumibooks.data.local.model.ContinueReadingWidgetData
+import com.huangder.lumibooks.data.local.model.CoverFlowBookData
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -36,6 +37,12 @@ interface BookDao {
             "FROM books ORDER BY lastReadTime DESC LIMIT 1"
     )
     suspend fun getContinueReadingWidgetData(): ContinueReadingWidgetData?
+
+    @Query(
+        "SELECT id AS bookId, title, author, coverPath, readingProgress, locatorJson " +
+            "FROM books ORDER BY lastReadTime DESC LIMIT :limit"
+    )
+    suspend fun getRecentCoverFlowBooks(limit: Int = 5): List<CoverFlowBookData>
 
     @Query(
         "SELECT id AS bookId, title, author, coverPath, readingProgress " +

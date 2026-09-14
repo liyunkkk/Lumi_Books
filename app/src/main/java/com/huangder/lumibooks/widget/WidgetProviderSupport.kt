@@ -11,6 +11,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
 import com.huangder.lumibooks.MainActivity
+import com.huangder.lumibooks.ui.bookshelf.BookDetailsActivity
 import com.huangder.lumibooks.ui.bookshelf.BookNotesActivity
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -130,5 +131,46 @@ internal fun decodeWidgetCover(path: String?, targetSizePx: Int): Bitmap? {
     )
 }
 
+internal fun openBookDetailsPendingIntent(
+    context: Context,
+    appWidgetId: Int,
+    bookId: String
+): PendingIntent {
+    val intent = Intent(context, BookDetailsActivity::class.java)
+        .setData(Uri.parse("lumibooks://widget/details/$bookId/$appWidgetId"))
+        .putExtra(BookDetailsActivity.EXTRA_BOOK_ID, bookId)
+        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    return PendingIntent.getActivity(
+        context,
+        DETAILS_REQUEST_CODE_BASE + appWidgetId,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+}
+
+internal fun coverFlowActionPendingIntent(
+    context: Context,
+    appWidgetId: Int,
+    action: String,
+    targetIndex: Int = -1
+): PendingIntent {
+    val intent = Intent(action).apply {
+        component = ComponentName(context, CoverFlowWidgetProvider::class.java)
+        putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+        if (targetIndex >= 0) {
+            putExtra(CoverFlowWidgetProvider.EXTRA_TARGET_INDEX, targetIndex)
+        }
+        data = Uri.parse("lumibooks://widget/coverflow/$action/$appWidgetId/$targetIndex")
+    }
+    return PendingIntent.getBroadcast(
+        context,
+        COVER_FLOW_ACTION_CODE_BASE + appWidgetId + (targetIndex * 100).coerceAtLeast(0),
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+}
+
 private const val CONTINUE_REQUEST_CODE_BASE = 10_000
 private const val QUOTE_REQUEST_CODE_BASE = 20_000
+private const val DETAILS_REQUEST_CODE_BASE = 40_000
+private const val COVER_FLOW_ACTION_CODE_BASE = 50_000
