@@ -183,14 +183,11 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                 val quote = resolveQuote(rawQuote, currentBook.title)
                 val chapter = extractChapterInfo(currentBook.locatorJson, currentBook.readingProgress)
                 val progressVal = currentBook.readingProgress.coerceIn(0f, 1f) * 100f
-                val progressStr = if (progressVal > 0f && progressVal < 1f) {
-                    String.format(Locale.getDefault(), "已读 %.1f%%", progressVal)
-                } else if (progressVal >= 1f && progressVal % 1f != 0f && progressVal < 100f) {
+                val progressStr = if (progressVal > 0f && progressVal < 100f && progressVal % 1f != 0f) {
                     String.format(Locale.getDefault(), "已读 %.1f%%", progressVal)
                 } else {
-                    "已读 ${progressVal.roundToInt()}%出"
+                    "已读 ${progressVal.roundToInt()}%"
                 }
-                val cleanProgressStr = progressStr.replace("\出", "")
 
                 views.setTextViewText(R.id.widget_book_title, currentBook.title)
                 views.setTextViewText(
@@ -198,7 +195,7 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                     if (currentBook.author.isNotBlank()) "${currentBook.author} 著" else ""
                 )
                 views.setTextViewText(R.id.widget_book_quote, quote)
-                views.setTextViewText(R.id.widget_progress_text, cleanProgressStr)
+                views.setTextViewText(R.id.widget_progress_text, progressStr)
                 views.setTextViewText(R.id.widget_chapter_text, chapter)
 
                 // 4. 水平进度条
