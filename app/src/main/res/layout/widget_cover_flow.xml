@@ -1,26 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  3D 景深在读精选（App 主页同款，等比缩小版）
-  布局策略：3D 舞台以单张位图呈现（Book3DCoverRenderer 离屏渲染），
-  左右半区为翻书点击区（RemoteViews 不支持手势滑动，用大面积点击替代）。
-  仅使用 RemoteViews 白名单控件：FrameLayout / LinearLayout / ImageView / TextView。
--->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_coverflow_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@android:color/transparent"
+    android:padding="12dp">
+
+    <!-- Dynamic Glass Card Background with User-Defined Opacity -->
+    <ImageView
+        android:id="@+id/widget_card_bg_dynamic"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY" />
 
     <LinearLayout
         android:id="@+id/widget_coverflow_content"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <!-- 3D 舞台：整幅位图（含背景、卡片流、书名/作者），点击中间封面 = 打开书 -->
+        <!-- Left 3D Carousel Display -->
         <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1">
+            android:id="@+id/widget_left_container"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.05">
 
             <ImageView
                 android:id="@+id/widget_coverflow_canvas"
@@ -29,139 +34,274 @@
                 android:contentDescription="@string/widget_cover_content_description"
                 android:scaleType="fitCenter" />
 
-            <!-- 翻书点击区：左半区上一本 / 右半区下一本 -->
+            <!-- Invisible Touch zones for prev / read / next (ImageView: RemoteViews-safe) -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:orientation="horizontal">
-
                 <ImageView
                     android:id="@+id/widget_touch_prev"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
                     android:layout_weight="1"
-                    android:contentDescription="@string/widget_prev_book"
-                    android:src="@drawable/ic_widget_chevron_left" />
-
+                    android:contentDescription="@string/widget_cover_content_description" />
                 <ImageView
                     android:id="@+id/widget_touch_read"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
-                    android:layout_weight="1.4"
+                    android:layout_weight="1.2"
                     android:contentDescription="@string/widget_cover_content_description" />
-
                 <ImageView
                     android:id="@+id/widget_touch_next"
                     android:layout_width="0dp"
                     android:layout_height="match_parent"
                     android:layout_weight="1"
-                    android:contentDescription="@string/widget_next_book"
-                    android:src="@drawable/ic_widget_chevron_right" />
+                    android:contentDescription="@string/widget_cover_content_description" />
             </LinearLayout>
         </FrameLayout>
 
-        <!-- 底部极简操作条：继续阅读（主按钮）/ 书架 / 详情 -->
+        <!-- Right Meta & Controls -->
         <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
             android:layout_marginStart="10dp"
-            android:layout_marginEnd="10dp"
-            android:layout_marginBottom="8dp"
+            android:layout_marginLeft="10dp"
+            android:layout_weight="1.25"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="vertical">
 
-            <FrameLayout
-                android:id="@+id/widget_btn_continue_wrap"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp">
+            <!-- Top Header -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/widget_header_tag"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text="📖 正在阅读 ›"
+                    android:textColor="@color/widget_text_primary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"
+                    android:importantForAccessibility="no" />
 
                 <ImageView
-                    android:id="@+id/widget_btn_continue_bg"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:scaleType="fitXY"
-                    android:src="@drawable/widget_pill_white" />
+                    android:id="@+id/widget_btn_history"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:contentDescription="@string/widget_quote_name"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_widget_clock" />
 
-                <LinearLayout
+                <ImageView
+                    android:id="@+id/widget_btn_more"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginLeft="4dp"
+                    android:contentDescription="@string/widget_continue_name"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_widget_more" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/widget_book_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_preview_book_title"
+                android:textColor="@color/widget_text_primary"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_book_author"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_preview_author"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/widget_book_quote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="2"
+                android:text="“生活不能等待别人来安排，要自己去争取和奋斗。”"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="11sp" />
+
+            <!-- Progress Row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="7dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/widget_progress_text"
                     android:layout_width="wrap_content"
-                    android:layout_height="match_parent"
-                    android:gravity="center"
-                    android:orientation="horizontal"
-                    android:paddingLeft="12dp"
-                    android:paddingRight="12dp">
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:text="已读 0%"
+                    android:textColor="@color/widget_text_primary"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:id="@+id/widget_chapter_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text="第 1 章"
+                    android:textColor="@color/widget_text_secondary"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/widget_progress_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="5dp"
+                android:layout_marginTop="3dp"
+                android:max="1000"
+                android:progress="0"
+                android:progressDrawable="@drawable/widget_progress_bar_horizontal" />
+
+            <!-- Action Buttons Row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="30dp"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <!-- Primary: Continue Reading -->
+                <FrameLayout
+                    android:id="@+id/widget_btn_continue_wrap"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent">
 
                     <ImageView
-                        android:layout_width="13dp"
-                        android:layout_height="13dp"
-                        android:src="@drawable/ic_widget_read_white" />
+                        android:id="@+id/widget_btn_continue_bg"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:scaleType="fitXY"
+                        android:src="@drawable/widget_pill_white" />
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:orientation="horizontal"
+                        android:paddingLeft="10dp"
+                        android:paddingRight="10dp">
+
+                        <ImageView
+                            android:layout_width="13dp"
+                            android:layout_height="13dp"
+                            android:src="@drawable/ic_widget_read_white" />
+
+                        <TextView
+                            android:id="@+id/widget_btn_continue_text"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="3dp"
+                            android:layout_marginLeft="3dp"
+                            android:includeFontPadding="false"
+                            android:text="@string/continue_reading"
+                            android:textColor="#FFFFFFFF"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </FrameLayout>
+
+                <!-- Secondary 1: Bookshelf -->
+                <LinearLayout
+                    android:id="@+id/widget_btn_bookshelf"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginLeft="6dp"
+                    android:background="@drawable/widget_glass_pill_background"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:paddingLeft="8dp"
+                    android:paddingRight="8dp">
+
+                    <ImageView
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:src="@drawable/ic_widget_bookmark" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="3dp"
+                        android:layout_marginLeft="3dp"
                         android:includeFontPadding="false"
-                        android:text="@string/continue_reading"
-                        android:textColor="#FFFFFFFF"
-                        android:textSize="11sp"
-                        android:textStyle="bold" />
+                        android:text="@string/widget_bookshelf"
+                        android:textColor="@color/widget_pill_text"
+                        android:textSize="11sp" />
                 </LinearLayout>
-            </FrameLayout>
 
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="1dp"
-                android:layout_weight="1"
-                android:importantForAccessibility="no" />
-
-            <LinearLayout
-                android:id="@+id/widget_btn_bookshelf"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp"
-                android:background="@drawable/widget_glass_pill_background"
-                android:gravity="center"
-                android:orientation="horizontal"
-                android:paddingLeft="10dp"
-                android:paddingRight="10dp">
-
-                <ImageView
-                    android:layout_width="12dp"
-                    android:layout_height="12dp"
-                    android:src="@drawable/ic_widget_bookmark" />
-
-                <TextView
+                <!-- Secondary 2: Details -->
+                <LinearLayout
+                    android:id="@+id/widget_btn_details"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="3dp"
-                    android:includeFontPadding="false"
-                    android:text="@string/widget_bookshelf"
-                    android:textColor="@color/widget_pill_text"
-                    android:textSize="11sp" />
-            </LinearLayout>
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginLeft="6dp"
+                    android:background="@drawable/widget_glass_pill_background"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:paddingLeft="8dp"
+                    android:paddingRight="8dp">
 
-            <LinearLayout
-                android:id="@+id/widget_btn_details"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/widget_glass_pill_background"
-                android:gravity="center"
-                android:orientation="horizontal"
-                android:paddingLeft="10dp"
-                android:paddingRight="10dp">
+                    <ImageView
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:src="@drawable/ic_widget_arrow_right" />
 
-                <ImageView
-                    android:layout_width="12dp"
-                    android:layout_height="12dp"
-                    android:src="@drawable/ic_widget_arrow_right" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="3dp"
-                    android:includeFontPadding="false"
-                    android:text="@string/widget_view_details"
-                    android:textColor="@color/widget_pill_text"
-                    android:textSize="11sp" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="3dp"
+                        android:layout_marginLeft="3dp"
+                        android:includeFontPadding="false"
+                        android:text="@string/widget_view_details"
+                        android:textColor="@color/widget_pill_text"
+                        android:textSize="11sp" />
+                </LinearLayout>
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
