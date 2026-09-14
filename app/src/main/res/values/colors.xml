@@ -12,4 +12,10 @@
     <color name="widget_cover_background">#FFE2E2E5</color>
     <color name="widget_button_background">#FF000000</color>
     <color name="widget_button_text">#FFFFFFFF</color>
+    <color name="widget_glass_card_bg">#F5FFFFFF</color>
+    <color name="widget_glass_card_stroke">#4DFFFFFF</color>
+    <color name="widget_glass_pill_bg">#0F000000</color>
+    <color name="widget_glass_pill_stroke">#14000000</color>
+    <color name="widget_progress_track">#14000000</color>
+    <color name="widget_pill_text">#FF1C1C1E</color>
 </resources>

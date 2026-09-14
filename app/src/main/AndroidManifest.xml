@@ -307,6 +307,18 @@
                 android:resource="@xml/quote_widget_info" />
         </receiver>
 
+        <receiver
+            android:name=".widget.CoverFlowWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_cover_flow_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/cover_flow_widget_info" />
+        </receiver>
+
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"

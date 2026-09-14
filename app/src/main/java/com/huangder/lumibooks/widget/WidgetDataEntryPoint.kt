@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.widget
+
 import android.content.Context
+import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.data.local.dao.BookDao
 import com.huangder.lumibooks.data.local.dao.NoteDao
 import com.huangder.lumibooks.domain.repository.BookRepository
@@ -14,6 +16,7 @@ interface WidgetDataEntryPoint {
     fun bookDao(): BookDao
     fun noteDao(): NoteDao
     fun bookRepository(): BookRepository
+    fun dataStoreManager(): DataStoreManager
 }
 internal fun Context.widgetDataEntryPoint(): WidgetDataEntryPoint {
     return EntryPointAccessors.fromApplication(

@@ -18,3 +18,12 @@ data class QuoteWidgetData(
 ) {
     val isNote: Boolean get() = noteText.isNotBlank()
 }
+
+data class CoverFlowBookData(
+    val bookId: String,
+    val title: String,
+    val author: String,
+    val coverPath: String?,
+    val readingProgress: Float,
+    val locatorJson: String? = null
+)

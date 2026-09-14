@@ -1,0 +1,304 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_coverflow_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_glass_card_background"
+    android:clipToOutline="true"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:id="@+id/widget_coverflow_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <!-- Left 3D Carousel Display -->
+        <FrameLayout
+            android:id="@+id/widget_left_container"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.05">
+
+            <ImageView
+                android:id="@+id/widget_coverflow_canvas"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:contentDescription="@string/widget_cover_content_description"
+                android:scaleType="fitCenter" />
+
+            <!-- Invisible Touch zones for prev / read / next -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal">
+
+                <View
+                    android:id="@+id/widget_touch_prev"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1" />
+
+                <View
+                    android:id="@+id/widget_touch_read"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1.2" />
+
+                <View
+                    android:id="@+id/widget_touch_next"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <!-- Right Meta & Controls -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1.25"
+            android:gravity="center_vertical"
+            android:orientation="vertical">
+
+            <!-- Top Header -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/widget_header_tag"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text="📖 正在阅读 ›"
+                    android:textColor="@color/widget_text_primary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <ImageView
+                    android:id="@+id/widget_btn_history"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:contentDescription="@string/widget_quote_name"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_widget_clock" />
+
+                <ImageView
+                    android:id="@+id/widget_btn_more"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_marginStart="4dp"
+                    android:contentDescription="@string/widget_continue_name"
+                    android:padding="2dp"
+                    android:src="@drawable/ic_widget_more" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/widget_book_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_preview_book_title"
+                android:textColor="@color/widget_text_primary"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_book_author"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="@string/widget_preview_author"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/widget_book_quote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="2"
+                android:text="“生活不能等待别人来安排，要自己去争取和奋斗。”"
+                android:textColor="@color/widget_text_secondary"
+                android:textSize="11sp" />
+
+            <!-- Progress Row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="7dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/widget_progress_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:text="已读 0%"
+                    android:textColor="@color/widget_text_primary"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/widget_chapter_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text="第 1 章"
+                    android:textColor="@color/widget_text_secondary"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/widget_progress_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="5dp"
+                android:layout_marginTop="3dp"
+                android:max="1000"
+                android:progress="0"
+                android:progressDrawable="@drawable/widget_progress_bar_horizontal" />
+
+            <!-- Action Buttons Row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="30dp"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <!-- Primary: Continue Reading -->
+                <FrameLayout
+                    android:id="@+id/widget_btn_continue_wrap"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent">
+
+                    <ImageView
+                        android:id="@+id/widget_btn_continue_bg"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:scaleType="fitXY"
+                        android:src="@drawable/widget_pill_white" />
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="10dp">
+
+                        <ImageView
+                            android:layout_width="13dp"
+                            android:layout_height="13dp"
+                            android:src="@drawable/ic_widget_read_white" />
+
+                        <TextView
+                            android:id="@+id/widget_btn_continue_text"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="3dp"
+                            android:includeFontPadding="false"
+                            android:text="@string/continue_reading"
+                            android:textColor="#FFFFFFFF"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </FrameLayout>
+
+                <!-- Secondary 1: Bookshelf -->
+                <LinearLayout
+                    android:id="@+id/widget_btn_bookshelf"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/widget_glass_pill_background"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="8dp">
+
+                    <ImageView
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:src="@drawable/ic_widget_bookmark" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="3dp"
+                        android:includeFontPadding="false"
+                        android:text="@string/widget_bookshelf"
+                        android:textColor="@color/widget_pill_text"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- Secondary 2: Details -->
+                <LinearLayout
+                    android:id="@+id/widget_btn_details"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/widget_glass_pill_background"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="8dp">
+
+                    <ImageView
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:src="@drawable/ic_widget_arrow_right" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="3dp"
+                        android:includeFontPadding="false"
+                        android:text="@string/widget_view_details"
+                        android:textColor="@color/widget_pill_text"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_coverflow_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:maxLines="3"
+        android:padding="16dp"
+        android:text="@string/widget_no_recent_book"
+        android:textColor="@color/widget_text_secondary"
+        android:textSize="14sp"
+        android:visibility="gone" />
+</FrameLayout>

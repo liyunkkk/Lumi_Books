@@ -35,13 +35,19 @@ class WidgetRefreshCoordinator @Inject constructor(
             bookDao.observeContinueReadingWidgetData()
                 .distinctUntilChanged()
                 .debounce(REFRESH_DEBOUNCE_MILLIS)
-                .collect { ContinueReadingWidgetProvider.requestUpdate(context) }
+                .collect {
+                    ContinueReadingWidgetProvider.requestUpdate(context)
+                    CoverFlowWidgetProvider.requestUpdate(context)
+                }
         }
         scope.launch {
             noteDao.observeWidgetQuotes()
                 .distinctUntilChanged()
                 .debounce(REFRESH_DEBOUNCE_MILLIS)
-                .collect { QuoteWidgetProvider.requestUpdate(context) }
+                .collect {
+                    QuoteWidgetProvider.requestUpdate(context)
+                    CoverFlowWidgetProvider.requestUpdate(context)
+                }
         }
         scope.launch {
             dataStoreManager.appLanguage
@@ -51,6 +57,16 @@ class WidgetRefreshCoordinator @Inject constructor(
                 .collect {
                     ContinueReadingWidgetProvider.requestUpdate(context)
                     QuoteWidgetProvider.requestUpdate(context)
+                    CoverFlowWidgetProvider.requestUpdate(context)
+                }
+        }
+        scope.launch {
+            dataStoreManager.appAccentColor
+                .distinctUntilChanged()
+                .drop(1)
+                .debounce(REFRESH_DEBOUNCE_MILLIS)
+                .collect {
+                    CoverFlowWidgetProvider.requestUpdate(context)
                 }
         }
     }
