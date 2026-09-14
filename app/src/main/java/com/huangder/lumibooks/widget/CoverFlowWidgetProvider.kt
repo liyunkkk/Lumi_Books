@@ -118,8 +118,8 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
         val density = appContext.resources.displayMetrics.density
 
         val pillWidthPx = (80 * density).roundToInt().coerceAtLeast(84)
-        val pillHeightPx = (30 * density).roundToInt().coerceAtLeast(32)
-        val pillBitmap = createPillBitmap(pillWidthPx, pillHeightPx, accentColor, 15f * density)
+        val pillHeightPx = (26 * density).roundToInt().coerceAtLeast(28)
+        val pillBitmap = createPillBitmap(pillWidthPx, pillHeightPx, accentColor, 13f * density)
 
         appWidgetIds.forEach { appWidgetId ->
             val views = RemoteViews(localizedContext.packageName, R.layout.widget_cover_flow)
@@ -347,8 +347,7 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                     }
                 } catch (_: Throwable) {}
             }
-            val percent = (readingProgress.coerceIn(0f, 1f) * 100f).roundToInt()
-            return if (percent > 0) "已读 $percent%" else "未开始阅读"
+            return "在读精选"
         }
 
         private fun createPillBitmap(widthPx: Int, heightPx: Int, color: Int, radiusPx: Float): Bitmap {
@@ -378,21 +377,21 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
             val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             if (opacityPercent <= 0) return bitmap
             val canvas = Canvas(bitmap)
-
             val baseAlpha = (opacityPercent.coerceIn(0, 100) * 255f / 100f)
-            val radius = 26f * density
+            // 严格对齐 HyperOS / MIUI 4x2 官方大文件夹的标准大圆角（28dp）
+            val radius = 28f * density
             val rect = RectF(0f, 0f, w.toFloat(), h.toFloat())
 
-            // 1. 液态玻璃基底（Liquid Glass Substrate）：带有角度与垂向光泽折射
+            // 1. 液态玻璃基底（Liquid Glass Substrate）：55%~65% 灵动通透，透出桌面壁纸
             val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.FILL
                 shader = if (isDark) {
                     android.graphics.LinearGradient(
                         0f, 0f, 0f, h.toFloat(),
                         intArrayOf(
-                            Color.argb((baseAlpha * 0.82f).roundToInt(), 40, 46, 58),
-                            Color.argb((baseAlpha * 0.65f).roundToInt(), 24, 28, 38),
-                            Color.argb((baseAlpha * 0.75f).roundToInt(), 18, 22, 30)
+                            Color.argb((baseAlpha * 0.68f).roundToInt(), 36, 40, 50),
+                            Color.argb((baseAlpha * 0.58f).roundToInt(), 22, 26, 34),
+                            Color.argb((baseAlpha * 0.50f).roundToInt(), 16, 18, 26)
                         ),
                         floatArrayOf(0f, 0.55f, 1f),
                         android.graphics.Shader.TileMode.CLAMP
@@ -401,47 +400,47 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                     android.graphics.LinearGradient(
                         0f, 0f, 0f, h.toFloat(),
                         intArrayOf(
-                            Color.argb((baseAlpha * 0.94f).roundToInt(), 255, 255, 255),
-                            Color.argb((baseAlpha * 0.72f).roundToInt(), 245, 248, 252),
-                            Color.argb((baseAlpha * 0.55f).roundToInt(), 232, 237, 245)
+                            Color.argb((baseAlpha * 0.65f).roundToInt(), 255, 255, 255),
+                            Color.argb((baseAlpha * 0.48f).roundToInt(), 245, 248, 254),
+                            Color.argb((baseAlpha * 0.38f).roundToInt(), 232, 238, 248)
                         ),
-                        floatArrayOf(0f, 0.45f, 1f),
+                        floatArrayOf(0f, 0.50f, 1f),
                         android.graphics.Shader.TileMode.CLAMP
                     )
                 }
             }
             canvas.drawRoundRect(rect, radius, radius, fillPaint)
 
-            // 2. 顶部微光晶体高光线（Top Specular Ridge Highlight）——原图液态玻璃关键印记
+            // 2. 顶部微光晶体高光线（Top Specular Ridge Highlight）——透光液态玻璃标志性微光
             val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                strokeWidth = 1.2f * density
+                strokeWidth = 1.0f * density
                 shader = android.graphics.LinearGradient(
                     0f, 0f, w.toFloat(), 0f,
                     intArrayOf(
                         Color.TRANSPARENT,
-                        if (isDark) Color.argb((baseAlpha * 0.55f).roundToInt(), 255, 255, 255)
-                        else Color.argb((baseAlpha * 0.85f).roundToInt(), 255, 255, 255),
+                        if (isDark) Color.argb((baseAlpha * 0.45f).roundToInt(), 255, 255, 255)
+                        else Color.argb((baseAlpha * 0.65f).roundToInt(), 255, 255, 255),
                         Color.TRANSPARENT
                     ),
-                    floatArrayOf(0.1f, 0.5f, 0.9f),
+                    floatArrayOf(0.12f, 0.5f, 0.88f),
                     android.graphics.Shader.TileMode.CLAMP
                 )
             }
-            val highlightRect = RectF(rect).apply { inset(1f * density, 1f * density) }
-            canvas.drawRoundRect(highlightRect, radius - 1f * density, radius - 1f * density, highlightPaint)
+            val highlightRect = RectF(rect).apply { inset(0.8f * density, 0.8f * density) }
+            canvas.drawRoundRect(highlightRect, radius - 0.8f * density, radius - 0.8f * density, highlightPaint)
 
-            // 3. 全局柔和微光双色边框（Dual-Tone Crystal Rim）
+            // 3. 全局柔和微光双色晶体微边框（Dual-Tone Crystal Rim）
             val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                strokeWidth = 0.8f * density
+                strokeWidth = 0.75f * density
                 shader = if (isDark) {
                     android.graphics.LinearGradient(
                         0f, 0f, 0f, h.toFloat(),
                         intArrayOf(
-                            Color.argb((baseAlpha * 0.50f).roundToInt(), 255, 255, 255),
-                            Color.argb((baseAlpha * 0.20f).roundToInt(), 160, 180, 200),
-                            Color.argb((baseAlpha * 0.35f).roundToInt(), 200, 220, 255)
+                            Color.argb((baseAlpha * 0.42f).roundToInt(), 255, 255, 255),
+                            Color.argb((baseAlpha * 0.16f).roundToInt(), 180, 200, 220),
+                            Color.argb((baseAlpha * 0.28f).roundToInt(), 210, 225, 255)
                         ),
                         floatArrayOf(0f, 0.6f, 1f),
                         android.graphics.Shader.TileMode.CLAMP
@@ -451,7 +450,7 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                         0f, 0f, 0f, h.toFloat(),
                         intArrayOf(
                             Color.argb((baseAlpha * 0.75f).roundToInt(), 255, 255, 255),
-                            Color.argb((baseAlpha * 0.30f).roundToInt(), 210, 220, 235),
+                            Color.argb((baseAlpha * 0.25f).roundToInt(), 210, 220, 235),
                             Color.argb((baseAlpha * 0.45f).roundToInt(), 255, 255, 255)
                         ),
                         floatArrayOf(0f, 0.6f, 1f),
@@ -461,7 +460,6 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
             }
             val borderRect = RectF(rect).apply { inset(0.4f * density, 0.4f * density) }
             canvas.drawRoundRect(borderRect, radius - 0.4f * density, radius - 0.4f * density, strokePaint)
-
             return bitmap
         }
     }

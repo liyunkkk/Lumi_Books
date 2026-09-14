@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/transparent"
-    android:padding="10dp">
+    android:padding="0dp">
 
     <!-- Dynamic Liquid Glass Card Background with Specular Reflection & Opacity Control -->
     <ImageView
@@ -17,6 +17,10 @@
         android:id="@+id/widget_coverflow_content"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="11dp"
+        android:paddingBottom="11dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -149,8 +153,8 @@
             <TextView
                 android:id="@+id/widget_book_quote"
                 android:layout_width="match_parent"
-                android:layout_height="28dp"
-                android:layout_marginTop="3dp"
+                android:layout_height="26dp"
+                android:layout_marginTop="2dp"
                 android:ellipsize="end"
                 android:gravity="center_vertical"
                 android:includeFontPadding="false"
