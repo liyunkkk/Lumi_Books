@@ -281,7 +281,7 @@ internal object Book3DCoverRenderer {
         if (coverPath.isNullOrBlank() || targetSizePx <= 0) return null
         if (coverPath.startsWith("http://") || coverPath.startsWith("https://")) {
             val cached = downloadToCache(context, coverPath) ?: return null
-            return decodeCoverFile(cached, targetSizePx)
+            return decodeCoverFile(cached.absolutePath, targetSizePx)
         }
         return decodeCoverFile(coverPath, targetSizePx)
     }
