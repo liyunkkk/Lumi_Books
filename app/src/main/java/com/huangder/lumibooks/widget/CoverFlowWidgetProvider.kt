@@ -91,8 +91,8 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
 
             val manager = AppWidgetManager.getInstance(appContext)
             val density = appContext.resources.displayMetrics.density
-            val canvasWidthPx = (150 * density).roundToInt().coerceIn(300, 460)
-            val canvasHeightPx = (108 * density).roundToInt().coerceIn(216, 330)
+            val canvasWidthPx = (200 * density).roundToInt().coerceIn(400, 580)
+            val canvasHeightPx = (140 * density).roundToInt().coerceIn(280, 400)
             val pillWidthPx = (74 * density).roundToInt().coerceAtLeast(80)
             val pillHeightPx = (30 * density).roundToInt().coerceAtLeast(32)
             val pillBitmap = createPillBitmap(pillWidthPx, pillHeightPx, accentColor, 15f * density)
