@@ -1,5 +1,4 @@
 package com.huangder.lumibooks.widget
-
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
@@ -7,7 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.view.View
 import android.widget.RemoteViews
 import com.huangder.lumibooks.R
@@ -88,8 +91,11 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
 
             val manager = AppWidgetManager.getInstance(appContext)
             val density = appContext.resources.displayMetrics.density
-            val canvasWidthPx = (240 * density).roundToInt()
-            val canvasHeightPx = (170 * density).roundToInt()
+            val canvasWidthPx = (150 * density).roundToInt().coerceIn(300, 460)
+            val canvasHeightPx = (108 * density).roundToInt().coerceIn(216, 330)
+            val pillWidthPx = (74 * density).roundToInt().coerceAtLeast(80)
+            val pillHeightPx = (30 * density).roundToInt().coerceAtLeast(32)
+            val pillBitmap = createPillBitmap(pillWidthPx, pillHeightPx, accentColor, 15f * density)
 
             appWidgetIds.forEach { appWidgetId ->
                 val views = RemoteViews(
@@ -151,7 +157,7 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
                     )
 
                     // 5. Button accent tint
-                    views.setInt(R.id.widget_btn_continue_bg, "setColorFilter", accentColor)
+                    views.setImageViewBitmap(R.id.widget_btn_continue_bg, pillBitmap)
 
                     // 6. Clicks & PendingIntents
                     views.setOnClickPendingIntent(
@@ -295,6 +301,16 @@ class CoverFlowWidgetProvider : AppWidgetProvider() {
             }
             val percent = (readingProgress.coerceIn(0f, 1f) * 100f).roundToInt()
             return if (percent > 0) "已读 $percent%" else "未开始阅读"
+        }
+        private fun createPillBitmap(widthPx: Int, heightPx: Int, color: Int, radiusPx: Float): Bitmap {
+            val bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = color
+            }
+            val rect = RectF(0f, 0f, widthPx.toFloat(), heightPx.toFloat())
+            canvas.drawRoundRect(rect, radiusPx, radiusPx, paint)
+            return bitmap
         }
     }
 }
