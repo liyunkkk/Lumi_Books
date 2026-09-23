@@ -14,7 +14,7 @@
 
 > Technical documentation for the Lumi Android ebook reader. For contributors and developers.
 
-[![Version](https://img.shields.io/badge/version-1.7.8-coral)](https://github.com/huangder/Lumi_Books/releases)
+[![Version](https://img.shields.io/badge/version-2.1.9-coral)](https://github.com/huangder/Lumi_Books/releases)
 [![License](https://img.shields.io/badge/license-GPLv3-green)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-blue)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.3.10-purple)](https://kotlinlang.org)
@@ -226,6 +226,7 @@ Third-party dependencies and adaptations follow their respective licenses:
 | [CommonMark](https://github.com/commonmark/commonmark-java) | BSD 2-Clause | Markdown parsing |
 | [Jsoup](https://jsoup.org/) | MIT | HTML parsing |
 | [legado-E SimulationPageDelegate](https://github.com/Luoyacheng/legado-E) | GPLv3 | Curl geometry and rendering adaptation |
+| [legado-E TXT TOC rule data](https://github.com/Luoyacheng/legado-E) | GPLv3 | Default txtTocRule set bundled for the compatibility mode (regex only, scripts never run) |
 | [Coil](https://coil-kt.github.io/coil/) | Apache 2.0 | Image loading |
 | [OkHttp](https://square.github.io/okhttp/) | Apache 2.0 | HTTP client |
 

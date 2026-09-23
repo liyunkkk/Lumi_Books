@@ -24,6 +24,7 @@ object BookParserFactory {
             BookFormat.PDF -> PdfParser(context)
             BookFormat.TXT -> TxtParser(context)
             BookFormat.MOBI -> MobiParser(context)
+            BookFormat.CBZ -> CbzParser(context)
         }
     }
 }

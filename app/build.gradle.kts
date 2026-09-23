@@ -9,6 +9,11 @@ plugins {
     id("androidx.baselineprofile")
 }
 
+// Opt in without changing release's debuggability, R8 or resource shrinking.
+val releaseStartupTrace = providers.gradleProperty("lumiStartupTrace")
+    .map { it.toBooleanStrict() }
+    .orElse(false)
+
 android {
     namespace = "com.huangder.lumibooks"
     compileSdk = 36
@@ -18,8 +23,11 @@ android {
         applicationId = "com.huangder.lumibooks"
         minSdk = 26
         targetSdk = 35
-        versionCode = 20
+        versionCode = 21
         versionName = "2.3.1"
+
+        buildConfigField("boolean", "DIAGNOSTIC_BUILD", "false")
+        buildConfigField("boolean", "STARTUP_TRACE_ENABLED", "false")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -38,6 +46,7 @@ android {
 
     buildTypes {
         release {
+            buildConfigField("boolean", "STARTUP_TRACE_ENABLED", releaseStartupTrace.get().toString())
             isMinifyEnabled = false
             isShrinkResources = false
             signingConfig = signingConfigs.getByName("debug")
@@ -46,8 +55,19 @@ android {
                 "proguard-rules.pro"
             )
         }
+        create("diagnostic") {
+            initWith(getByName("release"))
+            versionNameSuffix = "-diagnostic"
+            isDebuggable = true
+            isMinifyEnabled = false
+            isShrinkResources = false
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "DIAGNOSTIC_BUILD", "true")
+            buildConfigField("boolean", "STARTUP_TRACE_ENABLED", "true")
+        }
         create("benchmark") {
             initWith(getByName("release"))
+            buildConfigField("boolean", "STARTUP_TRACE_ENABLED", "false")
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
             isDebuggable = false
@@ -70,6 +90,18 @@ android {
             excludes += "org/bouncycastle/**"
         }
     }
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                it.maxHeapSize = "2g"
+                it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+            }
+            // 本地单测跑在 JVM 上，解析层里的 android.util.Log 没有实现；
+            // 允许框架方法返回默认值，避免 "Method ... not mocked" 直接把用例打挂。
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 kotlin {
@@ -79,6 +111,8 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":third_party:subsampling-scale-image-view"))
+
     // Core Android
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
@@ -91,7 +125,10 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    // 我方旧页面（首页卡片流、发现页、书源管理、净化规则等）继续使用 Material 图标；
+    // 本次合并新增/改动的界面统一使用 Phosphor（AppIcons.kt）。两套并存。
     implementation("androidx.compose.material:material-icons-extended")
+    implementation("com.adamglin:phosphor-icon:1.0.0")
     implementation("dev.chrisbanes.haze:haze:1.1.1")
     implementation("io.github.kyant0:backdrop:1.0.6")
 
@@ -137,11 +174,17 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-svg:2.7.0")
 
+    // SVG rasterisation for reader-layout images (coil-svg already pulls this in at runtime;
+    // declared explicitly so the reader can rasterise SVG illustrations itself).
+    implementation("com.caverock:androidsvg-aar:1.4")
+
     // Image dominant color extraction
     implementation("androidx.palette:palette-ktx:1.0.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("org.json:json:20240303")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")

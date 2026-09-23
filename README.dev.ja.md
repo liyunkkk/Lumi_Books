@@ -14,7 +14,7 @@
 
 > Lumi Android 電子書籍リーダーの技術ドキュメント。コントリビューターおよび開発者向け。
 
-[![Version](https://img.shields.io/badge/version-1.7.8-coral)](https://github.com/huangder/Lumi_Books/releases)
+[![Version](https://img.shields.io/badge/version-2.1.9-coral)](https://github.com/huangder/Lumi_Books/releases)
 [![License](https://img.shields.io/badge/license-GPLv3-green)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-blue)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.3.10-purple)](https://kotlinlang.org)
@@ -226,6 +226,7 @@ Lumi のオリジナルコードは [GNU GPLv3](LICENSE) の下でオープン�
 | [CommonMark](https://github.com/commonmark/commonmark-java) | BSD 2-Clause | Markdown 解析 |
 | [Jsoup](https://jsoup.org/) | MIT | HTML 解析 |
 | [legado-E SimulationPageDelegate](https://github.com/Luoyacheng/legado-E) | GPLv3 | カールページめくりの幾何・描画改変 |
+| [legado-E TXT 目次ルールデータ](https://github.com/Luoyacheng/legado-E) | GPLv3 | 互換モード用の txtTocRule 既定ルール（正規表現のみ使用、スクリプトは実行しません） |
 | [Coil](https://coil-kt.github.io/coil/) | Apache 2.0 | 画像読み込み |
 | [OkHttp](https://square.github.io/okhttp/) | Apache 2.0 | HTTP クライアント |
 

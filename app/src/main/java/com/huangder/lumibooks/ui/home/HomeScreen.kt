@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.ui.home
 
+import com.huangder.lumibooks.ui.icons.AppIcons
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,10 +34,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.rounded.Leaderboard
-import androidx.compose.material.icons.outlined.AccountCircle
-import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -59,6 +59,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,7 +75,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
@@ -88,13 +89,19 @@ import androidx.compose.ui.unit.sp
 import java.util.Calendar
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookDeleteMode
 import com.huangder.lumibooks.data.sync.BookDownloadState
 import com.huangder.lumibooks.ui.animation.OverscrollBounce
+import com.huangder.lumibooks.ui.animation.OverscrollBounceState
 import com.huangder.lumibooks.ui.animation.cardPressEffect
 import com.huangder.lumibooks.ui.components.StatusGradientOverlay
 import com.huangder.lumibooks.ui.components.BookCoverProgressOverlay
+import com.huangder.lumibooks.ui.components.FinishedReadingIndicator
+import com.huangder.lumibooks.ui.components.CloudAwareBookDeleteDialog
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuItem
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
@@ -105,16 +112,23 @@ import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.ui.theme.KaiTi
 import com.huangder.lumibooks.ui.theme.cardOutline
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
+import com.huangder.lumibooks.ui.theme.LocalEInkMode
 import com.huangder.lumibooks.ui.theme.LocalUseMaterial3Theme
 import com.huangder.lumibooks.ui.theme.SansSerif
 import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
 import com.huangder.lumibooks.ui.animation.PageEntranceItem
+import com.huangder.lumibooks.ui.animation.BookCoverTitleColor
+import com.huangder.lumibooks.ui.animation.BookCoverTitleStyle
+import com.huangder.lumibooks.ui.animation.bookCoverMemoryCacheKey
+import com.huangder.lumibooks.ui.animation.bookCoverTransitionAnchor
+import com.huangder.lumibooks.ui.layout.currentAdaptiveWindowInfo
 import com.huangder.lumibooks.util.TimeUtils
+import com.huangder.lumibooks.util.ReaderBackgroundBlurTransformation
 
 @Composable
 fun HomeScreen(
     playEntranceAnimation: Boolean = false,
-    onNavigateToReader: (bookId: String, coverPath: String?, title: String, sourceBounds: Rect?) -> Unit,
+    onNavigateToReader: (book: Book, sourceBounds: Rect?) -> Unit,
     onNavigateToStatistics: () -> Unit,
     onNavigateToBookshelf: () -> Unit,
     onImportClick: () -> Unit,
@@ -128,7 +142,8 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val isMaterial3 = LocalUseMaterial3Theme.current
-    val isTablet = LocalConfiguration.current.smallestScreenWidthDp >= 600
+    val useWideLayout = currentAdaptiveWindowInfo().isMediumWidthOrLarger
+    val topBlurBackdrop = rememberLayerBackdrop()
     val statusBarTopPadding = WindowInsets.statusBars
         .asPaddingValues()
         .calculateTopPadding()
@@ -168,6 +183,21 @@ fun HomeScreen(
         activeReadingBooks.sortedByDescending { it.lastReadTime }
     }
     val lastReadBook = booksByLastRead.firstOrNull()
+
+    // 顶部下拉「松手继续阅读」：只读取下拉位移，判定与回弹都由 OverscrollBounce 维持原样。
+    val bounceState = remember { OverscrollBounceState() }
+    val pullToResumeThresholdPx = with(LocalDensity.current) {
+        PULL_TO_RESUME_THRESHOLD_DP.dp.toPx()
+    }
+    val latestNavigateToReader = rememberUpdatedState(onNavigateToReader)
+    val latestLastReadBook = rememberUpdatedState(lastReadBook)
+    val onTopPullRelease: (Float) -> Unit = { releasedOffsetPx ->
+        if (shouldOpenRecentBookOnRelease(releasedOffsetPx, pullToResumeThresholdPx)) {
+            latestLastReadBook.value?.let { book ->
+                latestNavigateToReader.value(book, null)
+            }
+        }
+    }
     val recentBooks = remember(booksByLastRead, lastReadBook) {
         if (lastReadBook != null) {
             booksByLastRead.filter { it.id != lastReadBook.id }
@@ -185,7 +215,9 @@ fun HomeScreen(
                 avatarUri = uiState.avatarUri,
                 statusBarTopPadding = statusBarTopPadding,
                 bottomContentPadding = bottomContentPadding,
-                onNavigateToReader = onNavigateToReader,
+                onNavigateToReader = { book, sourceBounds ->
+                    onNavigateToReader(book.id, book.coverPath, book.title, sourceBounds)
+                },
                 onNavigateToStatistics = onNavigateToStatistics,
                 onNavigateToBookshelf = onNavigateToBookshelf,
                 onImportClick = onImportClick
@@ -207,13 +239,19 @@ fun HomeScreen(
             8.dp
         }
         OverscrollBounce(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (isLiquidGlass) Modifier.layerBackdrop(topBlurBackdrop) else Modifier
+                ),
+            state = bounceState,
+            onTopPullRelease = onTopPullRelease
         ) {
             LazyColumn(
                 modifier = Modifier
-                    .then(if (isTablet) Modifier.widthIn(max = 840.dp) else Modifier)
+                    .then(if (useWideLayout) Modifier.widthIn(max = 840.dp) else Modifier)
                     .fillMaxWidth()
-                    .then(if (isTablet) Modifier.align(Alignment.TopCenter) else Modifier)
+                    .then(if (useWideLayout) Modifier.align(Alignment.TopCenter) else Modifier)
             ) {
                 item(key = "header") {
                     Spacer(Modifier.height(statusBarTopPadding + AppSpace.sm))
@@ -236,7 +274,7 @@ fun HomeScreen(
                             ContinueReadingCard(
                                 book = lastReadBook,
                                 downloadState = uiState.downloadStates[lastReadBook.id],
-                                onClick = { bounds -> onNavigateToReader(lastReadBook.id, lastReadBook.coverPath, lastReadBook.title, bounds) },
+                                onClick = { bounds -> onNavigateToReader(lastReadBook, bounds) },
                                 onToggleFavorite = { viewModel.updateBook(lastReadBook.copy(isFavorite = !lastReadBook.isFavorite)) },
                                 onDelete = { mode -> viewModel.deleteBook(lastReadBook, mode) },
                                 modifier = Modifier.padding(horizontal = AppSpace.lg)
@@ -254,10 +292,9 @@ fun HomeScreen(
                                 BooksReadGrid(
                                     books = recentBooks,
                                     downloadStates = uiState.downloadStates,
-                                    modifier = Modifier.padding(horizontal = AppSpace.lg),
-                                    isTablet = isTablet,
+                                    useWideLayout = useWideLayout,
                                     onBookClick = { book, bounds ->
-                                        onNavigateToReader(book.id, book.coverPath, book.title, bounds)
+                                        onNavigateToReader(book, bounds)
                                     }
                                 )
                             }
@@ -271,7 +308,10 @@ fun HomeScreen(
                             readingTime = uiState.todayReadingTime,
                             dailyGoal = uiState.dailyGoal,
                             weeklyData = uiState.weeklyData,
-                            onCardClick = { setShowGoalSheet(true) }
+                            onCardClick = { setShowGoalSheet(true) },
+                            onContinueClick = {
+                                lastReadBook?.let { onNavigateToReader(it, null) }
+                            }
                         )
                     }
                     Spacer(Modifier.height(10.dp))
@@ -284,6 +324,14 @@ fun HomeScreen(
 
         StatusGradientOverlay(backdrop = null)
 
+        // 提示绘制在顶部渐隐之上，避免文字被窗口色渐变冲淡；无书时整个手势都不可用。
+        if (lastReadBook != null) {
+            HomePullToResumeHint(
+                bounceState = bounceState,
+                statusBarTopPadding = statusBarTopPadding
+            )
+        }
+
         if (renderReadingGoalSheet) {
             ReadingGoalSheet(
                 visible = showGoalSheet,
@@ -295,6 +343,52 @@ fun HomeScreen(
                 onDismiss = { setShowGoalSheet(false) },
                 onSaveGoal = { minutes -> viewModel.saveDailyGoal(minutes) }
             )
+        }
+
+        if (showImportButton) {
+            // 非液态主题沿用原有导入 FAB；液态按钮由导航层与 Tab 同排绘制。
+            PageEntranceItem(
+                play = playEntranceAnimation,
+                index = 5,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .then(
+                        if (isMaterial3) {
+                            Modifier
+                                .navigationBarsPadding()
+                                .padding(end = 24.dp, bottom = 96.dp)
+                        } else {
+                            Modifier.padding(end = 24.dp, bottom = 100.dp)
+                        }
+                    )
+            ) {
+                if (isMaterial3) {
+                    FloatingActionButton(
+                        onClick = onImportClick,
+                        modifier = Modifier.size(56.dp),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ) {
+                        Icon(
+                            AppIcons.Plus,
+                            contentDescription = stringResource(R.string.import_books),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .shadow(8.dp, CircleShape, ambientColor = AppColors.Shadow)
+                            .clip(CircleShape)
+                            .background(Color.Black)
+                            .clickable(onClick = onImportClick),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(AppIcons.Plus, stringResource(R.string.import_books), tint = Color.White, modifier = Modifier.size(24.dp))
+                    }
+                }
+            }
         }
     } // 外层 Box 结束
         }
@@ -352,7 +446,7 @@ private fun ImportHint(onImportClick: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(
-            Icons.Outlined.Book,
+            AppIcons.Book,
             contentDescription = null,
             tint = AppColors.TextSecondary,
             modifier = Modifier.size(24.dp)
@@ -425,8 +519,29 @@ private fun ContinueReadingCard(
     }
     val deleteMenuLabel = stringResource(R.string.delete_book)
     val coverBounds = remember { java.util.concurrent.atomic.AtomicReference(Rect.Zero) }
+    val context = LocalContext.current
+    val blurRadiusPx = with(LocalDensity.current) { 24.dp.roundToPx() }
+    val useCoverBackground = book.coverPath != null && !LocalEInkMode.current
+    val primaryContentColor = if (useCoverBackground) Color.White else AppColors.TextPrimary
+    val secondaryContentColor = if (useCoverBackground) {
+        Color.White.copy(alpha = 0.78f)
+    } else {
+        AppColors.TextSecondary
+    }
+    val blurredCoverRequest = remember(book.id, book.coverPath, blurRadiusPx) {
+        book.coverPath?.let { coverPath ->
+            ImageRequest.Builder(context)
+                .data(coverPath)
+                .allowHardware(false)
+                .memoryCacheKey(
+                    "${bookCoverMemoryCacheKey(book.id, coverPath)}:home-card-blur-v1:$blurRadiusPx"
+                )
+                .transformations(ReaderBackgroundBlurTransformation(blurRadiusPx))
+                .build()
+        }
+    }
 
-    Row(
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .shadow(12.dp, RoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
@@ -437,15 +552,46 @@ private fun ContinueReadingCard(
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
                 onClick(coverBounds.get().takeUnless { it == Rect.Zero })
             }
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
     ) {
+        if (useCoverBackground && blurredCoverRequest != null) {
+            AsyncImage(
+                model = blurredCoverRequest,
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = 0.30f))
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         // 封面（与书架完全一致的标准网格大封面 108dp x 144dp）
         Box(
             modifier = Modifier
                 .width(108.dp)
                 .aspectRatio(0.75f)
                 .onGloballyPositioned { coverBounds.set(it.boundsInRoot()) }
+                .bookCoverTransitionAnchor(
+                    bookId = book.id,
+                    cornerRadiusDp = 10f,
+                    titleStyle = BookCoverTitleStyle(
+                        fontSizeSp = AppType.Caption.value,
+                        maxLines = 3,
+                        paddingDp = AppSpace.sm.value,
+                        color = BookCoverTitleColor.Primary,
+                        useKaiTi = true,
+                        textAlignCenter = true
+                    ),
+                    showReadingProgress = false
+                )
                 .shadow(6.dp, RoundedCornerShape(10.dp), ambientColor = Color(0x14000000), spotColor = Color(0x14000000))
                 .clip(RoundedCornerShape(10.dp))
                 .background(AppColors.BgGray)
@@ -458,7 +604,12 @@ private fun ContinueReadingCard(
                 )
             } else {
                 AsyncImage(
-                    model = book.coverPath,
+                    model = ImageRequest.Builder(context)
+                        .data(book.coverPath)
+                        .memoryCacheKey(
+                            bookCoverMemoryCacheKey(book.id, book.coverPath)
+                        )
+                        .build(),
                     contentDescription = book.title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -467,7 +618,9 @@ private fun ContinueReadingCard(
             BookCoverProgressOverlay(
                 book = book,
                 downloadState = downloadState,
-                compact = true
+                compact = true,
+                showReadingProgress = false,
+                badgeCornerRadius = AppRadius.sm
             )
         }
         Spacer(Modifier.width(16.dp))
@@ -645,8 +798,30 @@ private fun ContinueReadingCard(
                 }
             }
         }
+        }
+        if (book.isReadingFinished && downloadState !is BookDownloadState.Downloading) {
+            FinishedReadingIndicator(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(AppSpace.md),
+                compact = true,
+                tint = if (useCoverBackground) secondaryContentColor else null
+            )
+        }
     }
 
+    // 删除确认弹窗
+    if (showDeleteConfirm) {
+        CloudAwareBookDeleteDialog(
+            bookCount = 1,
+            hasRemoteBooks = book.remoteFileName != null,
+            onDismiss = { showDeleteConfirm = false },
+            onDelete = { mode ->
+                showDeleteConfirm = false
+                onDelete(mode)
+            }
+        )
+    }
 }
 
 // ─── 区块标题 ──────────────────────────────────────────────────
@@ -702,6 +877,18 @@ private fun RecentBookCard(
         Box(
             modifier = Modifier
                 .size(56.dp, 74.dp)
+                .bookCoverTransitionAnchor(
+                    bookId = book.id,
+                    cornerRadiusDp = 6f,
+                    titleStyle = BookCoverTitleStyle(
+                        fontSizeSp = 10f,
+                        maxLines = 3,
+                        paddingDp = AppSpace.sm.value,
+                        color = BookCoverTitleColor.Primary,
+                        useKaiTi = true,
+                        textAlignCenter = true
+                    )
+                )
                 .clip(RoundedCornerShape(6.dp))
                 .background(AppColors.BgGray),
             contentAlignment = Alignment.Center
@@ -713,7 +900,12 @@ private fun RecentBookCard(
                 )
             } else {
                 AsyncImage(
-                    model = book.coverPath,
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(book.coverPath)
+                        .memoryCacheKey(
+                            bookCoverMemoryCacheKey(book.id, book.coverPath)
+                        )
+                        .build(),
                     contentDescription = book.title,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -736,11 +928,15 @@ private fun RecentBookCard(
                 color = AppColors.TextSecondary,
                 maxLines = 1
             )
-            Text(
-                text = "${(book.readingProgress * 100).toInt()}%",
-                fontSize = AppType.Caption,
-                color = AppColors.Accent
-            )
+            if (book.isReadingFinished) {
+                FinishedReadingIndicator()
+            } else {
+                Text(
+                    text = "${(book.readingProgress * 100).toInt()}%",
+                    fontSize = AppType.Caption,
+                    color = AppColors.Accent
+                )
+            }
         }
     }
 }
@@ -917,20 +1113,53 @@ private fun BooksReadGrid(
     books: List<Book>,
     downloadStates: Map<String, BookDownloadState>,
     modifier: Modifier = Modifier,
-    isTablet: Boolean = false,
+    useWideLayout: Boolean = false,
     onBookClick: (Book, Rect?) -> Unit
 ) {
-    val coverShape = RoundedCornerShape(AppRadius.md)
+    val coverShape = RoundedCornerShape(
+        if (LocalAppTheme.current == "liquid_glass") 16.dp else AppRadius.md
+    )
+    val coverRadiusDp = if (LocalAppTheme.current == "liquid_glass") {
+        16f
+    } else {
+        AppRadius.md.value
+    }
     val bookBounds = remember { mutableMapOf<String, Rect>() }
     LazyRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         items(books, key = { it.id }) { book ->
-            val itemWidth = if (isTablet) 120.dp else 104.dp
+            val itemWidth = if (useWideLayout) 120.dp else 104.dp
             Column(
                 modifier = Modifier
                     .width(itemWidth)
+                    .aspectRatio(0.75f)
+                    .bookCoverTransitionAnchor(
+                        bookId = book.id,
+                        cornerRadiusDp = coverRadiusDp,
+                        titleStyle = BookCoverTitleStyle(
+                            fontSizeSp = AppType.BodySmall.value,
+                            maxLines = 3,
+                            paddingDp = AppSpace.sm.value,
+                            color = BookCoverTitleColor.Primary,
+                            useKaiTi = true,
+                            textAlignCenter = true
+                        )
+                    )
+                    .shadow(
+                        elevation = 8.dp,
+                        shape = coverShape,
+                        ambientColor = AppColors.CardShadow,
+                        spotColor = AppColors.CardShadow
+                    )
+                    .clip(coverShape)
+                    .background(AppColors.BgGray)
+                    .border(1.dp, AppColors.Divider, coverShape)
+                    .cardPressEffect()
+                    .onGloballyPositioned { coordinates ->
+                        bookBounds[book.id] = coordinates.boundsInRoot()
+                    }
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
@@ -962,7 +1191,12 @@ private fun BooksReadGrid(
                         )
                     } else {
                         AsyncImage(
-                            model = book.coverPath,
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(book.coverPath)
+                                .memoryCacheKey(
+                                    bookCoverMemoryCacheKey(book.id, book.coverPath)
+                                )
+                                .build(),
                             contentDescription = book.title,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
@@ -971,7 +1205,8 @@ private fun BooksReadGrid(
                     BookCoverProgressOverlay(
                         book = book,
                         downloadState = downloadStates[book.id],
-                        compact = true
+                        compact = true,
+                        badgeCornerRadius = coverRadiusDp.dp
                     )
                 }
                 Spacer(Modifier.height(6.dp))

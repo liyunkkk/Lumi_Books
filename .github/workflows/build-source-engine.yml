@@ -40,7 +40,7 @@ jobs:
         run: |
           chmod +x gradlew
           set -o pipefail
-          ./gradlew :app:assembleRelease :app:assembleDebug --no-daemon --no-configuration-cache --stacktrace 2>&1 | tee gradle-build.log
+          ./gradlew :app:assembleRelease :app:assembleDebug :app:compileDebugUnitTestKotlin --no-daemon --no-configuration-cache --stacktrace 2>&1 | tee gradle-build.log
       - name: Publish Gradle diagnostics
         if: always()
         run: |

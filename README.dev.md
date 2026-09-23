@@ -14,7 +14,7 @@
 
 > Android 本地电子书阅读器的技术文档。面向贡献者与二次开发者。
 
-[![Version](https://img.shields.io/badge/version-1.7.8-coral)](https://github.com/huangder/Lumi_Books/releases)
+[![Version](https://img.shields.io/badge/version-2.1.9-coral)](https://github.com/huangder/Lumi_Books/releases)
 [![License](https://img.shields.io/badge/license-GPLv3-green)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-8.0%2B-blue)](https://developer.android.com)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.3.10-purple)](https://kotlinlang.org)
@@ -228,6 +228,7 @@ Lumi 原创代码采用 [GNU GPLv3](LICENSE) 开源。
 | [CommonMark](https://github.com/commonmark/commonmark-java) | BSD 2-Clause | Markdown 解析 |
 | [Jsoup](https://jsoup.org/) | MIT | HTML 解析 |
 | [legado-E SimulationPageDelegate](https://github.com/Luoyacheng/legado-E) | GPLv3 | 卷曲翻页几何与绘制改编 |
+| [legado-E TXT 目录规则数据](https://github.com/Luoyacheng/legado-E) | GPLv3 | 兼容模式内置的 txtTocRule 默认规则（仅读取正则，不执行脚本） |
 | [Coil](https://coil-kt.github.io/coil/) | Apache 2.0 | 图片加载 |
 | [OkHttp](https://square.github.io/okhttp/) | Apache 2.0 | HTTP 客户端 |
 

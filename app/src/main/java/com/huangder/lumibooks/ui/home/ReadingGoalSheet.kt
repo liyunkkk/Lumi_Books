@@ -1,4 +1,5 @@
 package com.huangder.lumibooks.ui.home
+import com.huangder.lumibooks.ui.icons.AppIcons
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.ScrollState
@@ -28,8 +29,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.ui.components.ConfigurableBottomSheetBackHandler
+import com.huangder.lumibooks.ui.components.FinishedReadingIndicator
 import com.huangder.lumibooks.ui.components.LiquidGlassButton
 import com.huangder.lumibooks.ui.components.LiquidGlassColumnSheetContainer
 import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
@@ -253,7 +253,7 @@ private fun ReadingGoalContainer(
         ) {
             Spacer(modifier = Modifier.weight(1f))
             LiquidGlassIconButton(
-                imageVector = Icons.Outlined.Close,
+                imageVector = AppIcons.X,
                 contentDescription = stringResource(R.string.close),
                 onClick = onClose,
                 size = 44.dp,
@@ -401,11 +401,15 @@ private fun TodayReadingContent(
                     color = textPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "${(currentBook.readingProgress * 100).toInt()}%",
-                    fontSize = 13.sp,
-                    color = textSecondary
-                )
+                if (currentBook.isReadingFinished) {
+                    FinishedReadingIndicator()
+                } else {
+                    Text(
+                        text = "${(currentBook.readingProgress * 100).toInt()}%",
+                        fontSize = 13.sp,
+                        color = textSecondary
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(16.dp))

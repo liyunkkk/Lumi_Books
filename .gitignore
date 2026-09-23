@@ -18,6 +18,7 @@ CLAUDE.md
 /app/build-codex*/
 /app/release/
 /app/build/
+/app/diagnostic/
 /captures
 .externalNativeBuild
 .cxx
@@ -39,6 +40,13 @@ devlog/
 # Window dumps
 window*.xml
 lumi-window.xml
+
+# Local agent/debug exports (screenshots, decompiled APKs, and inspection caches)
+/.codex-*
+/apk-inspect-*/
+/edge*.png
+/sel.png
+/testnew.png
 
 # Misc
 .DS_Store
