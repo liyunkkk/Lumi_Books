@@ -79,6 +79,7 @@ fun ReadingGoalSheet(
     todayReadingTime: Long,
     dailyGoal: Int,
     currentBook: Book?,
+    showFinishedBadge: Boolean = true,
     weeklyData: List<DailyReading> = emptyList(),
     streakDays: Int = 0,
     onDismiss: () -> Unit,
@@ -190,6 +191,7 @@ fun ReadingGoalSheet(
                     progress = progress,
                     remaining = remaining,
                     currentBook = currentBook,
+                    showFinishedBadge = showFinishedBadge,
                     weeklyData = weeklyData,
                     streakDays = streakDays,
                     onChangeGoal = ::openGoalPicker
@@ -275,6 +277,7 @@ private fun TodayReadingContent(
     progress: Float,
     remaining: Int,
     currentBook: Book?,
+    showFinishedBadge: Boolean,
     weeklyData: List<DailyReading>,
     streakDays: Int,
     onChangeGoal: () -> Unit
@@ -401,7 +404,7 @@ private fun TodayReadingContent(
                     color = textPrimary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                if (currentBook.isReadingFinished) {
+                if (showFinishedBadge && currentBook.isReadingFinished) {
                     FinishedReadingIndicator()
                 } else {
                     Text(

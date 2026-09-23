@@ -4,6 +4,7 @@ import com.huangder.lumibooks.ui.icons.AppIcons
 import android.net.Uri
 import androidx.compose.runtime.CompositionLocalProvider
 import com.huangder.lumibooks.ui.components.LocalShowCoverProgress
+import com.huangder.lumibooks.ui.components.LocalShowFinishedBadge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -776,7 +777,10 @@ fun BookshelfScreen(
     }
 
     ProvideLiquidGlassBackdrop(null) {
-    CompositionLocalProvider(LocalShowCoverProgress provides uiState.showCoverProgress) {
+    CompositionLocalProvider(
+        LocalShowCoverProgress provides uiState.showCoverProgress,
+        LocalShowFinishedBadge provides uiState.showFinishedBadge
+    ) {
     Box(
         modifier = Modifier
             .fillMaxSize()

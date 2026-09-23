@@ -260,6 +260,7 @@ class DataStoreManager @Inject constructor(
         private val BODY_FONT_WEIGHT = intPreferencesKey("body_font_weight")
         private val APPLY_TO_BODY_ONLY = booleanPreferencesKey("apply_to_body_only")
         private val SHOW_COVER_PROGRESS = booleanPreferencesKey("show_cover_progress")
+        private val SHOW_FINISHED_BADGE = booleanPreferencesKey("show_finished_badge")
         private val PARAGRAPH_SPACING = floatPreferencesKey("paragraph_spacing")
         private val FIRST_LINE_INDENT = floatPreferencesKey("first_line_indent")
         private val ADVANCED_DEFAULTS_VERSION = intPreferencesKey("advanced_defaults_version")
@@ -709,6 +710,7 @@ class DataStoreManager @Inject constructor(
     val bodyFontWeight: Flow<Int> = context.dataStore.data.map { it[BODY_FONT_WEIGHT] ?: 400 }
     val applyToBodyOnly: Flow<Boolean> = context.dataStore.data.map { it[APPLY_TO_BODY_ONLY] ?: false }
     val showCoverProgress: Flow<Boolean> = context.dataStore.data.map { it[SHOW_COVER_PROGRESS] ?: true }
+    val showFinishedBadge: Flow<Boolean> = context.dataStore.data.map { it[SHOW_FINISHED_BADGE] ?: true }
 
     val preserveEpubBackground: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[PRESERVE_EPUB_BACKGROUND] ?: true
@@ -1575,6 +1577,10 @@ class DataStoreManager @Inject constructor(
 
     suspend fun saveShowCoverProgress(enabled: Boolean) {
         context.dataStore.edit { preferences -> preferences[SHOW_COVER_PROGRESS] = enabled }
+    }
+
+    suspend fun saveShowFinishedBadge(enabled: Boolean) {
+        context.dataStore.edit { preferences -> preferences[SHOW_FINISHED_BADGE] = enabled }
     }
 
     suspend fun resetAdvancedReaderSettings(targetSuiteId: String? = null) {

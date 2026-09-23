@@ -388,6 +388,11 @@ class SettingsViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(showCoverProgress = showCoverProgress)
             }
         }
+        viewModelScope.launch {
+            dataStoreManager.showFinishedBadge.collectLatest { showFinishedBadge ->
+                _uiState.value = _uiState.value.copy(showFinishedBadge = showFinishedBadge)
+            }
+        }
     }
 
     // ─── 个人信息 ───
@@ -641,6 +646,12 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.saveShowCoverProgress(enabled)
             _uiState.value = _uiState.value.copy(showCoverProgress = enabled)
+        }
+    }
+    fun saveShowFinishedBadge(enabled: Boolean) {
+        viewModelScope.launch {
+            dataStoreManager.saveShowFinishedBadge(enabled)
+            _uiState.value = _uiState.value.copy(showFinishedBadge = enabled)
         }
     }
 

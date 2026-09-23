@@ -66,6 +66,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Opacity
 import androidx.compose.material.icons.outlined.Timer
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ViewCarousel
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -634,6 +635,41 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
             LiquidGlassSwitch(
                 checked = uiState.showCoverProgress,
                 onCheckedChange = { viewModel.saveShowCoverProgress(it) }
+            )
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    // 书籍封面显示「已读完」角标
+    DetailCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(AppSpace.md),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                tint = AppColors.TextSecondary,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.width(AppSpace.md))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.show_finished_badge),
+                    fontSize = AppType.Body,
+                    color = AppColors.TextPrimary
+                )
+                Text(
+                    stringResource(R.string.show_finished_badge_desc),
+                    fontSize = AppType.Caption,
+                    color = AppColors.TextSecondary
+                )
+            }
+            Spacer(Modifier.width(AppSpace.sm))
+            LiquidGlassSwitch(
+                checked = uiState.showFinishedBadge,
+                onCheckedChange = { viewModel.saveShowFinishedBadge(it) }
             )
         }
     }

@@ -36,6 +36,7 @@ import com.huangder.lumibooks.ui.theme.AppColors
 import androidx.compose.runtime.compositionLocalOf
 
 val LocalShowCoverProgress = compositionLocalOf { true }
+val LocalShowFinishedBadge = compositionLocalOf { true }
 
 @Composable
 fun CloudBookDownloadDialog(
@@ -150,6 +151,7 @@ fun BookCoverProgressOverlay(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     showProgressOverlay: Boolean = LocalShowCoverProgress.current,
+    showFinishedBadge: Boolean = LocalShowFinishedBadge.current,
     showReadingProgress: Boolean = true,
     badgeCornerRadius: Dp = if (compact) 6.dp else 8.dp
 ) {
@@ -160,7 +162,8 @@ fun BookCoverProgressOverlay(
         .orEmptyProgress()
     val showProgress = showProgressOverlay &&
         (downloading != null || (showReadingProgress && progress > 0f && !book.isCloudOnly))
-    val showFinished = downloading == null &&
+    val showFinished = showFinishedBadge &&
+        downloading == null &&
         showReadingProgress &&
         !book.isCloudOnly &&
         book.isReadingFinished
