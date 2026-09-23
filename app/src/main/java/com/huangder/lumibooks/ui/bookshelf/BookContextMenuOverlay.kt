@@ -440,6 +440,39 @@ private fun MenuActionsPanel(
     val motionProgress = actionsAlpha.coerceIn(-0.08f, 1.08f)
     val favoriteIcon = AppIcons.Heart.resolve(isFavorite)
     val favoriteLabel = if (isFavorite) stringResource(R.string.remove_favorite_short) else stringResource(R.string.favorite)
+    // 动态构建菜单项列表
+    data class MenuItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val action: ContextMenuAction)
+
+    val menuItems = buildList {
+        add(MenuItem(stringResource(R.string.book_details), AppIcons.Info, ContextMenuAction.BookDetails))
+        add(MenuItem(favoriteLabel, favoriteIcon, ContextMenuAction.Favorite))
+        add(MenuItem(stringResource(R.string.add_tag), AppIcons.Tag, ContextMenuAction.Tags))
+        add(MenuItem(stringResource(R.string.move_to_folder), AppIcons.FolderSimple, ContextMenuAction.MoveToFolder))
+        add(MenuItem(stringResource(R.string.bookmarks_notes), AppIcons.Bookmark.regular, ContextMenuAction.BookmarksNotes))
+        add(MenuItem(stringResource(R.string.custom_cover), AppIcons.Image, ContextMenuAction.CustomCover))
+        if (hasCustomCover) {
+            add(MenuItem(stringResource(R.string.remove_custom_cover), AppIcons.ArrowCounterClockwise, ContextMenuAction.RemoveCustomCover))
+        }
+        add(
+            MenuItem(
+                label = if (isNowReadingHidden) "取消在读隐藏" else "隐藏当前在读",
+                icon = if (isNowReadingHidden) AppIcons.Eye else AppIcons.EyeSlash,
+                action = ContextMenuAction.ToggleHideNowReading
+            )
+        )
+        add(
+            MenuItem(
+                label = if (isHidden) "移出隐藏" else "隐藏书籍",
+                icon = if (isHidden) AppIcons.Eye else AppIcons.EyeSlash,
+                action = ContextMenuAction.ToggleHideBook
+            )
+        )
+        if (isOnlineBook) {
+            add(MenuItem("切换书源", AppIcons.ArrowsLeftRight, ContextMenuAction.ChangeSource))
+        }
+        add(MenuItem(stringResource(R.string.delete), AppIcons.Trash, ContextMenuAction.Delete))
+    }
+
     LiquidGlassSurface(
         shape = shape,
         fallbackColor = AppColors.CardBg,
@@ -459,39 +492,6 @@ private fun MenuActionsPanel(
                 .padding(if (compact) 8.dp else 12.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-        // 动态构建菜单项列表
-        data class MenuItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val action: ContextMenuAction)
-
-        val menuItems = buildList {
-            add(MenuItem(stringResource(R.string.book_details), AppIcons.Info, ContextMenuAction.BookDetails))
-            add(MenuItem(favoriteLabel, favoriteIcon, ContextMenuAction.Favorite))
-            add(MenuItem(stringResource(R.string.add_tag), AppIcons.Tag, ContextMenuAction.Tags))
-            add(MenuItem(stringResource(R.string.move_to_folder), AppIcons.FolderSimple, ContextMenuAction.MoveToFolder))
-            add(MenuItem(stringResource(R.string.bookmarks_notes), AppIcons.Bookmark.regular, ContextMenuAction.BookmarksNotes))
-            add(MenuItem(stringResource(R.string.custom_cover), AppIcons.Image, ContextMenuAction.CustomCover))
-            if (hasCustomCover) {
-                add(MenuItem(stringResource(R.string.remove_custom_cover), AppIcons.ArrowCounterClockwise, ContextMenuAction.RemoveCustomCover))
-            }
-            add(
-                MenuItem(
-                    label = if (isNowReadingHidden) "取消在读隐藏" else "隐藏当前在读",
-                    icon = if (isNowReadingHidden) AppIcons.Eye else AppIcons.EyeSlash,
-                    action = ContextMenuAction.ToggleHideNowReading
-                )
-            )
-            add(
-                MenuItem(
-                    label = if (isHidden) "移出隐藏" else "隐藏书籍",
-                    icon = if (isHidden) AppIcons.Eye else AppIcons.EyeSlash,
-                    action = ContextMenuAction.ToggleHideBook
-                )
-            )
-            if (isOnlineBook) {
-                add(MenuItem("切换书源", AppIcons.ArrowsLeftRight, ContextMenuAction.ChangeSource))
-            }
-            add(MenuItem(stringResource(R.string.delete), AppIcons.Trash, ContextMenuAction.Delete))
-        }
-
         items(menuItems, key = { it.label }) { item ->
             MenuActionItem(
                 label = item.label,

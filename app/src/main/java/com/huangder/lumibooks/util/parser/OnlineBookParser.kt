@@ -159,6 +159,8 @@ class OnlineBookParser(
     override var paragraphSpacingDp: Float = 0f
     override var firstLineIndentChars: Float = 0f
     override var contentWidth: Int = 0
+    override var contentHeight: Int = 0
+    override var preserveEpubBackground: Boolean = true  // 在线书源无原书装饰，保留接口兼容
     override var useEpubCss: Boolean
         get() = false
         set(_) {}

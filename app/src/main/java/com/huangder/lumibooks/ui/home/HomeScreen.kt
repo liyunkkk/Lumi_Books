@@ -215,9 +215,7 @@ fun HomeScreen(
                 avatarUri = uiState.avatarUri,
                 statusBarTopPadding = statusBarTopPadding,
                 bottomContentPadding = bottomContentPadding,
-                onNavigateToReader = { book, sourceBounds ->
-                    onNavigateToReader(book.id, book.coverPath, book.title, sourceBounds)
-                },
+                onNavigateToReader = onNavigateToReader,
                 onNavigateToStatistics = onNavigateToStatistics,
                 onNavigateToBookshelf = onNavigateToBookshelf,
                 onImportClick = onImportClick
@@ -308,10 +306,7 @@ fun HomeScreen(
                             readingTime = uiState.todayReadingTime,
                             dailyGoal = uiState.dailyGoal,
                             weeklyData = uiState.weeklyData,
-                            onCardClick = { setShowGoalSheet(true) },
-                            onContinueClick = {
-                                lastReadBook?.let { onNavigateToReader(it, null) }
-                            }
+                            onCardClick = { setShowGoalSheet(true) }
                         )
                     }
                     Spacer(Modifier.height(10.dp))

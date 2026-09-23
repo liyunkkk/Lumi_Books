@@ -965,7 +965,6 @@ fun MainNavGraph(
                 route = Screen.Reader.route,
                 arguments = listOf(navArgument("bookId") { type = NavType.StringType }),
                 enterTransition = {
-                enterTransition = {
                     if (eInkMode || bookReaderTransition.usesHeroTransition) {
                         EnterTransition.None
                     } else {
