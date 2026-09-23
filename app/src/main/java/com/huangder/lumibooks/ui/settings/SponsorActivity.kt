@@ -1,4 +1,5 @@
 package com.huangder.lumibooks.ui.settings
+import com.huangder.lumibooks.ui.icons.AppIcons
 
 import android.content.Intent
 import android.net.Uri
@@ -27,8 +28,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -64,7 +63,10 @@ import com.huangder.lumibooks.ui.theme.AppRadius
 import com.huangder.lumibooks.ui.theme.AppSpace
 import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
+import com.huangder.lumibooks.ui.theme.LocalAppTheme
+import com.huangder.lumibooks.ui.theme.LocalEInkMode
 import com.huangder.lumibooks.ui.theme.EBookReaderTheme
+import com.huangder.lumibooks.ui.components.LiquidGlassSegmentedControl
 import com.huangder.lumibooks.ui.theme.rememberLiquidGlassCapability
 import com.huangder.lumibooks.ui.theme.effectiveAppTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -251,7 +253,7 @@ private fun SponsorPage(
         // 感谢列表
         CreditSection(
             title = stringResource(R.string.sponsor_thanks_title),
-            names = listOf("雋乂、匿名、匿名、匿名、Jun.、BennyBlack、百年老字号、匿名、匿名、白飘飘")
+            names = listOf("雋乂、匿名、匿名、匿名、Jun.、BennyBlack、百年老字号、匿名、匿名、白飘飘、唱罢阴山敕勒歌、七七七、Y3uoO、祈、宇宙无敌哥儿赞、马果、匿名、马果、知我、匿名")
         )
 
         Spacer(Modifier.height(AppSpace.md))
@@ -283,6 +285,25 @@ private fun SponsorPaymentTagSwitcher(
         PaymentMethod.PAYPAL to R.string.sponsor_payment_paypal
     )
     val selectedIndex = options.indexOfFirst { it.first == selectedPayment }.coerceAtLeast(0)
+    if (LocalAppTheme.current == "liquid_glass" && !LocalEInkMode.current) {
+        LiquidGlassSegmentedControl(
+            itemCount = options.size,
+            selectedIndex = selectedIndex,
+            onSelected = { onPaymentSelected(options[it].first) },
+            modifier = modifier.fillMaxWidth(),
+            trackHeight = 40.dp,
+            trackPadding = 2.dp
+        ) { index, isSelected ->
+            Text(
+                text = stringResource(options[index].second),
+                fontSize = AppType.BodySmall,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isSelected) AppColors.TextPrimary.copy(alpha = 0.86f) else AppColors.TextSecondary
+            )
+        }
+        return
+    }
+
     val indicatorProgress by animateFloatAsState(
         targetValue = selectedIndex.toFloat(),
         animationSpec = tween(200),
@@ -412,7 +433,7 @@ private fun DeveloperCard(contributor: Contributor, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(AppSpace.sm))
         Icon(
-            imageVector = Icons.Outlined.ChevronRight,
+            imageVector = AppIcons.CaretRight,
             contentDescription = null,
             tint = AppColors.TextSecondary,
             modifier = Modifier.size(20.dp)

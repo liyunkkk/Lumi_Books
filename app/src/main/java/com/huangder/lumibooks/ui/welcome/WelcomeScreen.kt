@@ -1,4 +1,5 @@
 package com.huangder.lumibooks.ui.welcome
+import com.huangder.lumibooks.ui.icons.AppIcons
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
@@ -47,8 +48,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -1321,8 +1320,6 @@ private fun SupportWelcomeButton(
             fallbackColor = glassColor,
             contentScrimColor = scrimColor,
             transparencyOverride = 0.65f,
-            outlineWidth = 0.dp,
-            highlightAlpha = 0f,
             enabled = enabled,
             onClick = onClick,
             decorationModifier = Modifier.shadow(
@@ -1675,7 +1672,7 @@ private fun PolicyBottomSheet(
 
                 // 关闭按钮
                 LiquidGlassIconButton(
-                    imageVector = Icons.Outlined.Close,
+                    imageVector = AppIcons.X,
                     contentDescription = stringResource(R.string.close),
                     onClick = onDismiss,
                     size = 36.dp,

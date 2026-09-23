@@ -3,6 +3,7 @@ package com.huangder.lumibooks.ui.settings
 import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
 import com.huangder.lumibooks.domain.model.AppIconStyle
+import com.huangder.lumibooks.domain.model.BookOpenTransition
 
 /** 单本书的文件大小明细 */
 data class BookSizeItem(
@@ -78,6 +79,7 @@ data class SettingsUiState(
     val widgetThemeMode: String = "follow_app", // 小组件配色 "follow_app" / "light" / "dark"
     val motionPreference: String = "standard", // "standard" / "reduced"
     val entranceAnimationsEnabled: Boolean = true,
+    val bookOpenTransition: String = BookOpenTransition.HERO.storedValue, // "hero" / "loading_page"
     val eInkModeEnabled: Boolean = false,
     val twoPageSpreadEnabled: Boolean = true,
     val predictiveBackEnabled: Boolean = true,
@@ -118,6 +120,9 @@ data class SettingsUiState(
     val isWebdavSyncing: Boolean = false,
     val webdavSyncResult: String = "",
     val webdavSyncSucceeded: Boolean = true,
+    val webdavTesting: Boolean = false,
+    val webdavTestResult: String = "",
+    val webdavTestSucceeded: Boolean = true,
 
     // 检查更新
     val updateCheck: UpdateCheckDisplay = UpdateCheckDisplay(),

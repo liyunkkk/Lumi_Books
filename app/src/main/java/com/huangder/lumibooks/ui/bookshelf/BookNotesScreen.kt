@@ -1,4 +1,6 @@
 package com.huangder.lumibooks.ui.bookshelf
+import com.huangder.lumibooks.ui.icons.directionalIcon
+import com.huangder.lumibooks.ui.icons.AppIcons
 
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,11 +30,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.Bookmark
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,13 +67,16 @@ import com.huangder.lumibooks.ui.theme.AppSpace
 import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.ui.theme.KaiTi
 import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
+import com.huangder.lumibooks.ui.components.LiquidGlassSegmentedControl
 import com.huangder.lumibooks.ui.components.LiquidGlassSurface
 import com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
+import com.huangder.lumibooks.ui.theme.LocalEInkMode
 import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
 import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -97,6 +97,7 @@ fun BookNotesScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val glassBackdrop = rememberLayerBackdrop()
+    val segmentedControlBackdrop = rememberLayerBackdrop()
     var selectedTab by rememberSaveable(initialTab) {
         mutableIntStateOf(initialTab.coerceIn(0, 3))
     }
@@ -140,6 +141,15 @@ fun BookNotesScreen(
             .fillMaxSize()
             .background(AppColors.WindowBg)
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (isLiquidGlass) Modifier.layerBackdrop(segmentedControlBackdrop)
+                    else Modifier
+                )
+                .background(AppColors.WindowBg)
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -160,7 +170,7 @@ fun BookNotesScreen(
                     )
             ) {
                 LiquidGlassIconButton(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
                     contentDescription = stringResource(R.string.back),
                     onClick = onNavigateBack,
                     size = if (isLiquidGlass) 48.dp else 36.dp,
@@ -186,7 +196,8 @@ fun BookNotesScreen(
                 selectedTab = selectedTab,
                 tabs = tabs,
                 onTabSelected = { selectedTab = it },
-                modifier = Modifier.padding(horizontal = AppSpace.lg)
+                modifier = Modifier.padding(horizontal = AppSpace.lg),
+                backdrop = segmentedControlBackdrop.takeIf { isLiquidGlass }
             )
 
             Spacer(Modifier.height(AppSpace.md))
@@ -262,8 +273,29 @@ private fun SegmentedTabBar(
     selectedTab: Int,
     tabs: List<String>,
     onTabSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    backdrop: Backdrop? = null
 ) {
+    if (LocalAppTheme.current == "liquid_glass" && !LocalEInkMode.current) {
+        LiquidGlassSegmentedControl(
+            itemCount = tabs.size,
+            selectedIndex = selectedTab,
+            onSelected = onTabSelected,
+            modifier = modifier.fillMaxWidth(),
+            trackHeight = 40.dp,
+            trackPadding = 2.dp,
+            backdrop = backdrop
+        ) { index, isSelected ->
+            Text(
+                text = tabs[index],
+                fontSize = 14.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isSelected) AppColors.TextPrimary.copy(alpha = 0.86f) else AppColors.TextSecondary
+            )
+        }
+        return
+    }
+
     val isDark = LocalIsDarkTheme.current
     Box(
         modifier = modifier
@@ -480,7 +512,7 @@ private fun HighlightNoteItem(
                 )
                 Spacer(Modifier.width(AppSpace.sm))
                 Icon(
-                    imageVector = Icons.Outlined.Delete,
+                    imageVector = AppIcons.Trash,
                     contentDescription = stringResource(R.string.delete),
                     tint = AppColors.TextSecondary,
                     modifier = Modifier
@@ -508,7 +540,7 @@ private fun BookmarkItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = Icons.Outlined.Bookmark,
+            imageVector = AppIcons.Bookmark.regular,
             contentDescription = null,
             tint = AppColors.Accent,
             modifier = Modifier.size(20.dp)
@@ -531,7 +563,7 @@ private fun BookmarkItem(
             )
         }
         Icon(
-            imageVector = Icons.Outlined.Delete,
+            imageVector = AppIcons.Trash,
             contentDescription = stringResource(R.string.delete),
             tint = AppColors.TextSecondary,
             modifier = Modifier
@@ -562,7 +594,7 @@ private fun ExportBookmarksButton(
             )
         } else {
             Icon(
-                imageVector = Icons.Outlined.Download,
+                imageVector = AppIcons.DownloadSimple,
                 contentDescription = stringResource(R.string.export_bookmarks),
                 tint = Color.White,
                 modifier = Modifier.size(27.dp)

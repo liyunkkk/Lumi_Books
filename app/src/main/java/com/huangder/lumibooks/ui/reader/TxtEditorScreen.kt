@@ -1,4 +1,6 @@
 package com.huangder.lumibooks.ui.reader
+import com.huangder.lumibooks.ui.icons.directionalIcon
+import com.huangder.lumibooks.ui.icons.AppIcons
 
 import android.content.Context
 import android.graphics.Typeface
@@ -47,16 +49,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActionScope
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.Check
-import androidx.compose.material.icons.outlined.ChevronLeft
-import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.FindReplace
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -109,6 +101,7 @@ import com.huangder.lumibooks.R
 import com.huangder.lumibooks.ui.components.ConfigurableBottomSheetBackHandler
 import com.huangder.lumibooks.ui.components.LiquidGlassDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
+import com.huangder.lumibooks.ui.components.LiquidGlassSegmentedControl
 import com.huangder.lumibooks.ui.components.LiquidGlassSurface
 import com.huangder.lumibooks.ui.components.animateBottomSheetIn
 import com.huangder.lumibooks.ui.components.animateBottomSheetOut
@@ -117,6 +110,8 @@ import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppSpace
 import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.ui.theme.KaiTi
+import com.huangder.lumibooks.ui.theme.LocalAppTheme
+import com.huangder.lumibooks.ui.theme.LocalEInkMode
 import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
 import com.kyant.backdrop.Backdrop
 import kotlinx.coroutines.delay
@@ -445,7 +440,7 @@ fun TxtEditorScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             LiquidGlassIconButton(
-                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
                 contentDescription = stringResource(R.string.reader_back),
                 onClick = handleBack,
                 size = 40.dp,
@@ -463,7 +458,7 @@ fun TxtEditorScreen(
                 modifier = Modifier.weight(1f).padding(horizontal = AppSpace.sm)
             )
             LiquidGlassIconButton(
-                imageVector = Icons.Outlined.Check,
+                imageVector = AppIcons.Check,
                 contentDescription = stringResource(R.string.confirm),
                 onClick = {
                     focusManager.clearFocus()
@@ -682,7 +677,7 @@ private fun TxtEditorBottomActions(
         verticalAlignment = Alignment.CenterVertically
     ) {
         TxtEditorActionCapsule(
-            icon = Icons.Outlined.ChevronLeft,
+            icon = AppIcons.CaretLeft,
             contentDescription = stringResource(R.string.txt_editor_previous_chapter),
             enabled = canGoPrevious,
             backdrop = backdrop,
@@ -690,7 +685,7 @@ private fun TxtEditorBottomActions(
             onClick = onPrevious
         )
         TxtEditorActionCapsule(
-            icon = Icons.Outlined.ChevronRight,
+            icon = AppIcons.CaretRight,
             contentDescription = stringResource(R.string.txt_editor_next_chapter),
             enabled = canGoNext,
             backdrop = backdrop,
@@ -698,7 +693,7 @@ private fun TxtEditorBottomActions(
             onClick = onNext
         )
         TxtEditorActionCapsule(
-            icon = Icons.Outlined.Search,
+            icon = AppIcons.MagnifyingGlass,
             label = stringResource(R.string.txt_editor_search),
             contentDescription = stringResource(R.string.txt_editor_search),
             backdrop = backdrop,
@@ -706,7 +701,7 @@ private fun TxtEditorBottomActions(
             onClick = onSearch
         )
         TxtEditorActionCapsule(
-            icon = Icons.Outlined.FindReplace,
+            icon = AppIcons.MagnifyingGlass,
             label = stringResource(R.string.txt_editor_replace),
             contentDescription = stringResource(R.string.txt_editor_replace),
             backdrop = backdrop,
@@ -732,7 +727,6 @@ private fun TxtEditorActionCapsule(
         fallbackColor = AppColors.BgGray,
         backdrop = backdrop,
         forceFallback = true,
-        highlightColor = Color.White,
         enabled = enabled,
         onClick = onClick,
         modifier = modifier.alpha(if (enabled) 1f else 0.42f)
@@ -835,7 +829,7 @@ private fun TxtEditorSearchSheet(
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = { isClosing = true }, modifier = Modifier.size(40.dp)) {
                         Icon(
-                            Icons.Outlined.Close,
+                            AppIcons.X,
                             contentDescription = stringResource(R.string.reader_close),
                             tint = AppColors.TextPrimary
                         )
@@ -861,7 +855,7 @@ private fun TxtEditorSearchSheet(
                             enabled = uiState.searchQuery.isNotBlank() && !uiState.isSearching
                         ) {
                             Icon(
-                                Icons.Outlined.Search,
+                                AppIcons.MagnifyingGlass,
                                 contentDescription = stringResource(
                                     if (uiState.currentMatch != null) {
                                         R.string.txt_editor_next_match
@@ -924,7 +918,7 @@ private fun TxtEditorSearchSheet(
                         border = BorderStroke(1.dp, AppColors.Divider)
                     ) {
                         Icon(
-                            Icons.Outlined.KeyboardArrowUp,
+                            AppIcons.CaretUp,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
@@ -939,7 +933,7 @@ private fun TxtEditorSearchSheet(
                         colors = ButtonDefaults.buttonColors(containerColor = AppColors.Accent)
                     ) {
                         Icon(
-                            Icons.Outlined.KeyboardArrowDown,
+                            AppIcons.CaretDown,
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier.size(18.dp)
@@ -1017,6 +1011,33 @@ private fun TxtScopeSelector(
     onSelected: (TxtSearchScope) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (LocalAppTheme.current == "liquid_glass" && !LocalEInkMode.current) {
+        val options = listOf(TxtSearchScope.CHAPTER, TxtSearchScope.BOOK)
+        LiquidGlassSegmentedControl(
+            itemCount = options.size,
+            selectedIndex = options.indexOf(selected).coerceAtLeast(0),
+            onSelected = { onSelected(options[it]) },
+            modifier = modifier,
+            trackHeight = 40.dp,
+            trackPadding = 3.dp
+        ) { index, isSelected ->
+            Text(
+                text = stringResource(
+                    if (options[index] == TxtSearchScope.CHAPTER) {
+                        R.string.txt_editor_scope_chapter
+                    } else {
+                        R.string.txt_editor_scope_book
+                    }
+                ),
+                fontSize = 12.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isSelected) AppColors.TextPrimary.copy(alpha = 0.86f) else AppColors.TextSecondary,
+                maxLines = 1
+            )
+        }
+        return
+    }
+
     Row(
         modifier = modifier.clip(RoundedCornerShape(20.dp)).background(AppColors.BgGray).padding(3.dp)
     ) {

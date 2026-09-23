@@ -7,7 +7,6 @@ import android.util.Log
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.util.BookFileAccess
-import java.net.URLEncoder
 import com.huangder.lumibooks.data.local.WebdavTokenStore
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookFormat
@@ -18,8 +17,11 @@ import com.huangder.lumibooks.domain.repository.BookRepository
 import com.huangder.lumibooks.domain.repository.ReadingRepository
 import com.huangder.lumibooks.util.FileUtils
 import com.huangder.lumibooks.util.parser.BookParserFactory
+import com.huangder.lumibooks.util.diagnostics.DiagnosticLevel
+import com.huangder.lumibooks.util.diagnostics.DiagnosticLoggerRegistry
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -381,6 +383,7 @@ class WebdavSyncManager @Inject constructor(
                 success = booksFailed == 0 && dataFailed == 0
             )
         } catch (error: WebdavException) {
+            logWebdavFailure("FULL_SYNC", normalized.serverUrl, error)
             SyncResult(
                 message = context.getString(R.string.webdav_sync_failed_detail, userFacingWebdavError(error)),
                 success = false
@@ -453,8 +456,22 @@ class WebdavSyncManager @Inject constructor(
         cleanupStalePartialDownloads()
         val book = bookRepository.getBookById(bookId)
             ?: return CloudBookDownloadResult(null, context.getString(R.string.book_not_found), false)
-        if (!book.isCloudOnly) {
-            return CloudBookDownloadResult(book, context.getString(R.string.book_already_downloaded), true)
+        val localFileSize = runCatching { BookFileAccess.size(context, book.filePath) }
+            .getOrDefault(0L)
+        // 记录仍标记为仅云端但本地已有完整文件（例如曾被 bodyless 状态快照误翻转过）时，
+        // 直接修复记录并视为已下载，避免无谓地重新下载同一文件。
+        val repairedBook = if (cloudBookNeedsLocalRepair(book, localFileSize)) {
+            bookRepository.markBookDownloaded(bookId, book.filePath)
+            bookRepository.getBookById(bookId) ?: book.copy(isCloudOnly = false)
+        } else {
+            null
+        }
+        if (!book.isCloudOnly || repairedBook != null) {
+            return CloudBookDownloadResult(
+                repairedBook ?: book,
+                context.getString(R.string.book_already_downloaded),
+                true
+            )
         }
 
         val config = dataStoreManager.webdavConfig.first().normalized()
@@ -493,7 +510,7 @@ class WebdavSyncManager @Inject constructor(
                 bookId to BookDownloadState.Downloading(0L, entry.sizeBytes)
             )
             val result = webdavClient.downloadToFile(
-                url = "${config.serverUrl}/${config.syncPath}/books/${encodePathSegment(entry.fileName)}",
+                url = WebdavUrl.append(config.serverUrl, config.syncPath, "books", entry.fileName),
                 destination = partialFile,
                 username = config.username,
                 password = password,
@@ -563,6 +580,7 @@ class WebdavSyncManager @Inject constructor(
                 runRemoteDelete(bookIds, remoteFileNames, publishPortableState)
             }
         } catch (error: WebdavException) {
+            logWebdavFailure("DELETE_BOOKS", null, error)
             SyncResult(
                 context.getString(R.string.webdav_delete_failed, userFacingWebdavError(error)),
                 false
@@ -645,6 +663,7 @@ class WebdavSyncManager @Inject constructor(
             }
             SyncResult(context.getString(R.string.webdav_books_deleted, bookIds.size), true)
         } catch (error: WebdavException) {
+            logWebdavFailure("DELETE_BOOKS", null, error)
             SyncResult(
                 context.getString(R.string.webdav_delete_failed, userFacingWebdavError(error)),
                 false
@@ -678,32 +697,188 @@ class WebdavSyncManager @Inject constructor(
 
     // ── Test connection ─────────────────────────────────────────────
 
-    suspend fun testConnection(serverUrl: String, username: String, password: String): SyncResult {
+    /**
+     * Read-only connection test.
+     *
+     * Probes with `PROPFIND Depth: 0` (no GET, no MKCOL):
+     * - `{serverUrl}` — is the configured address a WebDAV collection and are the credentials OK?
+     * - `{serverUrl}/{syncPath}` — can the app reach the directory it will actually sync into?
+     *
+     * Verdict: reachable sync directory → success; missing sync directory on a working address →
+     * success with a note (the first sync creates it); anything else reports the failing probe.
+     * Nothing is created or modified on the server.
+     */
+    suspend fun testConnection(
+        serverUrl: String,
+        username: String,
+        password: String,
+        syncPath: String
+    ): SyncResult {
         return try {
-            webdavClient.testConnection(serverUrl, username, password)
-            SyncResult(message = context.getString(R.string.webdav_test_success), success = true)
-        } catch (_: WebdavException) {
-            SyncResult(message = context.getString(R.string.webdav_test_failed), success = false)
+            val rootProbe = webdavClient.probeCollection(serverUrl, username, password)
+            val syncDirUrl = WebdavUrl.append(serverUrl, syncPath)
+            val dirProbe = webdavClient.probeCollection(syncDirUrl, username, password)
+            when {
+                // The directory the app actually syncs into is reachable — that is what matters,
+                // even if the server refuses to describe the collection root itself.
+                isDavProbeSuccess(dirProbe) -> SyncResult(
+                    message = context.getString(R.string.webdav_test_success),
+                    success = true
+                )
+                // The sync directory does not exist yet — the first sync creates it with MKCOL.
+                dirProbe.statusCode == 404 && isDavProbeSuccess(rootProbe) -> SyncResult(
+                    message = context.getString(R.string.webdav_test_success_dir_pending),
+                    success = true
+                )
+                else -> {
+                    // A missing sync directory is only conclusive when the root probe also worked;
+                    // otherwise the root failure is the real diagnosis (wrong address, no write
+                    // permission, authentication, ...).
+                    val failedProbe = if (dirProbe.statusCode == 404) rootProbe else dirProbe
+                    val failedUrl = if (dirProbe.statusCode == 404) serverUrl else syncDirUrl
+                    val error = probeFailure("PROPFIND", failedProbe)
+                    logWebdavFailure("TEST_CONNECTION", failedUrl, error)
+                    SyncResult(
+                        message = context.getString(
+                            R.string.webdav_test_failed_detail,
+                            userFacingWebdavError(error)
+                        ),
+                        success = false
+                    )
+                }
+            }
+        } catch (error: WebdavException) {
+            logWebdavFailure("TEST_CONNECTION", serverUrl, error)
+            SyncResult(
+                message = context.getString(
+                    R.string.webdav_test_failed_detail,
+                    userFacingWebdavError(error)
+                ),
+                success = false
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            val wrapped = WebdavException(
+                message = "Unexpected WebDAV probe failure",
+                kind = WebdavErrorKind.INVALID_RESPONSE,
+                cause = error
+            )
+            logWebdavFailure("TEST_CONNECTION", serverUrl, wrapped)
+            SyncResult(
+                message = context.getString(
+                    R.string.webdav_test_failed_detail,
+                    userFacingWebdavError(wrapped)
+                ),
+                success = false
+            )
         }
+    }
+
+    private fun isDavProbeSuccess(probe: WebdavProbeResult): Boolean =
+        WebdavFailureClassifier.isSuccessStatus(probe.statusCode) && !probe.htmlResponse
+
+    private fun probeFailure(operation: String, probe: WebdavProbeResult): WebdavException {
+        val kind = when {
+            probe.htmlResponse -> WebdavErrorKind.INVALID_RESPONSE
+            else -> WebdavFailureClassifier.kindForStatus(probe.statusCode)
+        }
+        return WebdavException(
+            message = "$operation failed — HTTP ${probe.statusCode}",
+            statusCode = probe.statusCode,
+            kind = kind,
+            initialUrl = probe.initialUrl,
+            finalUrl = probe.finalUrl,
+            redirected = probe.redirected,
+            redirectCount = probe.redirectCount,
+            server = probe.server,
+            requestId = probe.requestId,
+            responseSummary = probe.responseSummary,
+            contentType = probe.contentType,
+            davHeader = probe.davHeader,
+            htmlResponse = probe.htmlResponse
+        )
     }
 
     // ── Private helpers ─────────────────────────────────────────────
 
-    /** Encode a file name for safe use in a URL path segment.
-     *  Handles Chinese, spaces, and other non-ASCII characters. */
-    private fun encodePathSegment(name: String): String =
-        URLEncoder.encode(name, "UTF-8").replace("+", "%20")
-
     private fun userFacingWebdavError(error: WebdavException): String {
-        if (error.serverCode == "TrafficRateExhausted") {
-            val unknown = context.getString(R.string.webdav_unknown_value)
-            val remaining = error.availableBytes?.let(::formatBytes) ?: unknown
-            val required = error.requiredBytes?.let(::formatBytes) ?: unknown
-            return context.getString(R.string.webdav_upload_quota_exhausted, remaining, required)
+        val category = WebdavFailureClassifier.classify(
+            kind = error.kind,
+            statusCode = error.statusCode,
+            serverCode = error.serverCode
+        )
+        return when (category) {
+            WebdavFailureCategory.QUOTA -> {
+                val unknown = context.getString(R.string.webdav_unknown_value)
+                val remaining = error.availableBytes?.let(::formatBytes) ?: unknown
+                val required = error.requiredBytes?.let(::formatBytes) ?: unknown
+                context.getString(R.string.webdav_upload_quota_exhausted, remaining, required)
+            }
+            WebdavFailureCategory.AUTH -> context.getString(R.string.webdav_error_auth)
+            WebdavFailureCategory.FORBIDDEN -> context.getString(R.string.webdav_error_forbidden)
+            WebdavFailureCategory.NOT_FOUND -> context.getString(R.string.webdav_error_not_found)
+            WebdavFailureCategory.CONFLICT -> context.getString(R.string.webdav_error_conflict)
+            WebdavFailureCategory.NOT_SUPPORTED -> context.getString(
+                R.string.webdav_error_not_supported,
+                error.statusCode ?: 0
+            )
+            WebdavFailureCategory.NETWORK -> context.getString(R.string.webdav_error_network)
+            WebdavFailureCategory.TIMEOUT -> context.getString(R.string.webdav_error_timeout)
+            WebdavFailureCategory.TLS -> context.getString(R.string.webdav_error_tls)
+            WebdavFailureCategory.INVALID_URL -> context.getString(R.string.webdav_error_invalid_url)
+            WebdavFailureCategory.REDIRECT -> context.getString(
+                R.string.webdav_error_redirect,
+                error.finalUrl?.let(WebdavUrl::host).orEmpty().ifBlank { context.getString(R.string.webdav_unknown_value) }
+            )
+            WebdavFailureCategory.INVALID_RESPONSE -> context.getString(
+                R.string.webdav_error_invalid_response,
+                error.statusCode?.toString() ?: context.getString(R.string.webdav_unknown_value)
+            )
+            WebdavFailureCategory.SERVER_ERROR -> context.getString(
+                R.string.webdav_request_failed_http,
+                error.statusCode ?: 0
+            )
+            WebdavFailureCategory.UNKNOWN -> error.statusCode?.let {
+                context.getString(R.string.webdav_request_failed_http, it)
+            } ?: context.getString(R.string.webdav_request_failed)
         }
-        return error.statusCode?.let {
-            context.getString(R.string.webdav_request_failed_http, it)
-        } ?: context.getString(R.string.webdav_request_failed)
+    }
+
+    /** Records a WebDAV failure for the exportable diagnostic package.
+     *  Only the host is kept — never the username, password or full URL. */
+    private fun logWebdavFailure(operation: String, url: String?, error: WebdavException) {
+        val host = url?.let { runCatching { java.net.URI(it).host }.getOrNull() }
+        Log.e(
+            TAG,
+            "$operation failed: kind=${error.kind}, statusCode=${error.statusCode}, " +
+                "host=${host.orEmpty()}, message=${error.message.orEmpty()}"
+        )
+        DiagnosticLoggerRegistry.logger?.log(
+            category = "sync",
+            event = "webdav_request_failed",
+            level = DiagnosticLevel.ERROR,
+            attributes = mapOf(
+                "operation" to operation,
+                "kind" to error.kind.name,
+                "statusCode" to error.statusCode,
+                "host" to host,
+                "serverCode" to error.serverCode,
+                "server" to error.server,
+                "requestId" to error.requestId,
+                "finalHost" to error.finalUrl?.let(WebdavUrl::host),
+                "redirected" to error.redirected,
+                "redirectCount" to error.redirectCount,
+                "contentType" to error.contentType,
+                "davHeader" to error.davHeader,
+                "htmlResponse" to error.htmlResponse,
+                "responseBodyPresent" to (
+                    !error.serverDetail.isNullOrBlank() ||
+                        !error.responseSummary.isNullOrBlank()
+                    )
+            ),
+            throwable = error
+        )
     }
 
     private fun formatBytes(bytes: Long): String = when {
@@ -794,6 +969,7 @@ class WebdavSyncManager @Inject constructor(
         "epub" -> BookFormat.EPUB
         "pdf" -> BookFormat.PDF
         "mobi" -> BookFormat.MOBI
+        "cbz" -> BookFormat.CBZ
         else -> BookFormat.TXT
     }
 
@@ -816,7 +992,7 @@ class WebdavSyncManager @Inject constructor(
         }
         val fileName = "${book.id}.jpg"
         webdavClient.upload(
-            "$serverUrl/$syncPath/covers/${encodePathSegment(fileName)}",
+            WebdavUrl.append(serverUrl, syncPath, "covers", fileName),
             bytes,
             username,
             password,
@@ -878,7 +1054,7 @@ class WebdavSyncManager @Inject constructor(
             val destination = File(coversDirectory, "cloud_${bookId}_$hash.jpg")
             if (!destination.exists()) {
                 val bytes = webdavClient.download(
-                    "$serverUrl/$syncPath/covers/${encodePathSegment(entry.fileName)}",
+                    WebdavUrl.append(serverUrl, syncPath, "covers", entry.fileName),
                     username,
                     password
                 )
@@ -928,7 +1104,7 @@ class WebdavSyncManager @Inject constructor(
         for ((directory, fileName) in targets) {
             try {
                 webdavClient.delete(
-                    "$serverUrl/$syncPath/$directory/${encodePathSegment(fileName)}",
+                    WebdavUrl.append(serverUrl, syncPath, directory, fileName),
                     username,
                     password
                 )
@@ -993,6 +1169,7 @@ class WebdavSyncManager @Inject constructor(
             com.huangder.lumibooks.domain.model.BookFormat.EPUB -> ".epub"
             com.huangder.lumibooks.domain.model.BookFormat.PDF -> ".pdf"
             com.huangder.lumibooks.domain.model.BookFormat.MOBI -> ".mobi"
+            com.huangder.lumibooks.domain.model.BookFormat.CBZ -> ".cbz"
             else -> ".txt"
         }
     }
@@ -1009,6 +1186,7 @@ class WebdavSyncManager @Inject constructor(
             com.huangder.lumibooks.domain.model.BookFormat.EPUB -> "epub"
             com.huangder.lumibooks.domain.model.BookFormat.PDF -> "pdf"
             com.huangder.lumibooks.domain.model.BookFormat.MOBI -> "mobi"
+            com.huangder.lumibooks.domain.model.BookFormat.CBZ -> "cbz"
             else -> "txt"
         }
     }
@@ -1050,7 +1228,7 @@ class WebdavSyncManager @Inject constructor(
             // which not every WebDAV server accepts.
             val data = readBookData(book.filePath)
             webdavClient.upload(
-                "$serverUrl/$syncPath/books/${encodePathSegment(fileName)}",
+                WebdavUrl.append(serverUrl, syncPath, "books", fileName),
                 data,
                 username,
                 password
@@ -1065,7 +1243,7 @@ class WebdavSyncManager @Inject constructor(
 
         return try {
             val uploadResult = webdavClient.uploadStream(
-                url = "$serverUrl/$syncPath/books/${encodePathSegment(fileName)}",
+                url = WebdavUrl.append(serverUrl, syncPath, "books", fileName),
                 contentLength = expectedSize,
                 inputStreamProvider = { BookFileAccess.openInputStream(context, book.filePath) },
                 username = username,
@@ -1086,7 +1264,7 @@ class WebdavSyncManager @Inject constructor(
             Log.w("WebDAV", "Stream upload failed; retrying fixed-length upload book=${book.id}: ${streamError.message}")
             val data = readBookData(book.filePath)
             webdavClient.upload(
-                "$serverUrl/$syncPath/books/${encodePathSegment(fileName)}",
+                WebdavUrl.append(serverUrl, syncPath, "books", fileName),
                 data,
                 username,
                 password
@@ -1108,7 +1286,7 @@ class WebdavSyncManager @Inject constructor(
     ): SyncManifest? {
         return try {
             val data = webdavClient.download(
-                "$serverUrl/$syncPath/manifest.json",
+                WebdavUrl.append(serverUrl, syncPath, "manifest.json"),
                 username,
                 password
             )
@@ -1133,7 +1311,7 @@ class WebdavSyncManager @Inject constructor(
         } else {
             try {
                 val remoteData = webdavClient.download(
-                    "$serverUrl/$syncPath/data/$bookId.json",
+                    WebdavUrl.append(serverUrl, syncPath, "data", "$bookId.json"),
                     username,
                     password
                 )
@@ -1145,7 +1323,7 @@ class WebdavSyncManager @Inject constructor(
         val json = buildBookDataJson(bookId, config, existingJson)
         val data = json.toByteArray(Charsets.UTF_8)
         webdavClient.upload(
-            "$serverUrl/$syncPath/data/$bookId.json",
+            WebdavUrl.append(serverUrl, syncPath, "data", "$bookId.json"),
             data, username, password,
             "application/json"
         )
@@ -1161,7 +1339,7 @@ class WebdavSyncManager @Inject constructor(
     ) {
         try {
             val data = webdavClient.download(
-                "$serverUrl/$syncPath/data/$bookId.json",
+                WebdavUrl.append(serverUrl, syncPath, "data", "$bookId.json"),
                 username, password
             )
             val json = data.toString(Charsets.UTF_8)
@@ -1236,6 +1414,7 @@ class WebdavSyncManager @Inject constructor(
                             n.endLocatorJson?.let { put("endLocatorJson", it) }
                             put("selectedText", n.selectedText)
                             put("note", n.note)
+                            put("isNote", n.isNoteEntry)
                             put("color", n.color)
                             put("createdAt", n.createdAt)
                             put("type", n.type)
@@ -1337,6 +1516,7 @@ class WebdavSyncManager @Inject constructor(
                     color = n.getString("color"),
                     createdAt = n.getLong("createdAt"),
                     type = n.optString("type", "highlight"),
+                    isNote = n.optBoolean("isNote", n.optString("note").isNotBlank() || n.optString("type") == "note"),
                     syncId = n.optString("syncId").ifBlank {
                         legacyAnnotationSyncId(
                             "note",
@@ -1370,7 +1550,7 @@ class WebdavSyncManager @Inject constructor(
         syncPath: String,
         atomic: Boolean = false
     ) {
-        val finalUrl = "$serverUrl/$syncPath/manifest.json"
+        val finalUrl = WebdavUrl.append(serverUrl, syncPath, "manifest.json")
         val payload = manifest.copy(version = SyncManifest.CURRENT_VERSION)
             .toJson()
             .toByteArray(Charsets.UTF_8)
@@ -1383,7 +1563,7 @@ class WebdavSyncManager @Inject constructor(
             return
         }
 
-        val temporaryUrl = "$serverUrl/$syncPath/manifest.json.next"
+        val temporaryUrl = WebdavUrl.append(serverUrl, syncPath, "manifest.json.next")
         webdavClient.upload(temporaryUrl, payload, username, password, "application/json")
         try {
             webdavClient.move(
@@ -1453,7 +1633,10 @@ class WebdavSyncManager @Inject constructor(
             }
         } catch (_: Exception) { null }
 
-        val (title, author) = if (format == BookFormat.EPUB || format == BookFormat.MOBI) {
+        // EPUB/MOBI carry OPF metadata, CBZ may carry ComicInfo.xml.
+        val (title, author) = if (format == BookFormat.EPUB || format == BookFormat.MOBI ||
+            format == BookFormat.CBZ
+        ) {
             try {
                 val metadataParser = com.huangder.lumibooks.util.parser.BookParserFactory.createParser(format, context)
                 try {
@@ -1497,6 +1680,7 @@ class WebdavSyncManager @Inject constructor(
     }
 
     private companion object {
+        const val TAG = "WebdavSync"
         val MOVE_UNSUPPORTED_STATUS_CODES = setOf(403, 405, 501)
     }
 }
@@ -1528,3 +1712,14 @@ data class CloudBookDownloadResult(
     val message: String,
     val success: Boolean
 )
+
+/**
+ * 判断一本仍标记为“仅云端”的书是否其实已有完整本地文件，可以只修复记录而不重新下载。
+ * 云端占位记录正常时 filePath 为空；只有被 bodyless 状态快照误翻转过（或状态损坏）时，
+ * 才会出现 isCloudOnly=true 且 filePath 指向现存文件的情况。
+ */
+internal fun cloudBookNeedsLocalRepair(book: Book, localFileSize: Long): Boolean =
+    book.isCloudOnly &&
+        book.filePath.isNotBlank() &&
+        localFileSize > 0L &&
+        (book.remoteFileSize <= 0L || localFileSize == book.remoteFileSize)

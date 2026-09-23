@@ -55,7 +55,7 @@ class WebdavPortableStateSync @Inject constructor(
                         files[asset.id] = localFile
                         if (asset.id !in remoteAssetIds) {
                             client.uploadStream(
-                                url = "$serverUrl/$root/assets/${asset.fileName}",
+                                url = WebdavUrl.append(serverUrl, root, "assets", asset.fileName),
                                 contentLength = asset.sizeBytes,
                                 inputStreamProvider = localSource.openStream,
                                 username = config.username,
@@ -66,7 +66,7 @@ class WebdavPortableStateSync @Inject constructor(
                     } else if (assetReferenced(localPayload, asset.id)) {
                         val target = File(workDir, asset.fileName)
                         val result = client.downloadToFile(
-                            "$serverUrl/$root/assets/${asset.fileName}",
+                            WebdavUrl.append(serverUrl, root, "assets", asset.fileName),
                             target,
                             config.username,
                             password,
@@ -83,7 +83,7 @@ class WebdavPortableStateSync @Inject constructor(
                     try {
                         if (remoteVersioned == null || remoteVersioned.etag != null) {
                             client.uploadConditional(
-                                "$serverUrl/$root/state.json",
+                                WebdavUrl.append(serverUrl, root, "state.json"),
                                 bytes,
                                 config.username,
                                 password,
@@ -92,7 +92,7 @@ class WebdavPortableStateSync @Inject constructor(
                             )
                         } else {
                             client.upload(
-                                "$serverUrl/$root/state.json",
+                                WebdavUrl.append(serverUrl, root, "state.json"),
                                 bytes,
                                 config.username,
                                 password,
@@ -103,7 +103,7 @@ class WebdavPortableStateSync @Inject constructor(
                         if (error.statusCode == 412 && attempt + 1 < MAX_CONFLICT_RETRIES) return@repeat
                         if (error.statusCode in setOf(400, 405, 501)) {
                             client.upload(
-                                "$serverUrl/$root/state.json",
+                                WebdavUrl.append(serverUrl, root, "state.json"),
                                 bytes,
                                 config.username,
                                 password,
@@ -116,7 +116,10 @@ class WebdavPortableStateSync @Inject constructor(
                     snapshotManager.apply(
                         localPayload,
                         files,
-                        replace = true,
+                        // State snapshots intentionally omit book bodies. Apply them as a
+                        // merge so a cloud book discovered from manifest.json cannot disappear
+                        // just because it was not present in the state snapshot being applied.
+                        replace = false,
                         replaceAssetDirectories = false
                     )
                 }
@@ -135,7 +138,7 @@ class WebdavPortableStateSync @Inject constructor(
         username: String,
         password: String
     ): WebdavVersionedData? = try {
-        client.downloadVersioned("$serverUrl/$root/state.json", username, password)
+        client.downloadVersioned(WebdavUrl.append(serverUrl, root, "state.json"), username, password)
     } catch (error: WebdavException) {
         if (error.statusCode == 404) null else throw error
     }
@@ -215,22 +218,14 @@ class WebdavPortableStateSync @Inject constructor(
         merged: PortableSnapshot,
         config: WebdavConfig,
         forLocal: Boolean
-    ): List<PortableBook> {
-        if (config.syncLibraryOrganization && config.syncReadingData) return merged.books
-        val localMap = local.books.associateBy { it.id }
-        val remoteMap = remote.books.associateBy { it.id }
-        val mergedMap = merged.books.associateBy { it.id }
-        val fallback = if (forLocal) localMap else remoteMap
-        return (fallback.keys + mergedMap.keys).mapNotNull { id ->
-            val base = if (config.syncLibraryOrganization) mergedMap[id] else fallback[id]
-            val progress = if (config.syncReadingData) mergedMap[id] else fallback[id]
-            base?.copy(
-                lastReadTime = progress?.lastReadTime ?: base.lastReadTime,
-                readingProgress = progress?.readingProgress ?: base.readingProgress,
-                locatorJson = progress?.locatorJson ?: base.locatorJson
-            )
-        }
-    }
+    ): List<PortableBook> = chooseWebdavBooksForDevice(
+        localBooks = local.books,
+        remoteBooks = remote.books,
+        mergedBooks = merged.books,
+        syncLibraryOrganization = config.syncLibraryOrganization,
+        syncReadingData = config.syncReadingData,
+        forLocal = forLocal
+    )
 
     private fun materialize(source: PortableAssetSource, directory: File): File {
         val target = File(directory, source.asset.fileName)
@@ -253,14 +248,18 @@ class WebdavPortableStateSync @Inject constructor(
     ) {
         val referencedNames = committed.assets.mapTo(mutableSetOf()) { it.fileName }
         runCatching {
-            client.listDirectory("$serverUrl/$root/assets", username, password)
+            client.listDirectory(WebdavUrl.append(serverUrl, root, "assets"), username, password)
                 .asSequence()
                 .filterNot { it.isCollection }
                 .map { it.href.substringBefore('?').trimEnd('/').substringAfterLast('/') }
                 .filter { it.matches(Regex("[a-f0-9]{64}\\.[a-z0-9]{1,10}")) }
                 .filterNot { it in referencedNames }
                 .forEach { name ->
-                    client.delete("$serverUrl/$root/assets/$name", username, password)
+                    client.delete(
+                        WebdavUrl.appendEncoded(WebdavUrl.append(serverUrl, root, "assets"), name),
+                        username,
+                        password
+                    )
                 }
         }
     }
@@ -296,6 +295,37 @@ class WebdavPortableStateSync @Inject constructor(
 
     companion object {
         private const val MAX_CONFLICT_RETRIES = 3
+    }
+}
+
+/**
+ * 选取应用到本机（[forLocal]=true）或写回服务器 state.json（[forLocal]=false）的书籍列表。
+ *
+ * `isCloudOnly`/`filePath` 表示“书本体是否已在本机”，是设备本地状态。WebDAV 状态同步
+ * 刻意不携带书本体（`bodyAssetId` 恒为空），合并结果无法可靠推导该字段；因此本机应用时
+ * 一律保留 local 侧的值，写回服务器时保留 remote 侧的值，绝不用合并结果覆盖。
+ */
+internal fun chooseWebdavBooksForDevice(
+    localBooks: List<PortableBook>,
+    remoteBooks: List<PortableBook>,
+    mergedBooks: List<PortableBook>,
+    syncLibraryOrganization: Boolean,
+    syncReadingData: Boolean,
+    forLocal: Boolean
+): List<PortableBook> {
+    val localMap = localBooks.associateBy { it.id }
+    val remoteMap = remoteBooks.associateBy { it.id }
+    val mergedMap = mergedBooks.associateBy { it.id }
+    val fallback = if (forLocal) localMap else remoteMap
+    return (fallback.keys + mergedMap.keys).mapNotNull { id ->
+        val base = if (syncLibraryOrganization) mergedMap[id] else fallback[id]
+        val progress = if (syncReadingData) mergedMap[id] else fallback[id]
+        base?.copy(
+            lastReadTime = progress?.lastReadTime ?: base.lastReadTime,
+            readingProgress = progress?.readingProgress ?: base.readingProgress,
+            locatorJson = progress?.locatorJson ?: base.locatorJson,
+            isCloudOnly = fallback[id]?.isCloudOnly ?: base.isCloudOnly
+        )
     }
 }
 

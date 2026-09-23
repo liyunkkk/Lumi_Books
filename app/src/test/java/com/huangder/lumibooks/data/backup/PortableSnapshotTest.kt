@@ -10,6 +10,13 @@ import org.junit.Test
 
 class PortableSnapshotTest {
     @Test
+    fun emptyNoteIdentitySurvivesBackupRoundTrip() {
+        val emptyNote = note("empty").copy(note = "", isNote = true)
+        val original = snapshot(deviceId = "device-a", notes = listOf(emptyNote))
+        assertEquals(emptyNote, PortableSnapshot.fromJson(original.toJson()).notes.single())
+    }
+
+    @Test
     fun jsonRoundTripPreservesSnapshot() {
         val snapshot = snapshot(
             deviceId = "device-a",
@@ -20,6 +27,15 @@ class PortableSnapshotTest {
         )
 
         assertEquals(snapshot, PortableSnapshot.fromJson(snapshot.toJson()))
+    }
+
+    @Test
+    fun comicFormatSurvivesJsonRoundTrip() {
+        val snapshot = snapshot(deviceId = "device-a", format = "CBZ")
+
+        val restored = PortableSnapshot.fromJson(snapshot.toJson())
+
+        assertEquals("CBZ", restored.books.single().format)
     }
 
     @Test
@@ -70,6 +86,7 @@ class PortableSnapshotTest {
 
     private fun snapshot(
         deviceId: String,
+        format: String = "EPUB",
         preferences: List<PortablePreference> = emptyList(),
         records: List<ReadingRecordEntity> = emptyList(),
         bookmarks: List<BookmarkEntity> = emptyList(),
@@ -84,7 +101,7 @@ class PortableSnapshotTest {
                 id = "book-a",
                 title = "Book",
                 author = "Author",
-                format = "EPUB",
+                format = format,
                 lastReadTime = 10,
                 readingProgress = 0.25f,
                 locatorJson = null,

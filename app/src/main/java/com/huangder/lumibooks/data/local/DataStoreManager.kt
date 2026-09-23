@@ -22,12 +22,14 @@ import com.huangder.lumibooks.domain.model.CustomFontPresetCodec
 import com.huangder.lumibooks.domain.model.HighlightPalette
 import com.huangder.lumibooks.domain.model.HighlightPaletteCodec
 import com.huangder.lumibooks.domain.model.AppIconStyle
+import com.huangder.lumibooks.domain.model.BookOpenTransition
 import com.huangder.lumibooks.domain.model.WebdavConfig
 import com.huangder.lumibooks.domain.model.WebdavSyncContent
 import com.huangder.lumibooks.domain.model.ReaderBackgroundPreset
 import com.huangder.lumibooks.domain.model.ReaderBackgroundPresetCodec
 import com.huangder.lumibooks.domain.model.ReaderBackgroundType
 import com.huangder.lumibooks.domain.model.ReaderCornerContent
+import com.huangder.lumibooks.domain.model.ReaderCornerMargins
 import com.huangder.lumibooks.domain.model.ReaderEdgeTapMode
 import com.huangder.lumibooks.domain.model.ReaderPageCorner
 import com.huangder.lumibooks.domain.model.ReaderTextAlignment
@@ -38,17 +40,26 @@ import com.huangder.lumibooks.domain.model.ReaderThemeSuite
 import com.huangder.lumibooks.domain.model.ReaderThemeSuiteCodec
 import com.huangder.lumibooks.domain.model.ReaderThemeSuiteState
 import com.huangder.lumibooks.domain.model.ReaderThemeSuites
+import com.huangder.lumibooks.domain.model.ReaderLayoutTarget
 import com.huangder.lumibooks.domain.model.PdfPageMode
+import com.huangder.lumibooks.domain.model.PageRenderMode
 import com.huangder.lumibooks.domain.model.ReaderPageAnimationSettings
 import com.huangder.lumibooks.domain.model.ReaderPageTransition
 import com.huangder.lumibooks.domain.model.ReaderFirstOpenHintPolicy
 import com.huangder.lumibooks.domain.model.defaultReaderCornerContent
 import com.huangder.lumibooks.util.LaunchThemeController
 import com.huangder.lumibooks.util.LaunchThemeSnapshot
+import com.huangder.lumibooks.util.WelcomeLaunchSnapshot
 import com.huangder.lumibooks.util.epub.EpubRenderMode
 import com.huangder.lumibooks.util.parser.TxtTocRule
 import com.huangder.lumibooks.util.parser.TxtTocRuleBuiltIns
 import com.huangder.lumibooks.util.parser.TxtTocRuleCodec
+import com.huangder.lumibooks.util.parser.TxtTocRuleCompiler
+import com.huangder.lumibooks.util.parser.TxtTocDialect
+import com.huangder.lumibooks.util.parser.TxtTocRuleImport
+import com.huangder.lumibooks.util.parser.TxtTocRuleImportException
+import com.huangder.lumibooks.util.parser.TxtTocRuleImportResult
+import com.huangder.lumibooks.util.parser.LegadoTxtTocRuleCodec
 import com.huangder.lumibooks.tts.ExternalTtsProtocol
 import com.huangder.lumibooks.tts.ExternalTtsResumePosition
 import com.huangder.lumibooks.tts.ExternalTtsSettings
@@ -56,6 +67,8 @@ import com.huangder.lumibooks.tts.ExternalTtsConfig
 import com.huangder.lumibooks.tts.FloatingSubtitleSettings
 import com.huangder.lumibooks.tts.TtsSettingsStore
 import com.huangder.lumibooks.tts.TtsProviderSelection
+import com.huangder.lumibooks.tts.TtsProsodyMode
+import com.huangder.lumibooks.tts.TtsProsodySettings
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -97,13 +110,18 @@ data class ReaderPreferencesSnapshot(
     val readerBackgroundImageBlurDp: Float,
     val customReaderBackgrounds: List<ReaderBackgroundPreset>,
     val preserveEpubBackground: Boolean,
+    /** 书籍原排版下整页图片按屏幕比例裁切铺满（默认等比留白）。 */
+    val pageImageCrop: Boolean,
     val readerTextColor: Int?,
     val pageAnimationSettings: ReaderPageAnimationSettings,
     val pageTransition: String,
     val readerThemeSuiteState: ReaderThemeSuiteState,
     val readerThemeSuiteBookScoped: Boolean,
     val readerThemeSuiteBookActiveId: String?,
+    val readerThemeSuiteBookActiveBookLayoutId: String?,
     val pdfPageMode: String,
+    /** CBZ 漫画翻页方向："ltr" | "rtl"；null 表示尚未选择，交给 ComicInfo.xml 决定。 */
+    val cbzReadingDirection: String?,
     val showReaderChapterProgress: Boolean,
     val showReaderPageNumber: Boolean,
     val showReaderBattery: Boolean,
@@ -113,12 +131,16 @@ data class ReaderPreferencesSnapshot(
     val bodyFontWeight: Int,
     val eInkModeEnabled: Boolean,
     val twoPageSpreadEnabled: Boolean,
+    /** 栅格页面（PDF / CBZ）解码清晰度："normal" | "high" | "native"。 */
+    val pageRenderMode: String,
     val screenSleepTimeoutSeconds: Int,
     val readerEdgeTapMode: ReaderEdgeTapMode,
     val readerTopLeftContent: ReaderCornerContent,
     val readerTopRightContent: ReaderCornerContent,
     val readerBottomLeftContent: ReaderCornerContent,
     val readerBottomRightContent: ReaderCornerContent,
+    /** 四角信息区（页眉/页脚）边距；空字段表示跟随正文 / 沿用旧版默认位置。 */
+    val readerCornerMargins: ReaderCornerMargins,
     val readerDisplayMode: String,
     val paragraphSpacing: Float,
     val firstLineIndent: Float,
@@ -204,11 +226,18 @@ class DataStoreManager @Inject constructor(
         private val READER_BACKGROUND_IMAGE_BLUR_DP = floatPreferencesKey("reader_background_image_blur_dp")
         private val CUSTOM_READER_BACKGROUNDS = stringPreferencesKey("custom_reader_backgrounds")
         private val PRESERVE_EPUB_BACKGROUND = booleanPreferencesKey("preserve_epub_background")
+        private val PAGE_IMAGE_CROP = booleanPreferencesKey("page_image_crop")
         private val READER_TEXT_COLOR = intPreferencesKey("reader_text_color")
         private val READER_THEME_SUITES = stringPreferencesKey("reader_theme_suites")
         private val ACTIVE_READER_THEME_SUITE_ID = stringPreferencesKey("active_reader_theme_suite_id")
+        private val ACTIVE_BOOK_LAYOUT_THEME_SUITE_ID =
+            stringPreferencesKey("active_book_layout_theme_suite_id")
         private val TXT_TOC_CUSTOM_RULES = stringPreferencesKey("txt_toc_custom_rules_v1")
+        private val TXT_TOC_LEGADO_RULES = stringPreferencesKey("txt_toc_legado_rules_v1")
+        private val TXT_TOC_COMPAT_NOTICE = booleanPreferencesKey("txt_toc_compat_notice_ack_v1")
         private val READER_THEME_SUITES_VERSION = intPreferencesKey("reader_theme_suites_version")
+        /** 主题套装数据版本：4 = 「原排版」内置套装排到列表第一位。 */
+        private const val READER_THEME_SUITES_VERSION_VALUE = 4
         private val PAGE_TRANSITION = stringPreferencesKey("page_transition")
         private val PAGE_TRANSITION_SLIDE_DURATION_MS = intPreferencesKey("page_transition_slide_duration_ms")
         private val PAGE_TRANSITION_SCROLL_DURATION_MS = intPreferencesKey("page_transition_scroll_duration_ms")
@@ -247,8 +276,15 @@ class DataStoreManager @Inject constructor(
         private val READER_TOP_RIGHT_CONTENT = stringPreferencesKey("reader_top_right_content")
         private val READER_BOTTOM_LEFT_CONTENT = stringPreferencesKey("reader_bottom_left_content")
         private val READER_BOTTOM_RIGHT_CONTENT = stringPreferencesKey("reader_bottom_right_content")
+        // 四角信息区（页眉/页脚）边距；缺省表示跟随正文 / 沿用旧版默认位置
+        private val READER_CORNER_MARGIN_LEFT = floatPreferencesKey("reader_corner_margin_left")
+        private val READER_CORNER_MARGIN_RIGHT = floatPreferencesKey("reader_corner_margin_right")
+        private val READER_CORNER_MARGIN_TOP = floatPreferencesKey("reader_corner_margin_top")
+        private val READER_CORNER_MARGIN_BOTTOM = floatPreferencesKey("reader_corner_margin_bottom")
         private val TTS_SPEECH_RATE = floatPreferencesKey("tts_speech_rate")
+        private val TTS_SPEECH_RATE_MODE = stringPreferencesKey("tts_speech_rate_mode")
         private val TTS_PITCH = floatPreferencesKey("tts_pitch")
+        private val TTS_PITCH_MODE = stringPreferencesKey("tts_pitch_mode")
 
         // 统计设置
         private val DAILY_GOAL = intPreferencesKey("daily_goal")
@@ -268,8 +304,10 @@ class DataStoreManager @Inject constructor(
         private val WIDGET_THEME_MODE = stringPreferencesKey("widget_theme_mode")
         private val ENTRANCE_ANIMATIONS_ENABLED = booleanPreferencesKey("entrance_animations_enabled")
         private val MOTION_PREFERENCE = stringPreferencesKey("motion_preference")
+        private val BOOK_OPEN_TRANSITION = stringPreferencesKey("book_open_transition")
         private val E_INK_MODE_ENABLED = booleanPreferencesKey("e_ink_mode_enabled")
         private val TWO_PAGE_SPREAD_ENABLED = booleanPreferencesKey("two_page_spread_enabled")
+        private val PAGE_RENDER_MODE = stringPreferencesKey("page_render_mode")
         private val PREDICTIVE_BACK_ENABLED = booleanPreferencesKey("predictive_back_enabled")
         private val SPLASH_ENABLED = booleanPreferencesKey("splash_enabled")
         private val LAST_READ_BOOK = stringPreferencesKey("last_read_book")
@@ -278,6 +316,10 @@ class DataStoreManager @Inject constructor(
         private val DISCOVER_SELECTED_SOURCE_URL = stringPreferencesKey("discover_selected_source_url")
         private val BOOKSHELF_SORT_MODE = stringPreferencesKey("bookshelf_sort_mode")
         private val IMPORT_BOOKS_LAYOUT_MODE = intPreferencesKey("import_books_layout_mode")
+        private val FOLDER_BOOKS_LAYOUT_MODE = intPreferencesKey("folder_books_layout_mode")
+        private val FOLDER_BOOKS_SORT_MODE = stringPreferencesKey("folder_books_sort_mode")
+        private val FOLDER_BOOKS_SORT_ASCENDING =
+            booleanPreferencesKey("folder_books_sort_ascending")
         private val HAS_SEEN_WELCOME = booleanPreferencesKey("has_seen_welcome")
         private val COMPLETED_WELCOME_INSTALL_TIME = longPreferencesKey("completed_welcome_install_time")
         private val HAS_COMPLETED_WELCOME_LANGUAGE_SETUP = booleanPreferencesKey("has_completed_welcome_language_setup")
@@ -349,11 +391,18 @@ class DataStoreManager @Inject constructor(
             val horizontal = preferences[MARGIN_HORIZ] ?: 38f
             val vertical = preferences[MARGIN_VERT] ?: 64f
             val suites = readThemeSuites(preferences)
-            val requestedActiveSuite = preferences[ACTIVE_READER_THEME_SUITE_ID]
             val suiteState = ReaderThemeSuiteState(
                 suites = suites,
-                activeSuiteId = requestedActiveSuite?.takeIf { id -> suites.any { it.id == id } }
-                    ?: ReaderThemeSuites.DAY_ID
+                activeSuiteId = ReaderThemeSuites.resolveActiveId(
+                    suites,
+                    preferences[ACTIVE_READER_THEME_SUITE_ID],
+                    ReaderLayoutTarget.READER_LAYOUT
+                ),
+                activeBookLayoutSuiteId = ReaderThemeSuites.resolveActiveId(
+                    suites,
+                    preferences[ACTIVE_BOOK_LAYOUT_THEME_SUITE_ID],
+                    ReaderLayoutTarget.BOOK_LAYOUT
+                )
             )
             val selectionItems = preferences[SELECTION_MENU_ITEMS]
                 ?.takeIf(String::isNotBlank)
@@ -368,6 +417,8 @@ class DataStoreManager @Inject constructor(
             val modeKey = stringPreferencesKey("epub_render_mode_$bookId")
             val themeSuiteBookScopedKey = booleanPreferencesKey("reader_theme_suite_book_scoped_$bookId")
             val themeSuiteBookActiveKey = stringPreferencesKey("reader_theme_suite_book_active_$bookId")
+            val themeSuiteBookActiveBookLayoutKey =
+                stringPreferencesKey("reader_theme_suite_book_active_book_layout_$bookId")
             val optimizeKey = booleanPreferencesKey("optimize_layout_$bookId")
             val cssKey = booleanPreferencesKey("use_epub_css_$bookId")
             val resolvedRenderMode = EpubRenderMode.fromStorage(preferences[modeKey]) ?: when {
@@ -408,6 +459,7 @@ class DataStoreManager @Inject constructor(
                     preferences[CUSTOM_READER_BACKGROUNDS]
                 ),
                 preserveEpubBackground = preferences[PRESERVE_EPUB_BACKGROUND] ?: true,
+                pageImageCrop = preferences[PAGE_IMAGE_CROP] ?: false,
                 readerTextColor = preferences[READER_TEXT_COLOR],
                 pageAnimationSettings = ReaderPageAnimationSettings(
                     slideDurationMs = ReaderPageAnimationSettings.sanitizeDuration(
@@ -435,7 +487,10 @@ class DataStoreManager @Inject constructor(
                 readerThemeSuiteState = suiteState,
                 readerThemeSuiteBookScoped = preferences[themeSuiteBookScopedKey] ?: false,
                 readerThemeSuiteBookActiveId = preferences[themeSuiteBookActiveKey],
+                readerThemeSuiteBookActiveBookLayoutId =
+                    preferences[themeSuiteBookActiveBookLayoutKey],
                 pdfPageMode = PdfPageMode.normalizeKey(preferences[PDF_PAGE_MODE]),
+                cbzReadingDirection = preferences[stringPreferencesKey("cbz_reading_direction_$bookId")],
                 showReaderChapterProgress = preferences[SHOW_READER_CHAPTER_PROGRESS] ?: true,
                 showReaderPageNumber = preferences[SHOW_READER_PAGE_NUMBER] ?: true,
                 showReaderBattery = preferences[SHOW_READER_BATTERY] ?: true,
@@ -445,6 +500,7 @@ class DataStoreManager @Inject constructor(
                 bodyFontWeight = preferences[BODY_FONT_WEIGHT] ?: 400,
                 eInkModeEnabled = preferences[E_INK_MODE_ENABLED] ?: false,
                 twoPageSpreadEnabled = preferences[TWO_PAGE_SPREAD_ENABLED] ?: true,
+                pageRenderMode = PageRenderMode.normalizeKey(preferences[PAGE_RENDER_MODE]),
                 screenSleepTimeoutSeconds = preferences[SCREEN_SLEEP_TIMEOUT_SECONDS]
                     ?.takeIf { it in SCREEN_SLEEP_TIMEOUT_SECONDS_OPTIONS }
                     ?: DEFAULT_SCREEN_SLEEP_TIMEOUT_SECONDS,
@@ -453,6 +509,7 @@ class DataStoreManager @Inject constructor(
                 readerTopRightContent = cornerContent(ReaderPageCorner.TOP_RIGHT),
                 readerBottomLeftContent = cornerContent(ReaderPageCorner.BOTTOM_LEFT),
                 readerBottomRightContent = cornerContent(ReaderPageCorner.BOTTOM_RIGHT),
+                readerCornerMargins = preferences.readerCornerMargins(),
                 readerDisplayMode = preferences[stringPreferencesKey("reader_display_mode")] ?: "auto",
                 paragraphSpacing = preferences[PARAGRAPH_SPACING] ?: 2f,
                 firstLineIndent = preferences[FIRST_LINE_INDENT] ?: 2f,
@@ -657,6 +714,10 @@ class DataStoreManager @Inject constructor(
         preferences[PRESERVE_EPUB_BACKGROUND] ?: true
     }
 
+    val pageImageCrop: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PAGE_IMAGE_CROP] ?: false
+    }
+
     val readerTextColor: Flow<Int?> = context.dataStore.data.map { preferences ->
         preferences[READER_TEXT_COLOR]
     }
@@ -697,11 +758,18 @@ class DataStoreManager @Inject constructor(
 
     val readerThemeSuiteState: Flow<ReaderThemeSuiteState> = context.dataStore.data.map { preferences ->
         val suites = readThemeSuites(preferences)
-        val requestedActiveId = preferences[ACTIVE_READER_THEME_SUITE_ID]
         ReaderThemeSuiteState(
             suites = suites,
-            activeSuiteId = requestedActiveId?.takeIf { id -> suites.any { it.id == id } }
-                ?: ReaderThemeSuites.DAY_ID
+            activeSuiteId = ReaderThemeSuites.resolveActiveId(
+                suites,
+                preferences[ACTIVE_READER_THEME_SUITE_ID],
+                ReaderLayoutTarget.READER_LAYOUT
+            ),
+            activeBookLayoutSuiteId = ReaderThemeSuites.resolveActiveId(
+                suites,
+                preferences[ACTIVE_BOOK_LAYOUT_THEME_SUITE_ID],
+                ReaderLayoutTarget.BOOK_LAYOUT
+            )
         )
     }
 
@@ -752,12 +820,20 @@ class DataStoreManager @Inject constructor(
             else ReaderCornerContent.fromKey(stored)
         }
 
-    override val ttsSpeechRate: Flow<Float> = context.dataStore.data.map { preferences ->
-        (preferences[TTS_SPEECH_RATE] ?: 1f).coerceIn(0.5f, 2f)
-    }
 
-    override val ttsPitch: Flow<Float> = context.dataStore.data.map { preferences ->
-        (preferences[TTS_PITCH] ?: 1f).coerceIn(0.5f, 2f)
+    override val ttsProsodySettings: Flow<TtsProsodySettings> = context.dataStore.data.map { preferences ->
+        TtsProsodySettings(
+            speechRate = preferences[TTS_SPEECH_RATE] ?: 1f,
+            speechRateMode = TtsProsodyMode.resolve(
+                storedMode = preferences[TTS_SPEECH_RATE_MODE],
+                hasLegacyValue = preferences[TTS_SPEECH_RATE] != null
+            ),
+            pitch = preferences[TTS_PITCH] ?: 1f,
+            pitchMode = TtsProsodyMode.resolve(
+                storedMode = preferences[TTS_PITCH_MODE],
+                hasLegacyValue = preferences[TTS_PITCH] != null
+            )
+        ).normalized()
     }
 
     // 统计设置
@@ -832,6 +908,11 @@ class DataStoreManager @Inject constructor(
             ?: if (preferences[ENTRANCE_ANIMATIONS_ENABLED] == false) "reduced" else "standard"
     }
 
+    /** Opening transition for books. Defaults to the cover-to-window hero motion. */
+    val bookOpenTransition: Flow<String> = context.dataStore.data.map { preferences ->
+        BookOpenTransition.normalize(preferences[BOOK_OPEN_TRANSITION])
+    }
+
     val eInkModeEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[E_INK_MODE_ENABLED] ?: false
     }
@@ -840,8 +921,13 @@ class DataStoreManager @Inject constructor(
         preferences[TWO_PAGE_SPREAD_ENABLED] ?: true
     }
 
+    /** 栅格页面解码清晰度档位（正常 / 高清 / 原图）。 */
+    val pageRenderMode: Flow<String> = context.dataStore.data.map { preferences ->
+        PageRenderMode.normalizeKey(preferences[PAGE_RENDER_MODE])
+    }
+
     val bookshelfLayoutMode: Flow<Int> = context.dataStore.data.map { preferences ->
-        (preferences[BOOKSHELF_LAYOUT_MODE] ?: 2).coerceIn(1, 3)
+        com.huangder.lumibooks.domain.model.BookshelfLayout.normalize(preferences[BOOKSHELF_LAYOUT_MODE] ?: 2)
     }
 
     /**
@@ -849,9 +935,26 @@ class DataStoreManager @Inject constructor(
      * first use so the two stay consistent, then remembers the picker's own choice.
      */
     val importBooksLayoutMode: Flow<Int> = context.dataStore.data.map { preferences ->
-        (preferences[IMPORT_BOOKS_LAYOUT_MODE]
+        com.huangder.lumibooks.domain.model.BookshelfLayout.conventional(preferences[IMPORT_BOOKS_LAYOUT_MODE]
             ?: preferences[BOOKSHELF_LAYOUT_MODE]
-            ?: 2).coerceIn(1, 3)
+            ?: 2)
+    }
+
+    /**
+     * Layout mode for the authorized folder books page. Unlike the import picker it starts as a
+     * plain list so the page opens as file-manager style rows until the user switches to a grid.
+     */
+    val folderBooksLayoutMode: Flow<Int> = context.dataStore.data.map { preferences ->
+        (preferences[FOLDER_BOOKS_LAYOUT_MODE] ?: 1).coerceIn(1, 3)
+    }
+
+    /** Folder books page sorting field and direction; defaults keep the plain name order. */
+    val folderBooksSortMode: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[FOLDER_BOOKS_SORT_MODE] ?: "NAME"
+    }
+
+    val folderBooksSortAscending: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[FOLDER_BOOKS_SORT_ASCENDING] ?: true
     }
 
     val predictiveBackEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -859,7 +962,7 @@ class DataStoreManager @Inject constructor(
     }
 
     val bookshelfSortMode: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[BOOKSHELF_SORT_MODE] ?: "LAST_READ"
+        preferences[BOOKSHELF_SORT_MODE] ?: "DATE_ADDED"
     }
 
     /** Single DataStore read used to refresh the non-blocking Activity launch snapshot. */
@@ -888,6 +991,15 @@ class DataStoreManager @Inject constructor(
 
     val lastReadBook: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[LAST_READ_BOOK]
+    }
+
+    // Read routing fields from one DataStore revision, not independently combined flows.
+    val welcomeLaunchSnapshot: Flow<WelcomeLaunchSnapshot> = context.dataStore.data.map { preferences ->
+        WelcomeLaunchSnapshot(
+            completedInstallTime = preferences[COMPLETED_WELCOME_INSTALL_TIME] ?: 0L,
+            splashEnabled = preferences[SPLASH_ENABLED] ?: true,
+            hasCompletedLanguageSetup = preferences[HAS_COMPLETED_WELCOME_LANGUAGE_SETUP] ?: false
+        )
     }
 
     val hasSeenWelcome: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -1021,13 +1133,31 @@ class DataStoreManager @Inject constructor(
 
     suspend fun saveBookshelfLayoutMode(mode: Int) {
         context.dataStore.edit { preferences ->
-            preferences[BOOKSHELF_LAYOUT_MODE] = mode.coerceIn(1, 3)
+            preferences[BOOKSHELF_LAYOUT_MODE] = com.huangder.lumibooks.domain.model.BookshelfLayout.normalize(mode)
         }
     }
 
     suspend fun saveImportBooksLayoutMode(mode: Int) {
         context.dataStore.edit { preferences ->
             preferences[IMPORT_BOOKS_LAYOUT_MODE] = mode.coerceIn(1, 3)
+        }
+    }
+
+    suspend fun saveFolderBooksLayoutMode(mode: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[FOLDER_BOOKS_LAYOUT_MODE] = mode.coerceIn(1, 3)
+        }
+    }
+
+    suspend fun saveFolderBooksSortMode(mode: String) {
+        context.dataStore.edit { preferences ->
+            preferences[FOLDER_BOOKS_SORT_MODE] = mode
+        }
+    }
+
+    suspend fun saveFolderBooksSortAscending(ascending: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[FOLDER_BOOKS_SORT_ASCENDING] = ascending
         }
     }
 
@@ -1378,6 +1508,22 @@ class DataStoreManager @Inject constructor(
         }
     }
 
+    /**
+     * 保存四角信息区边距。null 字段会被移除，表示该边回到"跟随正文 / 旧版默认位置"。
+     */
+    suspend fun saveReaderCornerMargins(margins: ReaderCornerMargins) {
+        context.dataStore.edit { preferences ->
+            margins.leftDp?.let { preferences[READER_CORNER_MARGIN_LEFT] = it }
+                ?: preferences.remove(READER_CORNER_MARGIN_LEFT)
+            margins.rightDp?.let { preferences[READER_CORNER_MARGIN_RIGHT] = it }
+                ?: preferences.remove(READER_CORNER_MARGIN_RIGHT)
+            margins.topDp?.let { preferences[READER_CORNER_MARGIN_TOP] = it }
+                ?: preferences.remove(READER_CORNER_MARGIN_TOP)
+            margins.bottomDp?.let { preferences[READER_CORNER_MARGIN_BOTTOM] = it }
+                ?: preferences.remove(READER_CORNER_MARGIN_BOTTOM)
+        }
+    }
+
     suspend fun saveReaderCornerContent(
         corner: ReaderPageCorner,
         content: ReaderCornerContent
@@ -1398,9 +1544,13 @@ class DataStoreManager @Inject constructor(
         }
     }
 
-    override suspend fun saveTtsSpeechRate(rate: Float) {
+    override suspend fun saveTtsProsodySettings(settings: TtsProsodySettings) {
+        val normalized = settings.normalized()
         context.dataStore.edit { preferences ->
-            preferences[TTS_SPEECH_RATE] = rate.coerceIn(0.5f, 2f)
+            preferences[TTS_SPEECH_RATE] = normalized.speechRate
+            preferences[TTS_SPEECH_RATE_MODE] = normalized.speechRateMode.storedValue
+            preferences[TTS_PITCH] = normalized.pitch
+            preferences[TTS_PITCH_MODE] = normalized.pitchMode.storedValue
         }
     }
 
@@ -1425,12 +1575,6 @@ class DataStoreManager @Inject constructor(
 
     suspend fun saveShowCoverProgress(enabled: Boolean) {
         context.dataStore.edit { preferences -> preferences[SHOW_COVER_PROGRESS] = enabled }
-    }
-
-    override suspend fun saveTtsPitch(pitch: Float) {
-        context.dataStore.edit { preferences ->
-            preferences[TTS_PITCH] = pitch.coerceIn(0.5f, 2f)
-        }
     }
 
     suspend fun resetAdvancedReaderSettings(targetSuiteId: String? = null) {
@@ -1462,6 +1606,11 @@ class DataStoreManager @Inject constructor(
             ReaderPageCorner.entries.forEach { corner ->
                 preferences[readerCornerKey(corner)] = defaultReaderCornerContent(corner).key
             }
+            // 四角信息区边距一并回到"跟随正文 / 旧版默认位置"
+            preferences.remove(READER_CORNER_MARGIN_LEFT)
+            preferences.remove(READER_CORNER_MARGIN_RIGHT)
+            preferences.remove(READER_CORNER_MARGIN_TOP)
+            preferences.remove(READER_CORNER_MARGIN_BOTTOM)
             val reset = ReaderThemeSettings(
                 textColor = null,
                 fontType = "system",
@@ -1521,6 +1670,14 @@ class DataStoreManager @Inject constructor(
         ReaderPageCorner.BOTTOM_RIGHT -> READER_BOTTOM_RIGHT_CONTENT
     }
 
+    /** 四角信息区（页眉/页脚）边距；缺省字段表示跟随正文 / 沿用旧版默认位置。 */
+    private fun Preferences.readerCornerMargins(): ReaderCornerMargins = ReaderCornerMargins(
+        leftDp = this[READER_CORNER_MARGIN_LEFT],
+        rightDp = this[READER_CORNER_MARGIN_RIGHT],
+        topDp = this[READER_CORNER_MARGIN_TOP],
+        bottomDp = this[READER_CORNER_MARGIN_BOTTOM]
+    )
+
     suspend fun migrateAdvancedReaderDefaults() {
         context.dataStore.edit { preferences ->
             val currentVersion = preferences[ADVANCED_DEFAULTS_VERSION] ?: 0
@@ -1578,9 +1735,14 @@ class DataStoreManager @Inject constructor(
                         }
                     }
                 }
+                // v4：「原排版」内置套装挪到第一位，让用户一眼看到书籍原排版的默认配色。
+                if (currentVersion < 4) {
+                    normalized = ReaderThemeSuites.withPublisherFirst(normalized)
+                }
                 preferences[READER_THEME_SUITES] = ReaderThemeSuiteCodec.encode(normalized)
                 preferences[ACTIVE_READER_THEME_SUITE_ID] = activeId
-                preferences[READER_THEME_SUITES_VERSION] = 2
+                ensureActiveBookLayoutSuite(preferences, normalized)
+                preferences[READER_THEME_SUITES_VERSION] = READER_THEME_SUITES_VERSION_VALUE
                 return@edit
             }
 
@@ -1591,22 +1753,51 @@ class DataStoreManager @Inject constructor(
             val migrated = ReaderThemeSuites.fromLegacy(currentSettings)
             preferences[READER_THEME_SUITES] = ReaderThemeSuiteCodec.encode(migrated.suites)
             preferences[ACTIVE_READER_THEME_SUITE_ID] = migrated.activeSuiteId
-            preferences[READER_THEME_SUITES_VERSION] = 2
+            ensureActiveBookLayoutSuite(preferences, migrated.suites)
+            preferences[READER_THEME_SUITES_VERSION] = READER_THEME_SUITES_VERSION_VALUE
         }
+    }
+
+    /**
+     * 书籍原排版的活动套装配额：升级时一次性落到「原排版」，
+     * 之后跟随用户在书籍原排版里的选择，不再改写。
+     */
+    private fun ensureActiveBookLayoutSuite(
+        preferences: androidx.datastore.preferences.core.MutablePreferences,
+        suites: List<ReaderThemeSuite>
+    ) {
+        if (preferences[ACTIVE_BOOK_LAYOUT_THEME_SUITE_ID] != null) return
+        preferences[ACTIVE_BOOK_LAYOUT_THEME_SUITE_ID] = ReaderThemeSuites.resolveActiveId(
+            suites,
+            ReaderThemeSuites.PUBLISHER_ID,
+            ReaderLayoutTarget.BOOK_LAYOUT
+        )
     }
 
     suspend fun saveReaderThemeSuiteState(
         suites: List<ReaderThemeSuite>,
         activeSuiteId: String,
-        applyActiveSuite: Boolean
+        applyActiveSuite: Boolean,
+        /** 非空时同步写入书籍原排版的活动套装；为空表示保持原样。 */
+        activeBookLayoutSuiteId: String? = null
     ) {
         context.dataStore.edit { preferences ->
             val normalized = ReaderThemeSuites.normalized(suites)
-            val resolvedActiveId = activeSuiteId.takeIf { id -> normalized.any { it.id == id } }
-                ?: ReaderThemeSuites.DAY_ID
+            val resolvedActiveId = ReaderThemeSuites.resolveActiveId(
+                normalized,
+                activeSuiteId,
+                ReaderLayoutTarget.READER_LAYOUT
+            )
             preferences[READER_THEME_SUITES] = ReaderThemeSuiteCodec.encode(normalized)
             preferences[ACTIVE_READER_THEME_SUITE_ID] = resolvedActiveId
-            preferences[READER_THEME_SUITES_VERSION] = 2
+            activeBookLayoutSuiteId?.let { requestedBookLayoutId ->
+                preferences[ACTIVE_BOOK_LAYOUT_THEME_SUITE_ID] = ReaderThemeSuites.resolveActiveId(
+                    normalized,
+                    requestedBookLayoutId,
+                    ReaderLayoutTarget.BOOK_LAYOUT
+                )
+            }
+            preferences[READER_THEME_SUITES_VERSION] = READER_THEME_SUITES_VERSION_VALUE
             if (applyActiveSuite) {
                 normalized.firstOrNull { it.id == resolvedActiveId }
                     ?.settings
@@ -1625,17 +1816,24 @@ class DataStoreManager @Inject constructor(
         }
     }
 
-    /** Saves one suite without changing which suite is active. */
-    suspend fun updateReaderThemeSuite(suiteId: String, settings: ReaderThemeSettings) {
+    /** Saves one layout set of a suite without changing which suite is active. */
+    suspend fun updateReaderThemeSuite(
+        suiteId: String,
+        layout: ReaderLayoutTarget,
+        settings: ReaderThemeSettings
+    ) {
         context.dataStore.edit { preferences ->
             val suites = readThemeSuites(preferences)
             if (suites.none { it.id == suiteId }) return@edit
             val updated = ReaderThemeSuites.normalized(suites.map { suite ->
-                if (suite.id == suiteId) suite.copy(settings = settings) else suite
+                if (suite.id == suiteId) suite.withSettings(layout, settings) else suite
             })
             preferences[READER_THEME_SUITES] = ReaderThemeSuiteCodec.encode(updated)
-            preferences[READER_THEME_SUITES_VERSION] = 2
-            if (preferences[ACTIVE_READER_THEME_SUITE_ID] == suiteId) {
+            preferences[READER_THEME_SUITES_VERSION] = READER_THEME_SUITES_VERSION_VALUE
+            // Legacy flat keys keep mirroring the reader-layout set only.
+            if (layout == ReaderLayoutTarget.READER_LAYOUT &&
+                preferences[ACTIVE_READER_THEME_SUITE_ID] == suiteId
+            ) {
                 preferences.applyReaderThemeSettings(updated.first { it.id == suiteId }.settings)
             }
         }
@@ -1668,30 +1866,49 @@ class DataStoreManager @Inject constructor(
     suspend fun setReaderThemeSuiteBookScoped(
         bookId: String,
         enabled: Boolean,
-        activeSuiteId: String? = null
+        activeSuiteId: String? = null,
+        activeBookLayoutSuiteId: String? = null
     ) {
         val scopedKey = booleanPreferencesKey("reader_theme_suite_book_scoped_$bookId")
         val activeKey = stringPreferencesKey("reader_theme_suite_book_active_$bookId")
+        val activeBookLayoutKey =
+            stringPreferencesKey("reader_theme_suite_book_active_book_layout_$bookId")
         context.dataStore.edit { preferences ->
             if (enabled) {
                 preferences[scopedKey] = true
                 activeSuiteId?.let { preferences[activeKey] = it }
+                activeBookLayoutSuiteId?.let { preferences[activeBookLayoutKey] = it }
             } else {
                 preferences.remove(scopedKey)
                 preferences.remove(activeKey)
+                preferences.remove(activeBookLayoutKey)
             }
         }
     }
 
-    suspend fun saveReaderThemeSuiteBookActiveId(bookId: String, suiteId: String) {
+    suspend fun saveReaderThemeSuiteBookActiveId(
+        bookId: String,
+        suiteId: String,
+        layout: ReaderLayoutTarget = ReaderLayoutTarget.READER_LAYOUT
+    ) {
+        val key = when (layout) {
+            ReaderLayoutTarget.READER_LAYOUT -> "reader_theme_suite_book_active_$bookId"
+            ReaderLayoutTarget.BOOK_LAYOUT -> "reader_theme_suite_book_active_book_layout_$bookId"
+        }
         context.dataStore.edit { preferences ->
-            preferences[stringPreferencesKey("reader_theme_suite_book_active_$bookId")] = suiteId
+            preferences[stringPreferencesKey(key)] = suiteId
         }
     }
 
     suspend fun savePreserveEpubBackground(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PRESERVE_EPUB_BACKGROUND] = enabled
+        }
+    }
+
+    suspend fun savePageImageCrop(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PAGE_IMAGE_CROP] = enabled
         }
     }
 
@@ -1762,6 +1979,17 @@ class DataStoreManager @Inject constructor(
     fun txtEncoding(bookId: String): Flow<String> {
         val key = stringPreferencesKey("txt_encoding_$bookId")
         return context.dataStore.data.map { preferences -> preferences[key] ?: "auto" }
+    }
+
+    /** Per-book CBZ reading direction; absent until the user picks one. */
+    fun cbzReadingDirection(bookId: String): Flow<String?> {
+        val key = stringPreferencesKey("cbz_reading_direction_$bookId")
+        return context.dataStore.data.map { preferences -> preferences[key] }
+    }
+
+    suspend fun saveCbzReadingDirection(bookId: String, directionKey: String) {
+        val key = stringPreferencesKey("cbz_reading_direction_$bookId")
+        context.dataStore.edit { preferences -> preferences[key] = directionKey }
     }
 
     suspend fun saveTxtEncoding(bookId: String, encoding: String) {
@@ -1905,23 +2133,114 @@ class DataStoreManager @Inject constructor(
     suspend fun saveTxtTocCustomRules(rules: List<TxtTocRule>) {
         require(rules.map { it.id }.distinct().size == rules.size) { "TXT TOC rule IDs must be unique" }
         require(rules.none { TxtTocRuleBuiltIns.byId(it.id) != null }) { "Built-in rule IDs are reserved" }
-        rules.forEach { com.huangder.lumibooks.util.parser.TxtTocRuleCompiler.compile(it).getOrThrow() }
+        require(rules.none { it.dialect != TxtTocDialect.LUMI }) { "Compatible rules use their own store" }
+        rules.forEach { TxtTocRuleCompiler.compile(it).getOrThrow() }
         context.dataStore.edit { preferences -> preferences[TXT_TOC_CUSTOM_RULES] = TxtTocRuleCodec.encode(rules) }
     }
 
-    suspend fun exportTxtTocRules(): String = TxtTocRuleCodec.encode(txtTocCustomRules().first())
+    /**
+     * Compatible (third-party dialect) rules live in their own preference key. Keeping them apart
+     * from [txtTocCustomRules] means older builds never try to compile a foreign dialect while
+     * loading the native rule list.
+     */
+    fun txtTocThirdPartyRules(): Flow<List<TxtTocRule>> = context.dataStore.data.map { preferences ->
+        LegadoTxtTocRuleCodec.decode(preferences[TXT_TOC_LEGADO_RULES] ?: "")
+    }.distinctUntilChanged()
 
-    /** Validates and merges an imported Lumi JSON rule file. Built-in IDs are never overwritten. */
-    suspend fun importTxtTocRules(payload: String): List<TxtTocRule> {
-        val imported = TxtTocRuleCodec.decode(payload)
-        require(imported.none { TxtTocRuleBuiltIns.byId(it.id) != null }) {
-            "Imported rules cannot replace built-in rules"
+    suspend fun txtTocThirdPartyRulesOnce(): List<TxtTocRule> = txtTocThirdPartyRules().first()
+
+    suspend fun saveTxtTocThirdPartyRules(rules: List<TxtTocRule>) {
+        require(rules.all { it.dialect == TxtTocDialect.LEGADO }) {
+            "Compatible rule storage only accepts compatible rules"
         }
-        val current = txtTocCustomRules().first().associateBy { it.id }.toMutableMap()
-        imported.forEach { current[it.id] = it }
-        val merged = current.values.sortedBy { it.order }.mapIndexed { index, rule -> rule.copy(order = index) }
-        saveTxtTocCustomRules(merged)
-        return merged
+        require(rules.map { it.id }.distinct().size == rules.size) { "TXT TOC rule IDs must be unique" }
+        rules.forEach { TxtTocRuleCompiler.compile(it).getOrThrow() }
+        context.dataStore.edit { preferences ->
+            preferences[TXT_TOC_LEGADO_RULES] = LegadoTxtTocRuleCodec.encode(rules)
+        }
+    }
+
+    suspend fun clearTxtTocThirdPartyRules() {
+        context.dataStore.edit { preferences -> preferences.remove(TXT_TOC_LEGADO_RULES) }
+    }
+
+    /**
+     * One-time acknowledgement that compatible rules only parse the user's own local files and
+     * that Lumi neither ships nor accepts online book sources.
+     */
+    fun txtTocCompatNoticeAcknowledged(): Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[TXT_TOC_COMPAT_NOTICE] ?: false
+    }.distinctUntilChanged()
+
+    suspend fun acknowledgeTxtTocCompatNotice() {
+        context.dataStore.edit { preferences -> preferences[TXT_TOC_COMPAT_NOTICE] = true }
+    }
+
+    /**
+     * Short hash of the installed compatible rules. Automatic TXT indexes fold it in so importing
+     * or removing compatible rules re-parses books instead of serving a stale chapter index.
+     */
+    suspend fun txtTocThirdPartyRulesSalt(): String {
+        val rules = txtTocThirdPartyRulesOnce()
+        if (rules.isEmpty()) return ""
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(LegadoTxtTocRuleCodec.encode(rules).toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }.take(8)
+    }
+
+    suspend fun exportTxtTocRules(): String =
+        TxtTocRuleCodec.encode(txtTocCustomRules().first(), txtTocThirdPartyRulesOnce())
+
+    /**
+     * Validates and merges an imported rule file. The payload shape decides where the rules land:
+     * native rules go to the Lumi store, compatible rules to their own; online book sources are
+     * rejected outright because Lumi has no book-source features.
+     */
+    suspend fun importTxtTocRules(payload: String): TxtTocRuleImportResult {
+        val parsed = try {
+            TxtTocRuleImport.parse(payload)
+        } catch (error: TxtTocRuleImportException) {
+            throw IllegalStateException(context.getString(error.reason.messageRes()), error)
+        }
+        if (parsed.lumiRules.isNotEmpty()) {
+            require(parsed.lumiRules.none { TxtTocRuleBuiltIns.byId(it.id) != null }) {
+                context.getString(R.string.txt_toc_import_builtin_reserved)
+            }
+            val current = txtTocCustomRules().first().associateBy { it.id }.toMutableMap()
+            parsed.lumiRules.forEach { current[it.id] = it }
+            val merged = current.values.sortedBy { it.order }.mapIndexed { index, rule -> rule.copy(order = index) }
+            saveTxtTocCustomRules(merged)
+        }
+        if (parsed.thirdPartyRules.isNotEmpty()) {
+            val merged = LegadoTxtTocRuleCodec.merge(txtTocThirdPartyRulesOnce(), parsed.thirdPartyRules)
+            saveTxtTocThirdPartyRules(merged)
+        }
+        return parsed
+    }
+
+    /**
+     * Imports the compatible rule preset shipped in the APK. It is never seeded automatically:
+     * the user has to ask for it. Returns the number of rules written.
+     */
+    suspend fun importTxtTocCompatibilityPreset(): Int {
+        val payload = runCatching {
+            context.assets.open(LegadoTxtTocRuleCodec.PRESET_ASSET)
+                .bufferedReader(Charsets.UTF_8)
+                .use { it.readText() }
+        }.getOrNull() ?: return 0
+        val parsed = TxtTocRuleImport.parse(payload)
+        if (parsed.thirdPartyRules.isEmpty()) return 0
+        val merged = LegadoTxtTocRuleCodec.merge(txtTocThirdPartyRulesOnce(), parsed.thirdPartyRules)
+        saveTxtTocThirdPartyRules(merged)
+        return parsed.thirdPartyRules.size
+    }
+
+    private fun TxtTocRuleImportException.Reason.messageRes(): Int = when (this) {
+        TxtTocRuleImportException.Reason.EMPTY -> R.string.txt_toc_import_empty
+        TxtTocRuleImportException.Reason.NOT_JSON -> R.string.txt_toc_import_not_json
+        TxtTocRuleImportException.Reason.UNKNOWN_FORMAT -> R.string.txt_toc_import_unknown_format
+        TxtTocRuleImportException.Reason.BOOK_SOURCE_UNSUPPORTED ->
+            R.string.txt_toc_import_book_source_unsupported
     }
 
     suspend fun upsertTxtTocRule(rule: TxtTocRule) {
@@ -1946,6 +2265,8 @@ class DataStoreManager @Inject constructor(
         val custom = runCatching { TxtTocRuleCodec.decode(preferences[TXT_TOC_CUSTOM_RULES] ?: "") }
             .getOrDefault(emptyList())
         return custom.firstOrNull { it.id == selectedId && it.enabled }
+            ?: LegadoTxtTocRuleCodec.decode(preferences[TXT_TOC_LEGADO_RULES] ?: "")
+                .firstOrNull { it.id == selectedId && it.enabled }
     }
 
     suspend fun savePageTransition(mode: String) {
@@ -2112,6 +2433,13 @@ class DataStoreManager @Inject constructor(
         }
     }
 
+    suspend fun saveBookOpenTransition(transition: String) {
+        val normalized = BookOpenTransition.normalize(transition)
+        context.dataStore.edit { preferences ->
+            preferences[BOOK_OPEN_TRANSITION] = normalized
+        }
+    }
+
     suspend fun saveEInkModeEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[E_INK_MODE_ENABLED] = enabled
@@ -2121,6 +2449,13 @@ class DataStoreManager @Inject constructor(
     suspend fun saveTwoPageSpreadEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[TWO_PAGE_SPREAD_ENABLED] = enabled
+        }
+    }
+
+    /** 栅格页面解码清晰度档位（全局，所有 PDF / CBZ 共用）。 */
+    suspend fun savePageRenderMode(mode: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PAGE_RENDER_MODE] = mode
         }
     }
 
@@ -2738,7 +3073,7 @@ class DataStoreManager @Inject constructor(
         this[READER_BACKGROUND_IMAGE_OPACITY] = settings.backgroundImageOpacity
         this[READER_BACKGROUND_IMAGE_BLUR_DP] = settings.backgroundImageBlurDp
         this[READER_THEME] = settings.backgroundSelection
-            .takeIf { it in ReaderThemeSuites.BUILT_IN_IDS }
+            .takeIf { id -> id in ReaderThemeSuites.THEME_IDS }
             ?: ReaderThemeSuites.DAY_ID
         settings.textColor?.let { this[READER_TEXT_COLOR] = it }
             ?: remove(READER_TEXT_COLOR)
