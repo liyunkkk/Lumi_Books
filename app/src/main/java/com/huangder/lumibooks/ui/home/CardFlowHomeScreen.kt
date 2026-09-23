@@ -62,7 +62,7 @@ fun CardFlowHomeScreen(
     avatarUri: String?,
     statusBarTopPadding: androidx.compose.ui.unit.Dp,
     bottomContentPadding: androidx.compose.ui.unit.Dp,
-    onNavigateToReader: (bookId: String, coverPath: String?, title: String, sourceBounds: Rect?) -> Unit,
+    onNavigateToReader: (book: Book, sourceBounds: Rect?) -> Unit,
     onNavigateToStatistics: () -> Unit,
     onNavigateToBookshelf: () -> Unit,
     onImportClick: () -> Unit,
@@ -177,7 +177,7 @@ fun CardFlowHomeScreen(
                 onContinueReading = {
                     val targetBook = book
                     selectedBookForDetail = null
-                    onNavigateToReader(targetBook.id, targetBook.coverPath, targetBook.title, null)
+                    onNavigateToReader(targetBook, null)
                 }
             )
         }

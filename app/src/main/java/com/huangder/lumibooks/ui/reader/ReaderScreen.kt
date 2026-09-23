@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.ui.reader
 import androidx.compose.material.icons.outlined.CleaningServices
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import com.huangder.lumibooks.ui.replace.ReplaceRulesActivity
 import androidx.compose.material.icons.outlined.Sync
 import io.legado.app.data.entities.SearchBook
