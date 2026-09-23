@@ -151,6 +151,7 @@ data class HomeUiState(
     val downloadStates: Map<String, BookDownloadState> = emptyMap(),
     val isBookDeleteInProgress: Boolean = false,
     val showCoverProgress: Boolean = true,
+    val showFinishedBadge: Boolean = true,
     val hiddenFromNowReadingBookIds: Set<String> = emptySet(),
     val hiddenFromNowReadingFolderIds: Set<String> = emptySet(),
     val hiddenBookIds: Set<String> = emptySet(),
@@ -408,6 +409,11 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.showCoverProgress.collectLatest { showCoverProgress ->
                 _uiState.value = _uiState.value.copy(showCoverProgress = showCoverProgress)
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.showFinishedBadge.collectLatest { showFinishedBadge ->
+                _uiState.value = _uiState.value.copy(showFinishedBadge = showFinishedBadge)
             }
         }
         viewModelScope.launch {

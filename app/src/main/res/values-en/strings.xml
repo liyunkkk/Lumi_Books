@@ -227,6 +227,8 @@
     <string name="apply_to_body_only_desc">When enabled, typography applies only to body text; headings keep their original style</string>
     <string name="show_cover_progress">Show reading progress on book covers</string>
     <string name="show_cover_progress_desc">Display percentage badge and progress bar on covers</string>
+    <string name="show_finished_badge">Show finished badge on book covers</string>
+    <string name="show_finished_badge_desc">Display the finished badge on covers</string>
 
     <!-- Storage Management -->
     <string name="label_total_size">Total Space Used</string>

@@ -67,6 +67,7 @@ import com.huangder.lumibooks.ui.components.ImmersiveMode
 import com.huangder.lumibooks.ui.components.MainSystemBarStyle
 import com.huangder.lumibooks.ui.components.ConfigurableNavigationBack
 import com.huangder.lumibooks.ui.components.CloudBookDownloadDialog
+import com.huangder.lumibooks.ui.components.LocalShowFinishedBadge
 import com.huangder.lumibooks.ui.components.LocalPredictiveBackEnabled
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuHost
 import com.huangder.lumibooks.ui.discover.DiscoveryScreen
@@ -1486,6 +1487,7 @@ fun MainNavGraph(
             todayReadingTime = homeUiState.todayReadingTime,
             dailyGoal = homeUiState.dailyGoal,
             currentBook = homeLastReadBook,
+            showFinishedBadge = homeUiState.showFinishedBadge,
             weeklyData = homeUiState.weeklyData,
             streakDays = homeUiState.streakDays,
             onDismiss = { homeGoalSheetVisible = false },
@@ -1504,10 +1506,14 @@ fun MainNavGraph(
                 )
         )
 
-        BookHeroWindowOverlay(
-            transition = bookReaderTransition,
-            modifier = Modifier.fillMaxSize()
-        )
+        CompositionLocalProvider(
+            LocalShowFinishedBadge provides homeUiState.showFinishedBadge
+        ) {
+            BookHeroWindowOverlay(
+                transition = bookReaderTransition,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         com.huangder.lumibooks.ui.animation.CoverFlowEntranceOverlay(coverFlowEntrance)
 
         if (showTransition && !eInkMode) {

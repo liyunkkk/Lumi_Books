@@ -1164,6 +1164,8 @@
     <string name="apply_to_body_only_desc">开启时字重、间距等设置仅作用于正文，标题等保持原样</string>
     <string name="show_cover_progress">书籍封面显示阅读进度</string>
     <string name="show_cover_progress_desc">在书架与主页封面显示已读百分比角标与进度条</string>
+    <string name="show_finished_badge">书籍封面显示已读完角标</string>
+    <string name="show_finished_badge_desc">在书架与主页封面显示「已读完」角标</string>
     <string name="body_font_weight">正文字重</string>
     <string name="body_font_weight_desc">开启后正文使用加粗字重</string>
     <string name="bookmark_edit_title">编辑书签</string>

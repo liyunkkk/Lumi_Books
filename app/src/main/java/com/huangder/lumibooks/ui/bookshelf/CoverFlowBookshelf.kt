@@ -47,6 +47,7 @@ import com.huangder.lumibooks.ui.animation.LocalBookReaderAnchorScope
 import com.huangder.lumibooks.ui.animation.coverFlowEntranceItem
 import com.huangder.lumibooks.ui.components.ConfigurableBackHandler
 import com.huangder.lumibooks.ui.components.FinishedReadingIndicator
+import com.huangder.lumibooks.ui.components.LocalShowFinishedBadge
 import com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop
 import com.huangder.lumibooks.ui.icons.AppIcons
 import com.huangder.lumibooks.ui.theme.AppColors
@@ -352,7 +353,7 @@ private fun CoverFlowMetadata(books: List<Book>, state: CoverFlowState, syncedId
                     Text(book.author, color = AppColors.TextSecondary, fontSize = 14.sp,
                         fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-                    if (book.isReadingFinished) {
+                    if (LocalShowFinishedBadge.current && book.isReadingFinished) {
                         FinishedReadingIndicator(Modifier.padding(top = 4.dp))
                     }
                     if (book.isMissing) Text(stringResource(R.string.book_file_unavailable),

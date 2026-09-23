@@ -135,5 +135,6 @@ data class SettingsUiState(
         com.huangder.lumibooks.tts.FloatingSubtitleSettings(),
     val bodyFontWeight: Int = 400,
     val applyToBodyOnly: Boolean = false,
-    val showCoverProgress: Boolean = true
+    val showCoverProgress: Boolean = true,
+    val showFinishedBadge: Boolean = true
 )

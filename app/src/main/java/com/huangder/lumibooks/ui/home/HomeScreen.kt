@@ -53,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import com.huangder.lumibooks.ui.components.LocalShowCoverProgress
+import com.huangder.lumibooks.ui.components.LocalShowFinishedBadge
 import io.legado.app.data.appDb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -205,7 +206,10 @@ fun HomeScreen(
             booksByLastRead
         }
     }
-    CompositionLocalProvider(LocalShowCoverProgress provides uiState.showCoverProgress) {
+    CompositionLocalProvider(
+        LocalShowCoverProgress provides uiState.showCoverProgress,
+        LocalShowFinishedBadge provides uiState.showFinishedBadge
+    ) {
         if (uiState.homeScreenMode == com.huangder.lumibooks.data.local.DataStoreManager.HOME_SCREEN_MODE_CARD_FLOW) {
             CardFlowHomeScreen(
                 books = activeReadingBooks,
@@ -333,6 +337,7 @@ fun HomeScreen(
                 todayReadingTime = uiState.todayReadingTime,
                 dailyGoal = uiState.dailyGoal,
                 currentBook = lastReadBook,
+                showFinishedBadge = LocalShowFinishedBadge.current,
                 weeklyData = uiState.weeklyData,
                 streakDays = uiState.streakDays,
                 onDismiss = { setShowGoalSheet(false) },
@@ -794,7 +799,7 @@ private fun ContinueReadingCard(
             }
         }
         }
-        if (book.isReadingFinished && downloadState !is BookDownloadState.Downloading) {
+        if (LocalShowFinishedBadge.current && book.isReadingFinished && downloadState !is BookDownloadState.Downloading) {
             FinishedReadingIndicator(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -923,7 +928,7 @@ private fun RecentBookCard(
                 color = AppColors.TextSecondary,
                 maxLines = 1
             )
-            if (book.isReadingFinished) {
+            if (LocalShowFinishedBadge.current && book.isReadingFinished) {
                 FinishedReadingIndicator()
             } else {
                 Text(
