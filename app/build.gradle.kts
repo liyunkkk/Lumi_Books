@@ -16,14 +16,17 @@ val releaseStartupTrace = providers.gradleProperty("lumiStartupTrace")
 
 android {
     namespace = "com.huangder.lumibooks"
-    compileSdk = 36
-    compileSdkExtension = 19
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 0
+        }
+    }
 
     defaultConfig {
         applicationId = "com.huangder.lumibooks"
         minSdk = 26
-        targetSdk = 35
-        versionCode = 21
+        targetSdk = 37
+        versionCode = 22
         versionName = "2.3.1"
 
         buildConfigField("boolean", "DIAGNOSTIC_BUILD", "false")
@@ -125,12 +128,14 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    // 我方旧页面（首页卡片流、发现页、书源管理、净化规则等）继续使用 Material 图标；
-    // 本次合并新增/改动的界面统一使用 Phosphor（AppIcons.kt）。两套并存。
+    // 我方旧页面（首页卡片流、发现页、书源管理、净化规则等）仍使用 Material 图标；
+    // 合并后新增/改动的界面统一使用 AppIcons（Fluent UI System Icons）。两套并存。
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("com.adamglin:phosphor-icon:1.0.0")
+    // Vendored subset of Fluent UI System Icons containing only vectors used by AppIcons.
+    implementation(files("libs/fluentui-system-icons-used.jar"))
     implementation("dev.chrisbanes.haze:haze:1.1.1")
     implementation("io.github.kyant0:backdrop:1.0.6")
+    implementation("io.github.kyant0:shapes:1.2.0")
 
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.8.9")
@@ -155,6 +160,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
+    // Linear-time regular expressions for local highlight rules.
+    implementation("com.google.re2j:re2j:1.8")
+
     // PDF text extraction and persistent background conversion
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
@@ -163,6 +171,21 @@ dependencies {
 
     // MinerU Markdown results -> safe local EPUB
     implementation("org.commonmark:commonmark:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.24.0")
+    implementation("org.commonmark:commonmark-ext-task-list-items:0.24.0")
+    implementation("org.commonmark:commonmark-ext-autolink:0.24.0")
+    implementation("org.commonmark:commonmark-ext-footnotes:0.24.0")
+    implementation("org.commonmark:commonmark-ext-yaml-front-matter:0.24.0")
+    implementation("io.noties.markwon:core:4.6.2") {
+        exclude(group = "com.atlassian.commonmark")
+    }
+    implementation("io.noties:prism4j:2.0.0") {
+        // Prism4j 2.0.0 still publishes the Java 5 annotations jar, which
+        // duplicates the modern annotations artifact already used by AndroidX.
+        exclude(group = "org.jetbrains", module = "annotations-java5")
+    }
+    implementation("ru.noties:jlatexmath-android:0.2.0")
     // Direct dependency: MinerU signed-URL uploads use OkHttp's streaming request body.
     // 与 Legado 引擎统一使用 OkHttp 5 API
     implementation("com.squareup.okhttp3:okhttp:5.4.0")

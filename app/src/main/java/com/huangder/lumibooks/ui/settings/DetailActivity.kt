@@ -18,6 +18,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.data.local.DataStoreManager
+import com.huangder.lumibooks.data.sync.LocalNetworkAccessManager
+import com.huangder.lumibooks.data.sync.WebdavAutoSyncScheduler
+import com.huangder.lumibooks.ui.components.rememberLocalNetworkPermissionGate
 import com.huangder.lumibooks.ui.theme.EBookReaderTheme
 import com.huangder.lumibooks.ui.theme.MotionPreference
 import com.huangder.lumibooks.ui.theme.rememberLiquidGlassCapability
@@ -46,6 +49,12 @@ class DetailActivity : ComponentActivity() {
     @Inject
     lateinit var dataStoreManager: DataStoreManager
 
+    @Inject
+    lateinit var localNetworkAccessManager: LocalNetworkAccessManager
+
+    @Inject
+    lateinit var webdavAutoSyncScheduler: WebdavAutoSyncScheduler
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -60,6 +69,7 @@ class DetailActivity : ComponentActivity() {
             val predictiveBackEnabled by dataStoreManager.predictiveBackEnabled.collectAsState(initial = launchTheme.predictiveBackEnabled)
             val appTheme by dataStoreManager.appTheme.collectAsState(initial = launchTheme.appTheme)
             val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = launchTheme.appAccentColor)
+            val appFontSize by dataStoreManager.appFontSize.collectAsState(initial = launchTheme.appFontSize)
             val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = launchTheme.globalFontMode)
             val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = launchTheme.liquidGlassTransparency)
             val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = launchTheme.liquidGlassHdrHighlightEnabled)
@@ -73,25 +83,44 @@ class DetailActivity : ComponentActivity() {
                 else -> systemDarkMode
             }
 
+            val eInkMode by dataStoreManager.eInkModeEnabled.collectAsState(initial = launchTheme.eInkModeEnabled)
+            val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
+            val liquidGlassStyle by dataStoreManager.liquidGlassStyle
+                .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
+                .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
+                liquidGlassStyle = liquidGlassStyle,
+                reduceTransparencyEnabled = reduceTransparencyEnabled,
+                menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
+                eInkMode = eInkMode,
                 darkTheme = isDark,
                 dynamicColor = effectiveAppTheme == "material3",
-                appTheme = effectiveAppTheme,
+                appTheme = appTheme,
+                lumiBackgroundScene = com.huangder.lumibooks.ui.theme.LumiBackgroundScene.SECONDARY,
                 appAccentColor = appAccentColor,
                 liquidGlassTransparency = liquidGlassTransparency,
                 liquidGlassHdrHighlightEnabled = liquidGlassHdrHighlightEnabled,
+                appFontSize = appFontSize,
                 globalFontMode = globalFontMode,
                 motionPreference = MotionPreference.fromStoredValue(motionPreferenceValue)
             ) {
+                val requestLocalNetworkPermission = rememberLocalNetworkPermissionGate(
+                    accessManager = localNetworkAccessManager,
+                    onPermissionGranted = webdavAutoSyncScheduler::onLocalNetworkPermissionGranted
+                )
                 com.huangder.lumibooks.ui.components.ConfigurableActivityBack(
                     predictiveBackEnabled = predictiveBackEnabled,
                     onBack = { finish() }
                 )
-                Surface(modifier = Modifier.fillMaxSize()) {
+                Surface(modifier = Modifier.fillMaxSize(), color = com.huangder.lumibooks.ui.theme.AppColors.PageBg) {
                     val onBack = { finish() }
 
                     when (category) {
                         "reading" -> DetailPage(stringResource(R.string.title_reading_settings), onBack) { ReadingSettingsDetail(viewModel) }
+                        "selection_menu" -> SelectionMenuSettingsScreen(
+                            uiState.selectionMenuItems, viewModel::saveSelectionMenuItems, onBack
+                        )
                         "floating_subtitle" -> DetailPage(stringResource(R.string.title_floating_subtitle_settings), onBack) {
                             FloatingSubtitleSettingsDetail(viewModel)
                         }
@@ -120,6 +149,10 @@ class DetailActivity : ComponentActivity() {
                         "third_party_services" -> DetailPage(stringResource(R.string.title_third_party_services), onBack) {
                             ThirdPartyServicesDetail(viewModel)
                         }
+                        "local_dictionaries" -> DetailPage(stringResource(R.string.dictionary_title), onBack) {
+                            com.huangder.lumibooks.dictionary.LocalDictionarySettings()
+                        }
+                        "ai_translation" -> DetailPage(stringResource(R.string.translation_title), onBack) { TranslationSettingsDetail() }
                         "mineru" -> DetailPage(stringResource(R.string.title_mineru), onBack) { MineruSettingsDetail(viewModel) }
                         "external_tts" -> DetailPage(stringResource(R.string.title_external_tts), onBack) {
                             ExternalTtsSettingsDetail(viewModel) {
@@ -133,7 +166,7 @@ class DetailActivity : ComponentActivity() {
                             ExternalTtsConfigurationDetail(viewModel, onSaved = onBack)
                         }
                         "webdav" -> DetailPage(stringResource(R.string.title_webdav), onBack) {
-                            WebdavSettingsDetail(viewModel) {
+                            WebdavSettingsDetail(viewModel, requestLocalNetworkPermission) {
                                 startActivity(
                                     Intent(this@DetailActivity, DetailActivity::class.java)
                                         .putExtra("category", "webdav_config")
@@ -141,7 +174,11 @@ class DetailActivity : ComponentActivity() {
                             }
                         }
                         "webdav_config" -> DetailPage(stringResource(R.string.title_webdav_configuration), onBack) {
-                            WebdavConfigurationDetail(viewModel, onSaved = onBack)
+                            WebdavConfigurationDetail(
+                                viewModel,
+                                requestLocalNetworkPermission,
+                                onSaved = onBack
+                            )
                         }
                         "changelog" -> DetailPage(stringResource(R.string.title_changelog), onBack) { ChangelogDetail() }
                         "highlight_color" -> DetailPage(stringResource(R.string.highlight_color_palette), onBack) {

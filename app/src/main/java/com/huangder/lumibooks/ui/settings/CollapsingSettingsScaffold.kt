@@ -1,8 +1,10 @@
 package com.huangder.lumibooks.ui.settings
 
+import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
@@ -48,7 +51,6 @@ import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
 import com.huangder.lumibooks.ui.components.PROGRESSIVE_BLUR_TINT_ALPHA
 import com.huangder.lumibooks.ui.components.PROGRESSIVE_BLUR_TINT_ALPHA_DARK
 import com.huangder.lumibooks.ui.components.ProgressiveTopBlur
-import com.huangder.lumibooks.ui.components.ProgressiveTopScrim
 import com.huangder.lumibooks.ui.components.largeTitleAlpha
 import com.huangder.lumibooks.ui.components.largeTitleScale
 import com.huangder.lumibooks.ui.components.progressiveBlurEnabled
@@ -99,8 +101,8 @@ internal fun CollapsingSettingsScaffold(
 ) {
     val capability = LocalLiquidGlassCapability.current
     val eInkMode = LocalEInkMode.current
-    val blurEnabled = progressiveBlurEnabled(capability.supported, eInkMode)
-    val scrimEnabled = progressiveTopScrimEnabled(capability.supported, eInkMode)
+    val blurEnabled = progressiveBlurEnabled(capability.supported, eInkMode, LocalReduceTransparency.current)
+    val scrimEnabled = progressiveTopScrimEnabled(capability.supported, eInkMode, LocalReduceTransparency.current)
     val tint = AppColors.WindowBg
     val tintAlpha = if (LocalIsDarkTheme.current) {
         PROGRESSIVE_BLUR_TINT_ALPHA_DARK
@@ -183,6 +185,7 @@ internal fun CollapsingSettingsScaffold(
             ProgressiveTopScrimBand(
                 progress = collapseProgress,
                 bandHeight = bandHeight,
+                toolbarHeight = toolbarTotalHeight,
                 tint = tint,
                 modifier = Modifier.align(Alignment.TopCenter)
             )
@@ -270,16 +273,24 @@ private fun ProgressiveTopBlurBand(
 private fun ProgressiveTopScrimBand(
     progress: State<Float>,
     bandHeight: Dp,
+    toolbarHeight: Dp,
     tint: Color,
     modifier: Modifier = Modifier
 ) {
     val strength by remember(progress) {
         derivedStateOf { quantizeBlurStrength(progress.value) }
     }
-    ProgressiveTopScrim(
-        strength = strength,
-        modifier = modifier,
-        bandHeight = bandHeight,
-        tint = tint
+    // Keep text behind the toolbar fully covered when blur is unavailable; dissolve only below it.
+    val brush = remember(tint, bandHeight, toolbarHeight) {
+        Brush.verticalGradient(
+            0f to tint,
+            (toolbarHeight / bandHeight).coerceIn(0f, 1f) to tint,
+            1f to tint.copy(alpha = 0f)
+        )
+    }
+    Box(
+        modifier = modifier.fillMaxWidth().height(bandHeight)
+            .graphicsLayer { alpha = strength }
+            .background(brush)
     )
 }

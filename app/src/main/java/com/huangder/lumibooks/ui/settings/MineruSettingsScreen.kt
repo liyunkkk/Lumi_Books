@@ -1,7 +1,9 @@
 package com.huangder.lumibooks.ui.settings
+import androidx.compose.foundation.layout.heightIn
 import com.huangder.lumibooks.ui.icons.AppIcons
 import com.huangder.lumibooks.ui.icons.IconPair
 
+import com.huangder.lumibooks.ui.components.lumiCardSurface
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -24,7 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
@@ -119,99 +121,106 @@ fun MineruSettingsDetail(viewModel: SettingsViewModel) {
             .padding(horizontal = AppSpace.md, vertical = AppSpace.sm),
         verticalArrangement = Arrangement.spacedBy(AppSpace.md)
     ) {
-        MineruStatusCard(currentMode)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(AppRoundedCornerShape(AppRadius.md))
+                .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
+                .padding(AppSpace.md),
+            verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
+        ) {
+            MineruStatusCard(currentMode)
+            Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
+            Text(
+                text = stringResource(R.string.mineru_choose_mode),
+                fontSize = AppType.BodySmall,
+                color = AppColors.TextSecondary
+            )
+            MineruModeCard(
+                title = stringResource(R.string.mineru_mode_agent_title),
+                description = stringResource(R.string.mineru_mode_agent_description),
+                selected = selectedMode == MineruMode.AGENT,
+                onClick = { selectedMode = MineruMode.AGENT }
+            )
+            Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
+            MineruModeCard(
+                title = stringResource(R.string.mineru_mode_precise_title),
+                description = stringResource(R.string.mineru_mode_precise_description),
+                selected = selectedMode == MineruMode.PRECISE,
+                onClick = { selectedMode = MineruMode.PRECISE }
+            )
 
-        Text(
-            text = stringResource(R.string.mineru_choose_mode),
-            fontSize = AppType.BodySmall,
-            color = AppColors.TextSecondary
-        )
-
-        MineruModeCard(
-            title = stringResource(R.string.mineru_mode_agent_title),
-            description = stringResource(R.string.mineru_mode_agent_description),
-            icon = AppIcons.LightningPair,
-            selected = selectedMode == MineruMode.AGENT,
-            onClick = { selectedMode = MineruMode.AGENT }
-        )
-        MineruModeCard(
-            title = stringResource(R.string.mineru_mode_precise_title),
-            description = stringResource(R.string.mineru_mode_precise_description),
-            icon = AppIcons.KeyPair,
-            selected = selectedMode == MineruMode.PRECISE,
-            onClick = { selectedMode = MineruMode.PRECISE }
-        )
-
-        if (selectedMode == MineruMode.PRECISE) {
-            OutlinedTextField(
-                value = token,
-                onValueChange = {
-                    token = it
-                    tokenError = false
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.mineru_token_label)) },
-                placeholder = {
-                    Text(
-                        if (uiState.mineruHasToken) {
-                            stringResource(R.string.mineru_token_saved)
-                        } else {
-                            stringResource(R.string.mineru_token_placeholder)
-                        }
-                    )
-                },
-                supportingText = {
-                    Text(
-                        if (tokenError) {
-                            stringResource(R.string.mineru_token_required)
-                        } else {
-                            stringResource(R.string.mineru_token_storage_notice)
-                        }
-                    )
-                },
-                isError = tokenError,
-                singleLine = true,
-                shape = RoundedCornerShape(AppRadius.md),
-                visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    IconButton(onClick = { tokenVisible = !tokenVisible }) {
-                        Icon(
-                            if (tokenVisible) AppIcons.EyeSlash else AppIcons.Eye,
-                            contentDescription = null
+            if (selectedMode == MineruMode.PRECISE) {
+                OutlinedTextField(
+                    value = token,
+                    onValueChange = {
+                        token = it
+                        tokenError = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(stringResource(R.string.mineru_token_label)) },
+                    placeholder = {
+                        Text(
+                            if (uiState.mineruHasToken) {
+                                stringResource(R.string.mineru_token_saved)
+                            } else {
+                                stringResource(R.string.mineru_token_placeholder)
+                            }
                         )
+                    },
+                    supportingText = {
+                        Text(
+                            if (tokenError) {
+                                stringResource(R.string.mineru_token_required)
+                            } else {
+                                stringResource(R.string.mineru_token_storage_notice)
+                            }
+                        )
+                    },
+                    isError = tokenError,
+                    singleLine = true,
+                    shape = AppRoundedCornerShape(AppRadius.md),
+                    visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { tokenVisible = !tokenVisible }) {
+                            Icon(
+                                if (tokenVisible) AppIcons.EyeSlash else AppIcons.Eye,
+                                contentDescription = null
+                            )
+                        }
                     }
-                }
-            )
-            MineruExternalLink(
-                label = stringResource(R.string.mineru_get_token),
-                url = MineruConfig.API_MANAGEMENT_URL,
-                icon = AppIcons.ArrowSquareOut
-            )
-        }
+                )
+                MineruExternalLink(
+                    label = stringResource(R.string.mineru_get_token),
+                    url = MineruConfig.API_MANAGEMENT_URL,
+                    icon = AppIcons.ArrowSquareOut
+                )
+            }
 
-        MineruPrimaryButton(
-            label = when (selectedMode) {
-                MineruMode.AGENT -> stringResource(R.string.mineru_enable_agent)
-                MineruMode.PRECISE -> stringResource(R.string.mineru_enable_precise)
-                MineruMode.DISABLED -> stringResource(R.string.mineru_enable_agent)
-            },
-            onClick = ::requestEnable
-        )
+            MineruPrimaryButton(
+                label = when (selectedMode) {
+                    MineruMode.AGENT -> stringResource(R.string.mineru_enable_agent)
+                    MineruMode.PRECISE -> stringResource(R.string.mineru_enable_precise)
+                    MineruMode.DISABLED -> stringResource(R.string.mineru_enable_agent)
+                },
+                onClick = ::requestEnable
+            )
 
-        if (currentMode != MineruMode.DISABLED) {
-            MineruSecondaryButton(
-                label = stringResource(R.string.mineru_disable),
-                icon = AppIcons.CloudSlash,
-                onClick = { viewModel.disableMineru(clearToken = false) }
-            )
-        }
-        if (uiState.mineruHasToken) {
-            MineruSecondaryButton(
-                label = stringResource(R.string.mineru_clear_token),
-                icon = AppIcons.Trash,
-                destructive = true,
-                onClick = viewModel::clearMineruToken
-            )
+            if (currentMode != MineruMode.DISABLED) {
+                MineruSecondaryButton(
+                    label = stringResource(R.string.mineru_disable),
+                    icon = AppIcons.CloudSlash,
+                    onClick = { viewModel.disableMineru(clearToken = false) }
+                )
+            }
+            if (uiState.mineruHasToken) {
+                MineruSecondaryButton(
+                    label = stringResource(R.string.mineru_clear_token),
+                    icon = AppIcons.Trash,
+                    destructive = true,
+                    onClick = viewModel::clearMineruToken
+                )
+            }
         }
 
         MineruManualSection(
@@ -270,9 +279,9 @@ private fun MineruManualSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
-            .border(1.dp, AppColors.Divider, RoundedCornerShape(AppRadius.md))
+            .clip(AppRoundedCornerShape(AppRadius.md))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
+            .border(1.dp, AppColors.Divider, AppRoundedCornerShape(AppRadius.md))
             .padding(AppSpace.md),
         verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
     ) {
@@ -308,9 +317,7 @@ private fun MineruStatusCard(mode: MineruMode) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
-            .padding(AppSpace.md),
+            .padding(vertical = AppSpace.xs),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -347,33 +354,23 @@ private fun MineruStatusCard(mode: MineruMode) {
 }
 
 @Composable
-private fun MineruModeCard(
+internal fun MineruModeCard(
     title: String,
     description: String,
-    icon: IconPair,
     selected: Boolean,
     onClick: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
-            .border(
-                width = if (selected) 1.5.dp else 1.dp,
-                color = if (selected) AppColors.Accent else AppColors.Divider,
-                shape = RoundedCornerShape(AppRadius.md)
-            )
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
                 onClick = onClick
             )
-            .padding(AppSpace.md),
+            .padding(vertical = AppSpace.sm),
         verticalAlignment = Alignment.Top
     ) {
-        Icon(icon.resolve(selected), null, tint = if (selected) AppColors.Accent else AppColors.TextSecondary, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.size(AppSpace.md))
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = AppType.Body, color = AppColors.TextPrimary, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(4.dp))
@@ -392,7 +389,7 @@ private fun MineruDisclosureCard() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.md))
+            .clip(AppRoundedCornerShape(AppRadius.md))
             .background(AppColors.BgGray)
             .padding(AppSpace.md),
         verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
@@ -428,7 +425,7 @@ private fun MineruExternalLink(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.sm))
+            .clip(AppRoundedCornerShape(AppRadius.sm))
             .clickable {
                 runCatching {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -457,16 +454,19 @@ private fun MineruPrimaryButton(
         onClick = onClick,
         enabled = enabled,
         tintedColor = AppColors.Accent,
-        shape = RoundedCornerShape(25.dp),
+        shape = AppRoundedCornerShape(25.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(50.dp)
+            .heightIn(min = 50.dp)
     ) {
         Text(
             label,
             fontSize = AppType.BodySmall,
             fontWeight = FontWeight.SemiBold,
-            color = if (forceWhiteContent || enabled) Color.White else AppColors.TextSecondary
+            color = if (forceWhiteContent || enabled) Color.White else AppColors.TextSecondary,
+            maxLines = 1,
+            softWrap = false,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
         )
     }
 }
@@ -487,16 +487,16 @@ private fun MineruSecondaryButton(
     LiquidGlassButton(
         onClick = onClick,
         enabled = enabled,
-        shape = RoundedCornerShape(AppRadius.md),
+        shape = AppRoundedCornerShape(AppRadius.md),
         contentColor = color,
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp)
-            .border(1.dp, AppColors.Divider, RoundedCornerShape(AppRadius.md))
+            .heightIn(min = 48.dp)
+            .border(1.dp, AppColors.Divider, AppRoundedCornerShape(AppRadius.md))
     ) {
         Icon(icon, null, tint = color, modifier = Modifier.size(18.dp))
         Spacer(Modifier.size(AppSpace.sm))
-        Text(label, fontSize = AppType.BodySmall, color = color, fontWeight = FontWeight.SemiBold)
+        Text(label, fontSize = AppType.BodySmall, color = color, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
@@ -546,7 +546,7 @@ private fun MineruConsentSheet(onDismiss: () -> Unit, onAccept: () -> Unit) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(AppRadius.md))
+                    .clip(AppRoundedCornerShape(AppRadius.md))
                     .background(AppColors.BgGray)
                     .padding(horizontal = 12.dp, vertical = 2.dp)
             ) {
@@ -583,17 +583,20 @@ private fun MineruConsentSheet(onDismiss: () -> Unit, onAccept: () -> Unit) {
             Spacer(Modifier.height(10.dp))
             LiquidGlassButton(
                 onClick = onDismiss,
-                shape = RoundedCornerShape(25.dp),
+                shape = AppRoundedCornerShape(25.dp),
                 tintedColor = if (isLiquidGlass) null else AppColors.BgGray,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp)
+                    .heightIn(min = 50.dp)
             ) {
                 Text(
                     text = stringResource(R.string.cancel),
                     fontSize = AppType.BodySmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = AppColors.TextPrimary
+                    color = AppColors.TextPrimary,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
             }
         }
@@ -603,7 +606,7 @@ private fun MineruConsentSheet(onDismiss: () -> Unit, onAccept: () -> Unit) {
         LiquidGlassDialog(
             onDismissRequest = onDismiss,
             alignment = Alignment.BottomCenter,
-            shape = RoundedCornerShape(28.dp),
+            shape = AppRoundedCornerShape(28.dp),
             contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
             backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
         ) {
@@ -617,13 +620,13 @@ private fun MineruConsentSheet(onDismiss: () -> Unit, onAccept: () -> Unit) {
             containerColor = AppColors.CardBg,
             contentColor = AppColors.TextPrimary,
             scrimColor = Color.Black.copy(alpha = 0.12f),
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shape = AppRoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
             dragHandle = {
                 Box(
                     Modifier
                         .padding(top = 12.dp)
                         .size(width = 36.dp, height = 4.dp)
-                        .background(AppColors.TextSecondary.copy(alpha = 0.25f), RoundedCornerShape(2.dp))
+                        .background(AppColors.TextSecondary.copy(alpha = 0.25f), AppRoundedCornerShape(2.dp))
                 )
             }
         ) {

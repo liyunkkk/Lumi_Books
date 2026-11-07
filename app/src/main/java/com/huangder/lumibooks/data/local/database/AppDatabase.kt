@@ -6,6 +6,7 @@ import com.huangder.lumibooks.data.local.dao.BookDao
 import com.huangder.lumibooks.data.local.dao.BookmarkDao
 import com.huangder.lumibooks.data.local.dao.FolderDao
 import com.huangder.lumibooks.data.local.dao.NoteDao
+import com.huangder.lumibooks.data.local.dao.AnnotationTagDao
 import com.huangder.lumibooks.data.local.dao.ReadingRecordDao
 import com.huangder.lumibooks.data.local.dao.TagDao
 import com.huangder.lumibooks.data.local.dao.SyncStateDao
@@ -15,10 +16,16 @@ import com.huangder.lumibooks.data.local.entity.BookmarkEntity
 import com.huangder.lumibooks.data.local.entity.BookFolderCrossRefEntity
 import com.huangder.lumibooks.data.local.entity.FolderEntity
 import com.huangder.lumibooks.data.local.entity.NoteEntity
+import com.huangder.lumibooks.data.local.entity.AnnotationTagEntity
 import com.huangder.lumibooks.data.local.entity.ReadingRecordEntity
 import com.huangder.lumibooks.data.local.entity.TagEntity
 import com.huangder.lumibooks.data.local.entity.SyncStateEntity
 import com.huangder.lumibooks.data.local.entity.SyncTombstoneEntity
+import com.huangder.lumibooks.data.local.entity.HighlightRuleEntity
+import com.huangder.lumibooks.data.local.entity.BookHighlightRuleStateEntity
+import com.huangder.lumibooks.data.local.entity.BookHighlightSettingsEntity
+import com.huangder.lumibooks.data.local.entity.HighlightRuleExclusionEntity
+import com.huangder.lumibooks.data.local.dao.HighlightRuleDao
 
 @Database(
     entities = [
@@ -30,10 +37,15 @@ import com.huangder.lumibooks.data.local.entity.SyncTombstoneEntity
         ReadingRecordEntity::class,
         BookmarkEntity::class,
         NoteEntity::class,
+        AnnotationTagEntity::class,
         SyncStateEntity::class,
-        SyncTombstoneEntity::class
+        SyncTombstoneEntity::class,
+        HighlightRuleEntity::class,
+        BookHighlightRuleStateEntity::class,
+        BookHighlightSettingsEntity::class,
+        HighlightRuleExclusionEntity::class
     ],
-    version = 13,
+    version = 20,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -41,7 +53,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun readingRecordDao(): ReadingRecordDao
     abstract fun bookmarkDao(): BookmarkDao
     abstract fun noteDao(): NoteDao
+    abstract fun annotationTagDao(): AnnotationTagDao
     abstract fun tagDao(): TagDao
     abstract fun folderDao(): FolderDao
     abstract fun syncStateDao(): SyncStateDao
+    abstract fun highlightRuleDao(): HighlightRuleDao
 }

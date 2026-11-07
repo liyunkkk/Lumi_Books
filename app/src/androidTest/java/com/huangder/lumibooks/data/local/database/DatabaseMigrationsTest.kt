@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
@@ -338,6 +339,96 @@ class DatabaseMigrationsTest {
         }
     }
 
+    @Test
+    fun migration13To14PreservesNotesAndCreatesHighlightRuleStorage() {
+        openHelper(version = 13, createSchema = true).use { helper ->
+            helper.writableDatabase.execSQL(
+                "INSERT INTO notes " +
+                    "(id,bookId,chapterIndex,startPosition,endPosition,selectedText,note,color," +
+                    "createdAt,type,syncId,updatedAt,isNote) VALUES " +
+                    "(9,'book-1',3,12,24,'selected','note','#ffee00',12,'highlight','sync-9',12,1)"
+            )
+        }
+
+        openHelper(version = 14, createSchema = false).use { helper ->
+            val db = helper.writableDatabase
+            db.query(
+                "SELECT origin,sourceRuleId,sourceMatchKey,styleSnapshotJson,isNote " +
+                    "FROM notes WHERE id=9"
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("manual", cursor.getString(0))
+                assertNull(cursor.getString(1))
+                assertNull(cursor.getString(2))
+                assertNull(cursor.getString(3))
+                assertEquals(1, cursor.getInt(4))
+            }
+            assertEquals(
+                setOf(
+                    "index_notes_syncId",
+                    "index_notes_bookId_sourceRuleId_sourceMatchKey"
+                ),
+                indexNames(db, "notes")
+            )
+            val tables = mutableSetOf<String>()
+            db.query(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%highlight%'"
+            ).use { cursor ->
+                while (cursor.moveToNext()) tables += cursor.getString(0)
+            }
+            assertEquals(
+                setOf(
+                    "highlight_rules",
+                    "book_highlight_rule_states",
+                    "book_highlight_settings",
+                    "highlight_rule_exclusions"
+                ),
+                tables
+            )
+        }
+    }
+
+    @Test
+    fun migration16To17KeepsBookmarksAndDefaultsRemarkToEmpty() {
+        openHelper(version = 16, createSchema = true).use { helper ->
+            helper.writableDatabase.execSQL(
+                "INSERT INTO bookmarks (bookId,chapterIndex,position,title,createdAt,syncId,updatedAt) " +
+                    "VALUES ('book-1',2,0.5,'Original title',10,'bookmark-1',10)"
+            )
+        }
+        openHelper(version = 17, createSchema = false).use { helper ->
+            helper.writableDatabase.query(
+                "SELECT title,remark FROM bookmarks WHERE syncId='bookmark-1'"
+            ).use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("Original title", cursor.getString(0))
+                assertEquals("", cursor.getString(1))
+            }
+        }
+    }
+
+    @Test
+    fun migration17To18DefaultsReadingTagsToEmpty() {
+        openHelper(version = 17, createSchema = true).use { helper ->
+            helper.writableDatabase.execSQL(
+                "INSERT INTO bookmarks (bookId,chapterIndex,position,title,createdAt,syncId,updatedAt) " +
+                    "VALUES ('book-1',2,0.5,'Original title',10,'bookmark-1',10)"
+            )
+            helper.writableDatabase.execSQL(
+                "INSERT INTO notes (bookId,chapterIndex,startPosition,endPosition,selectedText,note,color,createdAt,syncId,updatedAt) " +
+                    "VALUES ('book-1',0,0,2,'text','','#ff0000',10,'note-1',10)"
+            )
+        }
+        openHelper(version = 18, createSchema = false).use { helper ->
+            listOf("notes", "bookmarks").forEach { table ->
+                helper.writableDatabase.query("SELECT tagsJson FROM $table").use { cursor ->
+                    assertTrue(cursor.moveToFirst())
+                    assertEquals("[]", cursor.getString(0))
+                }
+            }
+        }
+    }
+
     private fun openHelper(version: Int, createSchema: Boolean): SupportSQLiteOpenHelper {
         val callback = object : SupportSQLiteOpenHelper.Callback(version) {
             override fun onCreate(db: SupportSQLiteDatabase) {
@@ -351,6 +442,13 @@ class DatabaseMigrationsTest {
                     if (version >= 9) DatabaseMigrations.MIGRATION_8_9.migrate(db)
                     if (version >= 10) DatabaseMigrations.MIGRATION_9_10.migrate(db)
                     if (version >= 11) DatabaseMigrations.MIGRATION_10_11.migrate(db)
+                    if (version >= 12) DatabaseMigrations.MIGRATION_11_12.migrate(db)
+                    if (version >= 13) DatabaseMigrations.MIGRATION_12_13.migrate(db)
+                    if (version >= 14) DatabaseMigrations.MIGRATION_13_14.migrate(db)
+                    if (version >= 15) DatabaseMigrations.MIGRATION_14_15.migrate(db)
+                    if (version >= 16) DatabaseMigrations.MIGRATION_15_16.migrate(db)
+                    if (version >= 17) DatabaseMigrations.MIGRATION_16_17.migrate(db)
+                    if (version >= 18) DatabaseMigrations.MIGRATION_17_18.migrate(db)
                 }
             }
 
@@ -363,6 +461,13 @@ class DatabaseMigrationsTest {
                 if (oldVersion < 9 && newVersion >= 9) DatabaseMigrations.MIGRATION_8_9.migrate(db)
                 if (oldVersion < 10 && newVersion >= 10) DatabaseMigrations.MIGRATION_9_10.migrate(db)
                 if (oldVersion < 11 && newVersion >= 11) DatabaseMigrations.MIGRATION_10_11.migrate(db)
+                if (oldVersion < 12 && newVersion >= 12) DatabaseMigrations.MIGRATION_11_12.migrate(db)
+                if (oldVersion < 13 && newVersion >= 13) DatabaseMigrations.MIGRATION_12_13.migrate(db)
+                if (oldVersion < 14 && newVersion >= 14) DatabaseMigrations.MIGRATION_13_14.migrate(db)
+                if (oldVersion < 15 && newVersion >= 15) DatabaseMigrations.MIGRATION_14_15.migrate(db)
+                if (oldVersion < 16 && newVersion >= 16) DatabaseMigrations.MIGRATION_15_16.migrate(db)
+                if (oldVersion < 17 && newVersion >= 17) DatabaseMigrations.MIGRATION_16_17.migrate(db)
+                if (oldVersion < 18 && newVersion >= 18) DatabaseMigrations.MIGRATION_17_18.migrate(db)
             }
         }
         val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)

@@ -24,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import com.huangder.lumibooks.ui.discover.OnlineBookRepository
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Icon
@@ -49,6 +50,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.domain.model.Book
+import com.huangder.lumibooks.ui.components.ConfigurableBackHandler
 import com.huangder.lumibooks.ui.theme.AppColors
 import androidx.compose.ui.res.stringResource
 import com.huangder.lumibooks.ui.theme.AppRadius
@@ -63,9 +65,11 @@ import com.huangder.lumibooks.ui.components.LiquidGlassSurface
  */
 sealed class ContextMenuAction {
     data object BookDetails : ContextMenuAction()
+    data object ToggleReadStatus : ContextMenuAction()
     data object MoveToFolder : ContextMenuAction()
     data object Delete : ContextMenuAction()
     data object Favorite : ContextMenuAction()
+    data object Pin : ContextMenuAction()
     data object CustomCover : ContextMenuAction()
     data object RemoveCustomCover : ContextMenuAction()
     data object BookmarksNotes : ContextMenuAction()
@@ -90,12 +94,14 @@ fun BookContextMenuOverlay(
     state: BookContextMenuState,
     onDelete: (Book) -> Unit = {},
     onFavorite: (Book) -> Unit = {},
+    onPin: (Book) -> Unit = {},
     onCustomCover: (Book) -> Unit = {},
     onRemoveCustomCover: (Book) -> Unit = {},
     onBookmarksNotes: (Book) -> Unit = {},
     onTags: (Book) -> Unit = {},
     onEditInfo: (Book) -> Unit = {},
     onBookDetails: (Book) -> Unit = {},
+    onToggleReadStatus: (Book) -> Unit = {},
     onMoveToFolder: (Book) -> Unit = {},
     isNowReadingHidden: Boolean = false,
     isHidden: Boolean = false,
@@ -106,6 +112,9 @@ fun BookContextMenuOverlay(
     if (state.phase == ContextMenuPhase.Idle) return
 
     val book = state.selectedBook ?: return
+    ConfigurableBackHandler(enabled = state.phase != ContextMenuPhase.Pressing) {
+        state.dismiss()
+    }
     val coverBounds = state.coverBounds
     val coverScale = state.coverScale.value
 
@@ -134,6 +143,7 @@ fun BookContextMenuOverlay(
         // ── 2. 高亮封面（在遮罩之上，原始位置放大） ──
         HighlightedCover(
             book = book,
+
             coverBounds = coverBounds,
             coverScale = coverScale
         )
@@ -151,13 +161,15 @@ fun BookContextMenuOverlay(
                     state.dismiss()
                     when (action) {
                         is ContextMenuAction.BookDetails -> onBookDetails(book)
+                        is ContextMenuAction.ToggleReadStatus -> onToggleReadStatus(book)
                         is ContextMenuAction.MoveToFolder -> onMoveToFolder(book)
                         is ContextMenuAction.Delete -> onDelete(book)
                         is ContextMenuAction.Favorite -> onFavorite(book)
+                        is ContextMenuAction.Pin -> onPin(book)
                         is ContextMenuAction.CustomCover -> onCustomCover(book)
                         is ContextMenuAction.RemoveCustomCover -> onRemoveCustomCover(book)
                         is ContextMenuAction.BookmarksNotes -> onBookmarksNotes(book)
-                        is ContextMenuAction.Tags -> onTags(book)
+                        is ContextMenuAction.Tags -> onTags(book) 
                         is ContextMenuAction.EditInfo -> onEditInfo(book)
                         is ContextMenuAction.ToggleHideNowReading -> onToggleHideNowReading(book)
                         is ContextMenuAction.ToggleHideBook -> onToggleHideBook(book)
@@ -189,7 +201,7 @@ private fun HighlightedCover(
     val coverHeightDp = with(density) { coverBounds.height.toDp() }
     val context = LocalContext.current
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
-    val coverShape = RoundedCornerShape(if (isLiquidGlass) 16.dp else AppRadius.sm)
+    val coverShape = AppRoundedCornerShape(if (isLiquidGlass) 16.dp else AppRadius.sm)
     // Keep the highlighted cover anchored to its original position. Moving it to make
     // room for the menu causes a large jump when the pressed book is near the bottom.
     val coverOffsetY = coverTopDp
@@ -240,6 +252,7 @@ private fun HighlightedCover(
                 )
             }
         }
+        com.huangder.lumibooks.ui.components.BookCoverReadingProgress(book, compact = true)
     }
 }
 
@@ -328,7 +341,9 @@ private fun ContextMenuLayout(
             compact = useCompactMiddlePanel,
             isFavorite = book.isFavorite,
             isOnlineBook = OnlineBookRepository.isOnlineBook(book.filePath),
+            isPinned = book.isPinned,
             hasCustomCover = com.huangder.lumibooks.util.FileUtils.isCustomCover(book.coverPath),
+            isReadingFinished = book.isReadingFinished,
             onAction = onAction
         )
         }
@@ -345,7 +360,7 @@ private fun BookInfoPanel(
     onEditInfo: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(
+    val shape = AppRoundedCornerShape(
         if (LocalAppTheme.current == "liquid_glass") 24.dp else AppRadius.md
     )
     val motionProgress = alpha.coerceIn(-0.08f, 1.08f)
@@ -399,7 +414,7 @@ private fun BookInfoPanel(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .clip(RoundedCornerShape(AppRadius.sm))
+                .clip(AppRoundedCornerShape(AppRadius.sm))
                 .clickable { onEditInfo() }
                 .padding(vertical = 4.dp)
         ) {
@@ -429,23 +444,29 @@ private fun MenuActionsPanel(
     compact: Boolean = false,
     isFavorite: Boolean = false,
     isOnlineBook: Boolean = false,
+    isPinned: Boolean = false,
     hasCustomCover: Boolean = false,
     isNowReadingHidden: Boolean = false,
     isHidden: Boolean = false,
+    isReadingFinished: Boolean = false,
     onAction: (ContextMenuAction) -> Unit
 ) {
-    val shape = RoundedCornerShape(
+    val shape = AppRoundedCornerShape(
         if (LocalAppTheme.current == "liquid_glass") 24.dp else AppRadius.md
     )
     val motionProgress = actionsAlpha.coerceIn(-0.08f, 1.08f)
     val favoriteIcon = AppIcons.Heart.resolve(isFavorite)
     val favoriteLabel = if (isFavorite) stringResource(R.string.remove_favorite_short) else stringResource(R.string.favorite)
+    val pinLabel = if (isPinned) stringResource(R.string.book_unpin) else stringResource(R.string.book_pin)
+    val readStatusLabel = if (isReadingFinished) stringResource(R.string.book_unmark_read) else stringResource(R.string.book_mark_read)
     // 动态构建菜单项列表
     data class MenuItem(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val action: ContextMenuAction)
 
     val menuItems = buildList {
         add(MenuItem(stringResource(R.string.book_details), AppIcons.Info, ContextMenuAction.BookDetails))
+        add(MenuItem(readStatusLabel, AppIcons.BookOpen, ContextMenuAction.ToggleReadStatus))
         add(MenuItem(favoriteLabel, favoriteIcon, ContextMenuAction.Favorite))
+        add(MenuItem(pinLabel, AppIcons.PushPin, ContextMenuAction.Pin))
         add(MenuItem(stringResource(R.string.add_tag), AppIcons.Tag, ContextMenuAction.Tags))
         add(MenuItem(stringResource(R.string.move_to_folder), AppIcons.FolderSimple, ContextMenuAction.MoveToFolder))
         add(MenuItem(stringResource(R.string.bookmarks_notes), AppIcons.Bookmark.regular, ContextMenuAction.BookmarksNotes))
@@ -519,7 +540,7 @@ private fun MenuActionItem(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer { this.alpha = alpha }
-            .clip(RoundedCornerShape(AppRadius.sm))
+            .clip(AppRoundedCornerShape(AppRadius.sm))
             .clickable(onClick = onClick)
             .padding(
                 horizontal = if (compact) 6.dp else 10.dp,

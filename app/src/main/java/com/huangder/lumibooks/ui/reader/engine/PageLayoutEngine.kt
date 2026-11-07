@@ -9,8 +9,18 @@ import com.huangder.lumibooks.domain.model.ReaderTextAlignment
 import com.huangder.lumibooks.domain.model.ReaderWritingMode
 import com.huangder.lumibooks.ui.reader.readerBreakStrategy
 import com.huangder.lumibooks.ui.reader.readerJustificationMode
+import com.huangder.lumibooks.ui.reader.readerBreakStrategyForText
+import com.huangder.lumibooks.ui.reader.readerJustificationForText
+import com.huangder.lumibooks.ui.reader.readerHyphenationFrequency
+import com.huangder.lumibooks.ui.reader.usesReaderEnglishHyphenation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import com.huangder.lumibooks.ui.reader.ReaderBookPages
 
 /**
  * StaticLayout 分页引擎。
@@ -18,7 +28,7 @@ import kotlinx.coroutines.withContext
  * 职责：
  * - 用 StaticLayout 排版章节文本
  * - 按可视区域高度切分为 [PageLayout] 列表
- * - LRU 缓存最近使用的章节布局（默认 5 章）
+ * - LRU 缓存最近使用的 8 章布局，独立保存全书页数和字符边界
  * - 全局页码 ↔ 局部页码转换
  */
 class PageLayoutEngine {
@@ -31,7 +41,10 @@ class PageLayoutEngine {
         val visibleHeight: Int,
         val textPaint: TextPaint,
         val textAlignment: ReaderTextAlignment,
-        val writingMode: ReaderWritingMode
+        val writingMode: ReaderWritingMode,
+        val lineSpacingExtra: Float,
+        val lineSpacingMultiplier: Float,
+        val letterSpacing: Float
     )
 
     // ── 排版参数 ──
@@ -78,9 +91,48 @@ class PageLayoutEngine {
     }
     private val cacheLock = Any()
     private var layoutGeneration: Long = 0L
+    private var paginationIdentity: String = ""
+    private var paginationLayoutIdentity: String = ""
+    private var configuredFontIdentity: String? = null
 
-    /** 各章累计页数前缀和，用于全局页码转换 */
-    private val cumulativePageTotals = mutableListOf<Int>()
+    /** Stable metric snapshot: neither paint color nor Typeface object identity belongs here. */
+    internal fun paginationSignature(): String = synchronized(cacheLock) {
+        val paint = activeTextPaint
+        listOf("native", paginationIdentity, paginationLayoutIdentity, configuredFontIdentity, chapterCount, visibleWidth, visibleHeight,
+            paint.textSize, paint.textScaleX, paint.textSkewX, paint.isFakeBoldText,
+            paint.density, paint.fontFeatureSettings, paint.fontVariationSettings, paint.textLocales,
+            lineSpacingExtra, lineSpacingMultiplier, letterSpacing, textAlignment, writingMode,
+            useDisplayDensityForSpans).joinToString("|")
+    }
+
+    internal fun setPaginationIdentity(identity: String) = synchronized(cacheLock) {
+        if (paginationIdentity != identity) {
+            paginationIdentity = identity
+            invalidateAll()
+        }
+    }
+
+    internal fun setPaginationLayoutIdentity(identity: String) = synchronized(cacheLock) {
+        if (paginationLayoutIdentity != identity) {
+            paginationLayoutIdentity = identity
+            invalidateAll()
+        }
+    }
+
+    internal fun restoreBookPages(pages: ReaderBookPages, expectedGeneration: Long): Boolean = synchronized(cacheLock) {
+        if (layoutGeneration != expectedGeneration || pages.chapterCounts.size != chapterCount) return@synchronized false
+        if (_bookPages.value.chapterCounts.indices.any { chapter ->
+                val fresh = _bookPages.value.chapterCounts[chapter]
+                val saved = pages.chapterCounts[chapter]
+                fresh != null && saved != null && fresh != saved
+            }) return@synchronized false
+        _bookPages.value = com.huangder.lumibooks.ui.reader.mergeReaderBookPages(pages, _bookPages.value)
+        true
+    }
+
+    /** Counts and boundaries survive eviction of the heavier chapter layouts. */
+    private val _bookPages = MutableStateFlow(ReaderBookPages())
+    internal val bookPages = _bookPages.asStateFlow()
 
     /** 总章数 */
     private var chapterCount: Int = 0
@@ -109,7 +161,8 @@ class PageLayoutEngine {
         chapterCount: Int = 0,
         useDisplayDensityForSpans: Boolean = false,
         textAlignment: ReaderTextAlignment = ReaderTextAlignment.NATURAL,
-        writingMode: ReaderWritingMode = ReaderWritingMode.HORIZONTAL
+        writingMode: ReaderWritingMode = ReaderWritingMode.HORIZONTAL,
+        fontIdentity: String? = null
     ) {
         val baseTypeface = typeface ?: when {
             fontType == "serif" -> Typeface.SERIF
@@ -126,6 +179,7 @@ class PageLayoutEngine {
         } else {
             Typeface.create(baseTypeface, if (fontWeight >= 600) Typeface.BOLD else Typeface.NORMAL)
         }
+        synchronized(cacheLock) {
         val changed = textWidth != width || textHeight != height ||
                 ownTextPaint.textSize != fontSizePx || lineSpacingExtra != lineSpacingPx ||
                 lineSpacingMultiplier != lineSpacingMult ||
@@ -134,7 +188,9 @@ class PageLayoutEngine {
                 marginTop != marginTopPx || marginBottom != marginBottomPx ||
                 this.useDisplayDensityForSpans != useDisplayDensityForSpans ||
                 this.textAlignment != textAlignment ||
-                this.writingMode != writingMode || ownTextPaint.typeface != tf
+                this.writingMode != writingMode ||
+                (if (fontIdentity == null) ownTextPaint.typeface != tf else configuredFontIdentity != fontIdentity) ||
+                this.chapterCount != chapterCount
 
         textWidth = width
         textHeight = height
@@ -151,6 +207,7 @@ class PageLayoutEngine {
         ownTextPaint.linkColor = textColor   // 🔥 同步：避免主题切换后 URLSpan 颜色不同步
 
         ownTextPaint.typeface = tf
+        configuredFontIdentity = fontIdentity
         this.chapterCount = chapterCount
         this.useDisplayDensityForSpans = useDisplayDensityForSpans
         this.textAlignment = textAlignment
@@ -158,6 +215,7 @@ class PageLayoutEngine {
 
         if (changed) {
             invalidateAll()
+        }
         }
     }
 
@@ -169,9 +227,14 @@ class PageLayoutEngine {
      */
     suspend fun layout(
         chapterIndex: Int,
-        text: CharSequence
+        text: CharSequence,
+        cacheResult: Boolean = true,
+        expectedGeneration: Long? = null
     ): ChapterLayout = withContext(layoutDispatcher) {
         val input = synchronized(cacheLock) {
+            if (expectedGeneration != null && expectedGeneration != layoutGeneration) {
+                throw CancellationException("Reader layout changed")
+            }
             layoutCache[chapterIndex]?.let { return@withContext it }
             LayoutInput(
                 generation = layoutGeneration,
@@ -183,17 +246,20 @@ class PageLayoutEngine {
                     }
                 },
                 textAlignment = textAlignment,
-                writingMode = writingMode
+                writingMode = writingMode,
+                lineSpacingExtra = lineSpacingExtra,
+                lineSpacingMultiplier = lineSpacingMultiplier,
+                letterSpacing = letterSpacing
             )
         }
 
         val sl = StaticLayout.Builder.obtain(text, 0, text.length, input.textPaint, input.visibleWidth)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-            .setLineSpacing(lineSpacingExtra, lineSpacingMultiplier)
+            .setLineSpacing(input.lineSpacingExtra, input.lineSpacingMultiplier)
             .setIncludePad(false)
-            .setBreakStrategy(input.textAlignment.readerBreakStrategy())
-            .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
-            .setJustificationMode(input.textAlignment.readerJustificationMode())
+            .setBreakStrategy(input.textAlignment.readerBreakStrategyForText(text))
+            .setHyphenationFrequency(readerHyphenationFrequency(text))
+            .setJustificationMode(input.textAlignment.readerJustificationForText(text))
             .build()
 
         if (input.writingMode.isVertical) {
@@ -202,9 +268,9 @@ class PageLayoutEngine {
                 paint = input.textPaint,
                 width = input.visibleWidth,
                 height = input.visibleHeight,
-                lineSpacingExtra = lineSpacingExtra,
-                lineSpacingMultiplier = lineSpacingMultiplier,
-                letterSpacing = letterSpacing
+                lineSpacingExtra = input.lineSpacingExtra,
+                lineSpacingMultiplier = input.lineSpacingMultiplier,
+                letterSpacing = input.letterSpacing
             ).mapIndexed { pageIndex, page ->
                 PageLayout(
                     chapterIndex = chapterIndex,
@@ -217,7 +283,7 @@ class PageLayoutEngine {
                 )
             }
             val cumulativeBefore = synchronized(cacheLock) {
-                (0 until chapterIndex).sumOf { layoutCache[it]?.totalPages ?: 0 }
+                (0 until chapterIndex).sumOf { _bookPages.value.chapterCounts.getOrNull(it) ?: 0 }
             }
             val result = ChapterLayout(
                 chapterIndex = chapterIndex,
@@ -226,8 +292,13 @@ class PageLayoutEngine {
                 totalPages = verticalPages.size,
                 cumulativePagesBefore = cumulativeBefore
             )
+            coroutineContext.ensureActive()
             synchronized(cacheLock) {
-                if (input.generation == layoutGeneration) layoutCache[chapterIndex] = result
+                if (input.generation == layoutGeneration) {
+                    if (cacheResult) layoutCache[chapterIndex] = result
+                    _bookPages.value = _bookPages.value.withChapter(chapterIndex, result.totalPages,
+                        result.pages.map { it.startCharOffset })
+                }
             }
             return@withContext result
         }
@@ -242,6 +313,14 @@ class PageLayoutEngine {
         var globalCharOffset = 0
 
         while (pageStartLine < sl.lineCount) {
+            coroutineContext.ensureActive()
+            // StaticLayout adds a terminal zero-width line for text ending in
+            // a newline. It has no character range to render and must not
+            // become a separate page: PageContentView treats start == end as
+            // an empty slot, which otherwise appears as a blank page when the
+            // conveyor rotates back to the chapter tail.
+            if (sl.getLineStart(pageStartLine) >= text.length) break
+
             // 找到本页的最后一行
             var pageEndLine = pageStartLine
             var accumulatedHeight = 0f
@@ -288,6 +367,29 @@ class PageLayoutEngine {
                 }
             }
 
+            // HQ hyphenation optimizes a whole paragraph. A page-local TextView
+            // can choose different breaks at its new paragraph boundary, so
+            // verify the exact slice before committing the page's source range.
+            if (usesReaderEnglishHyphenation(text)) {
+                while (pageEndLine > pageStartLine + 1) {
+                    val candidateStart = sl.getLineStart(pageStartLine)
+                    val candidateEnd = if (pageEndLine < sl.lineCount) sl.getLineStart(pageEndLine) else text.length
+                    val slice = text.subSequence(candidateStart, candidateEnd)
+                    val local = StaticLayout.Builder.obtain(slice, 0, slice.length, input.textPaint, input.visibleWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setLineSpacing(input.lineSpacingExtra, input.lineSpacingMultiplier)
+                        .setIncludePad(false)
+                        .setBreakStrategy(input.textAlignment.readerBreakStrategyForText(slice))
+                        .setHyphenationFrequency(readerHyphenationFrequency(slice))
+                        .setJustificationMode(input.textAlignment.readerJustificationForText(slice))
+                        .build()
+                    var last = local.lineCount - 1
+                    if (last > 0 && local.getLineStart(last) == slice.length) last--
+                    if (local.getLineBaseline(last) + local.getLineDescent(last) <= effectiveVh) break
+                    pageEndLine--
+                }
+            }
+
             val startChar = sl.getLineStart(pageStartLine)
             val endChar = if (pageEndLine < sl.lineCount) {
                 sl.getLineStart(pageEndLine)
@@ -302,7 +404,10 @@ class PageLayoutEngine {
                     startLine = pageStartLine,
                     endLine = pageEndLine,
                     startCharOffset = startChar,
-                    endCharOffset = endChar
+                    endCharOffset = endChar,
+                    endHyphenEdit = if (usesReaderEnglishHyphenation(text))
+                        ReaderNativeLine.measure(sl, pageEndLine - 1, Layout.JUSTIFICATION_MODE_NONE)?.endHyphenEdit ?: 0
+                        else 0
                 )
             )
             globalCharOffset += (endChar - startChar)
@@ -314,7 +419,7 @@ class PageLayoutEngine {
             if (chapterIndex > 0) {
                 var sum = 0
                 for (i in 0 until chapterIndex) {
-                    layoutCache[i]?.let { sum += it.totalPages }
+                    sum += _bookPages.value.chapterCounts.getOrNull(i) ?: 0
                 }
                 sum
             } else {
@@ -329,15 +434,35 @@ class PageLayoutEngine {
             totalPages = pages.size,
             cumulativePagesBefore = cumulativeBefore
         )
+        coroutineContext.ensureActive()
         synchronized(cacheLock) {
             if (input.generation == layoutGeneration) {
-                layoutCache[chapterIndex] = result
+                if (cacheResult) layoutCache[chapterIndex] = result
+                _bookPages.value = _bookPages.value.withChapter(chapterIndex, result.totalPages,
+                    result.pages.map { it.startCharOffset })
             }
         }
         result
     }
 
     // ── 全局页码转换 ──
+
+    /** Measure a missing count without retaining the text/layout in the reader's LRU. */
+    internal suspend fun measurePageCount(chapterIndex: Int, text: CharSequence, generation: Long) {
+        if (bookPages.value.generation != generation) return
+        layout(chapterIndex, text, cacheResult = false, expectedGeneration = generation)
+    }
+
+    internal suspend fun indexMissingPages(generation: Long, content: suspend (Int) -> CharSequence?) {
+        for (chapter in bookPages.value.chapterCounts.indices) {
+            coroutineContext.ensureActive()
+            if (bookPages.value.generation != generation) return
+            if (bookPages.value.chapterCounts[chapter] != null) continue
+            val text = content(chapter) ?: continue
+            measurePageCount(chapter, text, generation)
+            kotlinx.coroutines.yield()
+        }
+    }
 
     /**
      * 全局页码 → (章节索引, 章内页码)
@@ -347,12 +472,12 @@ class PageLayoutEngine {
         return synchronized(cacheLock) {
             var remaining = globalPageIndex
             for (ci in 0 until chapterCount) {
-                val cl = layoutCache[ci]
-                if (cl != null) {
-                    if (remaining < cl.totalPages) {
+                val count = _bookPages.value.chapterCounts.getOrNull(ci)
+                if (count != null) {
+                    if (remaining < count) {
                         return@synchronized ci to remaining
                     }
-                    remaining -= cl.totalPages
+                    remaining -= count
                 }
             }
             (chapterCount - 1).coerceAtLeast(0) to 0
@@ -366,7 +491,7 @@ class PageLayoutEngine {
         return synchronized(cacheLock) {
             var global = 0
             for (ci in 0 until chapterIndex.coerceAtMost(chapterCount)) {
-                layoutCache[ci]?.let { global += it.totalPages }
+                global += _bookPages.value.chapterCounts.getOrNull(ci) ?: 0
             }
             global + pageInChapter
         }
@@ -384,7 +509,7 @@ class PageLayoutEngine {
         return synchronized(cacheLock) {
             var total = 0
             for (ci in 0 until chapterCount) {
-                layoutCache[ci]?.let { total += it.totalPages }
+                total += _bookPages.value.chapterCounts.getOrNull(ci) ?: 0
             }
             total
         }
@@ -394,7 +519,9 @@ class PageLayoutEngine {
      * 获取指定章的页数
      */
     fun getChapterPageCount(chapterIndex: Int): Int {
-        return synchronized(cacheLock) { layoutCache[chapterIndex]?.totalPages ?: 0 }
+        return synchronized(cacheLock) {
+            _bookPages.value.chapterCounts.getOrNull(chapterIndex) ?: layoutCache[chapterIndex]?.totalPages ?: 0
+        }
     }
 
     /**
@@ -456,6 +583,11 @@ class PageLayoutEngine {
         synchronized(cacheLock) {
             layoutGeneration++
             layoutCache.remove(chapterIndex)
+            _bookPages.value = _bookPages.value.copy(generation = layoutGeneration,
+                chapterStarts = _bookPages.value.chapterStarts - chapterIndex,
+                chapterCounts = _bookPages.value.chapterCounts.toMutableList().apply {
+                    if (chapterIndex in indices) this[chapterIndex] = null
+                })
         }
     }
 
@@ -463,7 +595,14 @@ class PageLayoutEngine {
         synchronized(cacheLock) {
             layoutGeneration++
             layoutCache.clear()
-            cumulativePageTotals.clear()
+            _bookPages.value = ReaderBookPages(layoutGeneration, List(chapterCount) { null })
         }
+    }
+
+    /** Refresh colors/annotations without throwing away confirmed page boundaries. */
+    fun refreshLayouts() = synchronized(cacheLock) {
+        layoutGeneration++
+        layoutCache.clear()
+        _bookPages.value = _bookPages.value.copy(generation = layoutGeneration)
     }
 }

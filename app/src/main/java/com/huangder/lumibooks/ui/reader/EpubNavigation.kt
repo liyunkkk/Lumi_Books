@@ -1,6 +1,40 @@
 package com.huangder.lumibooks.ui.reader
 
-internal const val EPUB_NAVIGATION_TIMEOUT_MS = 10_000L
+internal const val EPUB_NAVIGATION_TIMEOUT_MS = 8_000L
+
+/** One speculative chapter; immediate neighbours always retain their own slots. */
+internal fun epubWarmChapterTarget(
+    chapter: Int, page: Int, pageCount: Int, chapterCount: Int,
+    direction: Int, scrolling: Boolean
+): EpubPageTarget? {
+    if (scrolling || pageCount < 1) return null
+    val previous = EpubPageTarget(chapter - 1, Int.MAX_VALUE)
+        .takeIf { chapter > 0 && page < 3 }
+    val next = EpubPageTarget(chapter + 1, 0)
+        .takeIf { chapter + 1 < chapterCount && page >= pageCount - 3 }
+    return if (direction < 0) previous ?: next else next ?: previous
+}
+
+/** Scrolling prepares neighbouring chapters, not virtual pages in the same chapter. */
+internal fun epubAdjacentPreloadTargets(
+    chapter: Int,
+    page: Int,
+    pageCount: Int,
+    chapterCount: Int,
+    scrolling: Boolean
+): Pair<EpubPageTarget?, EpubPageTarget?> {
+    val previous = when {
+        !scrolling && page > 0 -> EpubPageTarget(chapter, page - 1)
+        chapter > 0 -> EpubPageTarget(chapter - 1, Int.MAX_VALUE)
+        else -> null
+    }
+    val next = when {
+        !scrolling && page + 1 < pageCount -> EpubPageTarget(chapter, page + 1)
+        chapter + 1 < chapterCount -> EpubPageTarget(chapter + 1, 0)
+        else -> null
+    }
+    return previous to next
+}
 
 internal fun epubDocumentMessageMatches(
     messageDocumentUrl: String?,
@@ -19,6 +53,7 @@ internal enum class EpubNavigationOrigin {
     INTERNAL_LINK,
     TTS,
     RETURN_TO_SOURCE,
+    PAGE_TURN,
     CHAPTER_CONTROL,
     PROGRESS
 }
@@ -53,7 +88,8 @@ internal enum class EpubNavigationStage {
     STARTING,
     LOADING_DOCUMENT,
     CONFIGURING,
-    WAITING_FOR_FRAME
+    WAITING_FOR_FRAME,
+    ANIMATING
 }
 
 internal enum class EpubNavigationFailureReason {
@@ -61,6 +97,7 @@ internal enum class EpubNavigationFailureReason {
     DOCUMENT_ERROR,
     HTTP_ERROR,
     SCRIPT_NOT_READY,
+    SCRIPT_EXECUTION_ERROR,
     TARGET_NOT_FOUND,
     TIMEOUT,
     RENDERER_GONE

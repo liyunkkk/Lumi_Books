@@ -8,6 +8,11 @@ import com.huangder.lumibooks.data.local.entity.NoteEntity
 import com.huangder.lumibooks.data.local.entity.ReadingRecordEntity
 import com.huangder.lumibooks.data.local.entity.SyncTombstoneEntity
 import com.huangder.lumibooks.data.local.entity.TagEntity
+import com.huangder.lumibooks.data.local.entity.AnnotationTagEntity
+import com.huangder.lumibooks.data.local.entity.HighlightRuleEntity
+import com.huangder.lumibooks.data.local.entity.BookHighlightRuleStateEntity
+import com.huangder.lumibooks.data.local.entity.BookHighlightSettingsEntity
+import com.huangder.lumibooks.data.local.entity.HighlightRuleExclusionEntity
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -40,7 +45,8 @@ data class PortableBook(
     val remoteFileName: String?,
     val remoteFileSize: Long,
     val remoteFileSha256: String?,
-    val filePath: String? = null
+    val filePath: String? = null,
+    val isPinned: Boolean = false
 )
 
 data class PortableSnapshot(
@@ -60,7 +66,12 @@ data class PortableSnapshot(
     val assets: List<PortableAsset>,
     val bookSourcesJson: String? = null,
     val legadoBooksJson: String? = null,
-    val replaceRulesJson: String? = null
+    val replaceRulesJson: String? = null,
+    val highlightRules: List<HighlightRuleEntity> = emptyList(),
+    val bookHighlightRuleStates: List<BookHighlightRuleStateEntity> = emptyList(),
+    val bookHighlightSettings: List<BookHighlightSettingsEntity> = emptyList(),
+    val highlightRuleExclusions: List<HighlightRuleExclusionEntity> = emptyList(),
+    val annotationTags: List<AnnotationTagEntity> = emptyList()
 ) {
     fun toJson(): String = JSONObject().apply {
         put("schemaVersion", schemaVersion)
@@ -71,6 +82,9 @@ data class PortableSnapshot(
         put("folders", folders.toJsonArray(::folderToJson))
         put("bookFolderLinks", bookFolderLinks.toJsonArray(::bookFolderLinkToJson))
         put("tags", tags.toJsonArray(::tagToJson))
+        put("annotationTags", annotationTags.toJsonArray { item -> JSONObject().apply {
+            put("name", item.name); put("updatedAt", item.updatedAt); put("isDeleted", item.isDeleted)
+        } })
         put("bookTagLinks", bookTagLinks.toJsonArray(::bookTagLinkToJson))
         put("readingRecords", readingRecords.toJsonArray(::readingRecordToJson))
         put("bookmarks", bookmarks.toJsonArray(::bookmarkToJson))
@@ -80,6 +94,10 @@ data class PortableSnapshot(
         putNullable("bookSourcesJson", bookSourcesJson)
         putNullable("legadoBooksJson", legadoBooksJson)
         putNullable("replaceRulesJson", replaceRulesJson)
+        put("highlightRules", highlightRules.toJsonArray(::highlightRuleToJson))
+        put("bookHighlightRuleStates", bookHighlightRuleStates.toJsonArray(::bookHighlightRuleStateToJson))
+        put("bookHighlightSettings", bookHighlightSettings.toJsonArray(::bookHighlightSettingsToJson))
+        put("highlightRuleExclusions", highlightRuleExclusions.toJsonArray(::highlightRuleExclusionToJson))
     }.toString()
 
     companion object {
@@ -98,6 +116,9 @@ data class PortableSnapshot(
                 folders = root.array("folders").mapObjects(::folderFromJson),
                 bookFolderLinks = root.array("bookFolderLinks").mapObjects(::bookFolderLinkFromJson),
                 tags = root.array("tags").mapObjects(::tagFromJson),
+                annotationTags = root.array("annotationTags").mapObjects {
+                    AnnotationTagEntity(it.getString("name"), it.optLong("updatedAt"), it.optBoolean("isDeleted"))
+                },
                 bookTagLinks = root.array("bookTagLinks").mapObjects(::bookTagLinkFromJson),
                 readingRecords = root.array("readingRecords").mapObjects(::readingRecordFromJson),
                 bookmarks = root.array("bookmarks").mapObjects(::bookmarkFromJson),
@@ -106,7 +127,11 @@ data class PortableSnapshot(
                 assets = root.array("assets").mapObjects(::assetFromJson),
                 bookSourcesJson = root.nullableString("bookSourcesJson"),
                 legadoBooksJson = root.nullableString("legadoBooksJson"),
-                replaceRulesJson = root.nullableString("replaceRulesJson")
+                replaceRulesJson = root.nullableString("replaceRulesJson"),
+                highlightRules = root.array("highlightRules").mapObjects(::highlightRuleFromJson),
+                bookHighlightRuleStates = root.array("bookHighlightRuleStates").mapObjects(::bookHighlightRuleStateFromJson),
+                bookHighlightSettings = root.array("bookHighlightSettings").mapObjects(::bookHighlightSettingsFromJson),
+                highlightRuleExclusions = root.array("highlightRuleExclusions").mapObjects(::highlightRuleExclusionFromJson)
             )
         }
     }
@@ -131,6 +156,7 @@ private fun bookToJson(book: PortableBook) = JSONObject().apply {
     put("remoteFileSize", book.remoteFileSize)
     putNullable("remoteFileSha256", book.remoteFileSha256)
     putNullable("filePath", book.filePath)
+    put("isPinned", book.isPinned)
 }
 
 private fun bookFromJson(json: JSONObject) = PortableBook(
@@ -151,7 +177,8 @@ private fun bookFromJson(json: JSONObject) = PortableBook(
     remoteFileName = json.nullableString("remoteFileName"),
     remoteFileSize = json.optLong("remoteFileSize"),
     remoteFileSha256 = json.nullableString("remoteFileSha256"),
-    filePath = json.nullableString("filePath")
+    filePath = json.nullableString("filePath"),
+    isPinned = json.optBoolean("isPinned", false)
 )
 
 private fun folderToJson(item: FolderEntity) = JSONObject().apply {
@@ -211,14 +238,19 @@ private fun readingRecordFromJson(json: JSONObject) = ReadingRecordEntity(
 private fun bookmarkToJson(item: BookmarkEntity) = JSONObject().apply {
     put("bookId", item.bookId); put("chapterIndex", item.chapterIndex); put("position", item.position.toDouble())
     putNullable("locatorJson", item.locatorJson); put("title", item.title); put("createdAt", item.createdAt)
-    put("syncId", item.syncId); put("updatedAt", item.updatedAt)
+    put("syncId", item.syncId); put("updatedAt", item.updatedAt); put("remark", item.remark)
+    put("tagsJson", item.tagsJson)
+    put("isStale", item.isStale)
 }
 
 private fun bookmarkFromJson(json: JSONObject) = BookmarkEntity(
     bookId = json.getString("bookId"), chapterIndex = json.optInt("chapterIndex"),
     position = json.optDouble("position").toFloat(), locatorJson = json.nullableString("locatorJson"),
     title = json.optString("title"), createdAt = json.optLong("createdAt"), syncId = json.optString("syncId"),
-    updatedAt = json.optLong("updatedAt", json.optLong("createdAt"))
+    updatedAt = json.optLong("updatedAt", json.optLong("createdAt")),
+    remark = json.optString("remark"),
+    tagsJson = json.optString("tagsJson", "[]"),
+    isStale = json.optBoolean("isStale", false)
 )
 
 private fun noteToJson(item: NoteEntity) = JSONObject().apply {
@@ -229,6 +261,12 @@ private fun noteToJson(item: NoteEntity) = JSONObject().apply {
     put("isNote", item.isNote)
     put("createdAt", item.createdAt); put("type", item.type); put("syncId", item.syncId)
     put("updatedAt", item.updatedAt)
+    put("origin", item.origin)
+    putNullable("sourceRuleId", item.sourceRuleId)
+    putNullable("sourceMatchKey", item.sourceMatchKey)
+    putNullable("styleSnapshotJson", item.styleSnapshotJson)
+    put("tagsJson", item.tagsJson)
+    put("isStale", item.isStale)
 }
 
 private fun noteFromJson(json: JSONObject) = NoteEntity(
@@ -239,7 +277,57 @@ private fun noteFromJson(json: JSONObject) = NoteEntity(
     note = json.optString("note"), color = json.optString("color"), createdAt = json.optLong("createdAt"),
     type = json.optString("type", "highlight"), syncId = json.optString("syncId"),
     isNote = json.optBoolean("isNote", json.optString("note").isNotBlank() || json.optString("type") == "note"),
-    updatedAt = json.optLong("updatedAt", json.optLong("createdAt"))
+    updatedAt = json.optLong("updatedAt", json.optLong("createdAt")),
+    origin = json.optString("origin", "manual"),
+    sourceRuleId = json.nullableString("sourceRuleId"),
+    sourceMatchKey = json.nullableString("sourceMatchKey"),
+    styleSnapshotJson = json.nullableString("styleSnapshotJson"),
+    tagsJson = json.optString("tagsJson", "[]"),
+    isStale = json.optBoolean("isStale", false)
+)
+
+private fun highlightRuleToJson(item: HighlightRuleEntity) = JSONObject().apply {
+    put("id", item.id); put("name", item.name); put("pattern", item.pattern); put("enabled", item.enabled)
+    put("position", item.position); put("targetScope", item.targetScope); putNullableInt("textColor", item.textColor)
+    put("underlineMode", item.underlineMode); put("underlineOffset", item.underlineOffset.toDouble())
+    put("underlineWidth", item.underlineWidth.toDouble()); put("fontWeight", item.fontWeight)
+    put("isItalic", item.isItalic); put("fontType", item.fontType); put("sampleText", item.sampleText); put("rawJson", item.rawJson)
+    put("updatedAt", item.updatedAt)
+}
+
+private fun highlightRuleFromJson(json: JSONObject) = HighlightRuleEntity(
+    id = json.getString("id"), name = json.optString("name"), pattern = json.optString("pattern"),
+    enabled = json.optBoolean("enabled", true), position = json.optInt("position"),
+    targetScope = json.optInt("targetScope"),
+    textColor = if (json.has("textColor") && !json.isNull("textColor")) json.optInt("textColor") else null,
+    underlineMode = json.optInt("underlineMode"), underlineOffset = json.optDouble("underlineOffset", 2.0).toFloat(),
+    underlineWidth = json.optDouble("underlineWidth", 1.0).toFloat(), fontWeight = json.optInt("fontWeight", 400),
+    isItalic = json.optBoolean("isItalic"), fontType = json.optString("fontType"), sampleText = json.optString("sampleText"),
+    rawJson = json.optString("rawJson", "{}"), updatedAt = json.optLong("updatedAt")
+)
+
+private fun bookHighlightRuleStateToJson(item: BookHighlightRuleStateEntity) = JSONObject().apply {
+    put("bookId", item.bookId); put("ruleId", item.ruleId); put("enabled", item.enabled); put("position", item.position)
+}
+
+private fun bookHighlightRuleStateFromJson(json: JSONObject) = BookHighlightRuleStateEntity(
+    json.getString("bookId"), json.getString("ruleId"), json.optBoolean("enabled"), json.optInt("position")
+)
+
+private fun bookHighlightSettingsToJson(item: BookHighlightSettingsEntity) = JSONObject().apply {
+    put("bookId", item.bookId); put("materializeNotes", item.materializeNotes); put("revision", item.revision)
+}
+
+private fun bookHighlightSettingsFromJson(json: JSONObject) = BookHighlightSettingsEntity(
+    json.getString("bookId"), json.optBoolean("materializeNotes"), json.optLong("revision")
+)
+
+private fun highlightRuleExclusionToJson(item: HighlightRuleExclusionEntity) = JSONObject().apply {
+    put("bookId", item.bookId); put("ruleId", item.ruleId); put("matchKey", item.matchKey); put("createdAt", item.createdAt)
+}
+
+private fun highlightRuleExclusionFromJson(json: JSONObject) = HighlightRuleExclusionEntity(
+    json.getString("bookId"), json.getString("ruleId"), json.getString("matchKey"), json.optLong("createdAt")
 )
 
 private fun tombstoneToJson(item: SyncTombstoneEntity) = JSONObject().apply {
@@ -272,6 +360,10 @@ private inline fun <T> JSONArray.mapObjects(transform: (JSONObject) -> T): List<
 private fun JSONObject.array(key: String): JSONArray = optJSONArray(key) ?: JSONArray()
 
 private fun JSONObject.putNullable(key: String, value: String?) {
+    if (value == null) put(key, JSONObject.NULL) else put(key, value)
+}
+
+private fun JSONObject.putNullableInt(key: String, value: Int?) {
     if (value == null) put(key, JSONObject.NULL) else put(key, value)
 }
 

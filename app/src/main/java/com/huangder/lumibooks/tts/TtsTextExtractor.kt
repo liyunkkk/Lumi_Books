@@ -11,6 +11,7 @@ class TtsTextExtractor {
         internal val CLOSING_PUNCTUATION = setOf('”', '’', '"', '\'', '》', '】', '）', ')')
         private val SOFT_BREAKS = setOf('，', ',', '、', '：', ':')
         private val CLAUSE_BREAKS = TERMINATORS + SOFT_BREAKS + setOf('…', '\n')
+        private val FULL_STOPS = setOf('.', '。')
     }
 
     fun extractPageText(
@@ -34,8 +35,9 @@ class TtsTextExtractor {
             val char = normalized[index]
             buffer.append(char)
 
-            if (char in TERMINATORS) {
-                while (index + 1 < normalized.length && normalized[index + 1] in CLOSING_PUNCTUATION) {
+            if (isSentenceTerminatorAt(normalized, index)) {
+                val end = consumeSentenceEnd(normalized, index)
+                while (index + 1 < end) {
                     index++
                     buffer.append(normalized[index])
                 }
@@ -74,10 +76,11 @@ class TtsTextExtractor {
             val char = text[index]
             val paragraphBreak = char == '\n' && index + 1 < text.length && text[index + 1] == '\n'
             val reachedLimit = index - start + 1 >= MAX_SENTENCE_LENGTH
-            if (char in TERMINATORS || paragraphBreak || reachedLimit) {
+            val sentenceTerminator = isSentenceTerminatorAt(text, index)
+            if (sentenceTerminator || paragraphBreak || reachedLimit) {
                 var end = index + 1
-                if (char in TERMINATORS) {
-                    while (end < text.length && text[end] in CLOSING_PUNCTUATION) end++
+                if (sentenceTerminator) {
+                    end = consumeSentenceEnd(text, index)
                 } else if (reachedLimit) {
                     val softBreak = text.substring(start, end).indexOfLast { it in SOFT_BREAKS }
                     if (softBreak >= MAX_SENTENCE_LENGTH / 2) end = start + softBreak + 1
@@ -111,6 +114,33 @@ class TtsTextExtractor {
     }
 
     /**
+     * Returns the text to send to a speech engine while keeping the original segment unchanged
+     * for highlighting and source-offset mapping. Android engines may produce no audible output
+     * for short fragments such as "1。", "好。" or "好的.". Blank their trailing full stops
+     * without shifting range callbacks for text inside quotes/brackets.
+     */
+    fun playbackText(text: String): String {
+        val trimmed = text.trim()
+        val content = trimmed.trim { it.isWhitespace() || it.isPunctuation() }
+        if (content.isEmpty() || graphemeCount(content, 0, content.length) > 2) return text
+        var suffixStart = text.length
+        while (suffixStart > 0 &&
+            (text[suffixStart - 1].isWhitespace() || text[suffixStart - 1] in FULL_STOPS ||
+                text[suffixStart - 1] in CLOSING_PUNCTUATION)
+        ) suffixStart--
+        if (text.substring(suffixStart).none { it in FULL_STOPS }) return text
+        return buildString {
+            append(text, 0, suffixStart)
+            text.substring(suffixStart).forEach { append(if (it in FULL_STOPS) ' ' else it) }
+        }.trimEnd()
+    }
+
+    /** True when a segment contains at least one non-whitespace, non-punctuation character. */
+    fun hasSpeakableContent(text: String): Boolean = text.any { char ->
+        !char.isWhitespace() && !char.isPunctuation()
+    }
+
+    /**
      * Splits a logical sentence into subtitle-sized clauses while retaining source offsets.
      * Punctuation stays with the preceding clause and long unpunctuated text is split only at
      * word or grapheme boundaries.
@@ -126,11 +156,12 @@ class TtsTextExtractor {
         var start = 0
         var index = 0
         while (index < segment.text.length) {
-            if (segment.text[index] in CLAUSE_BREAKS) {
+            if (isClauseBreakAt(segment.text, index)) {
                 var end = index + 1
                 while (
                     end < segment.text.length &&
-                    (segment.text[end] in CLAUSE_BREAKS || segment.text[end] in CLOSING_PUNCTUATION)
+                    (isClauseBreakAt(segment.text, end) ||
+                        segment.text[end] in CLOSING_PUNCTUATION)
                 ) {
                     end++
                 }
@@ -198,14 +229,13 @@ class TtsTextExtractor {
                 else -> {
                     merged.append(char)
                     rawIndex++
-                    if (char in TERMINATORS) {
-                        while (
-                            rawIndex < raw.length &&
-                            merged.length < maxTotalLength &&
-                            raw[rawIndex] in CLOSING_PUNCTUATION
-                        ) {
-                            merged.append(raw[rawIndex])
-                            rawIndex++
+                    if (isSentenceTerminatorAt(raw, rawIndex - 1)) {
+                        val sentenceEnd = consumeSentenceEnd(raw, rawIndex - 1)
+                        val available = maxTotalLength - merged.length
+                        val appendEnd = minOf(sentenceEnd, rawIndex + available)
+                        if (appendEnd > rawIndex) {
+                            merged.append(raw, rawIndex, appendEnd)
+                            rawIndex = appendEnd
                         }
                         break
                     }
@@ -320,6 +350,47 @@ class TtsTextExtractor {
             .replace(Regex("[\\t\\u00A0 ]+"), " ")
             .replace(Regex(" *\\n *"), "\n")
             .trim()
+    }
+
+    /**
+     * Consumes a terminator run, its closing quotes/brackets, and any terminators immediately
+     * following those closers. This keeps strings such as "？）。" and "？！" in one segment.
+     */
+    private fun consumeSentenceEnd(text: String, terminatorIndex: Int): Int {
+        var end = (terminatorIndex + 1).coerceAtMost(text.length)
+        while (end < text.length) {
+            val before = end
+            while (end < text.length && text[end] in CLOSING_PUNCTUATION) end++
+            while (end < text.length && isSentenceTerminatorAt(text, end)) end++
+            if (end == before) break
+        }
+        return end
+    }
+
+    private fun isSentenceTerminatorAt(text: String, index: Int): Boolean {
+        if (index !in text.indices || text[index] !in TERMINATORS) return false
+        return !isDecimalPointAt(text, index)
+    }
+
+    private fun isClauseBreakAt(text: String, index: Int): Boolean {
+        if (index !in text.indices || text[index] !in CLAUSE_BREAKS) return false
+        return !isDecimalPointAt(text, index)
+    }
+
+    private fun isDecimalPointAt(text: String, index: Int): Boolean =
+        text.getOrNull(index) == '.' &&
+            text.getOrNull(index - 1)?.isDigit() == true &&
+            text.getOrNull(index + 1)?.isDigit() == true
+
+    private fun Char.isPunctuation(): Boolean = when (Character.getType(this)) {
+        Character.CONNECTOR_PUNCTUATION.toInt(),
+        Character.DASH_PUNCTUATION.toInt(),
+        Character.START_PUNCTUATION.toInt(),
+        Character.END_PUNCTUATION.toInt(),
+        Character.INITIAL_QUOTE_PUNCTUATION.toInt(),
+        Character.FINAL_QUOTE_PUNCTUATION.toInt(),
+        Character.OTHER_PUNCTUATION.toInt() -> true
+        else -> false
     }
 
     private fun flushLongBuffer(buffer: StringBuilder, output: MutableList<String>) {

@@ -17,6 +17,7 @@ data class BookEntity(
     val locatorJson: String? = null,
     val createdAt: Long,
     val isFavorite: Boolean = false,
+    val isPinned: Boolean = false,
     val isCloudOnly: Boolean = false,
     val remoteLibraryKey: String? = null,
     val remoteFileName: String? = null,
@@ -33,7 +34,7 @@ data class BookEntity(
 )
 
 enum class BookFormat {
-    EPUB, PDF, TXT, MOBI, CBZ;
+    EPUB, PDF, TXT, MOBI, CBZ, MARKDOWN;
 
     companion object {
         fun fromString(format: String): BookFormat {
@@ -43,6 +44,7 @@ enum class BookFormat {
                 "TXT" -> TXT
                 "MOBI" -> MOBI
                 "CBZ" -> CBZ
+                "MARKDOWN", "MD" -> MARKDOWN
                 else -> TXT
             }
         }

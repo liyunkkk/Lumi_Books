@@ -1,8 +1,9 @@
 package com.huangder.lumibooks.ui.components
 
+import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +19,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kyant.shapes.RoundedRectangularShape
+import com.huangder.lumibooks.ui.theme.ContinuousCornerBasedShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -45,6 +49,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
+import com.huangder.lumibooks.ui.theme.LocalLumiBackgroundBackdrop
 import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassHdrHighlightEnabled
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassCapability
@@ -115,7 +120,10 @@ fun ProvideLiquidGlassBackdrop(
     backdrop: Backdrop?,
     content: @Composable () -> Unit
 ) {
-    CompositionLocalProvider(LocalLiquidGlassBackdrop provides backdrop, content = content)
+    CompositionLocalProvider(
+        LocalLiquidGlassBackdrop provides (backdrop ?: LocalLumiBackgroundBackdrop.current),
+        content = content
+    )
 }
 
 internal fun Modifier.liquidGlassBackdrop(
@@ -125,20 +133,26 @@ internal fun Modifier.liquidGlassBackdrop(
     isDark: Boolean,
     transparency: Float,
     contentScrimColor: Color = Color.Transparent,
+    contrastScrimColor: Color = Color.Transparent,
     tintColor: Color? = null,
     pressProgress: Float = 0f,
     scaleOnPress: Boolean = true,
     buttonInteractionState: LiquidGlassButtonInteractionState? = null,
     buttonInteraction: Boolean = false,
     motionEnabled: Boolean = true,
+    reduceTransparency: Boolean = false,
     /** Extra blur on top of the transparency-derived amount, for animated glass. */
     blurBoostPx: Float = 0f,
     shadowRadius: Dp = 24.dp,
     shadowAlpha: Float = 0.16f,
-    pressedShadowAlpha: Float = 0.08f
+    pressedShadowAlpha: Float = 0.08f,
+    controlEdge: Boolean = false,
+    controlEdgeColor: Color = tintColor ?: contentScrimColor,
+    controlEdgeForceCanvas: Boolean = false
 ): Modifier {
-    val lensSupported = supportsLiquidGlassLens(lensShape)
-    val nativeOutlineSupported = supportsLiquidGlassLens(shape)
+    val lensSupported = !reduceTransparency && supportsLiquidGlassLens(lensShape)
+    val effectiveBlurBoostPx = if (reduceTransparency) 0f else blurBoostPx.coerceAtLeast(0f)
+    val nativeOutlineSupported = supportsLiquidGlassHighlight(shape)
     val surfaceColor = if (isDark) {
         Color(0xFF101012).copy(alpha = 0.34f - transparency * 0.24f)
     } else {
@@ -152,10 +166,10 @@ internal fun Modifier.liquidGlassBackdrop(
         shape = { lensShape },
         effects = {
             vibrancy()
-            if (transparency < 1f || blurBoostPx > 0f) {
-                blur((6.dp * (1f - transparency)).toPx() + blurBoostPx.coerceAtLeast(0f))
+            if (transparency < 1f || effectiveBlurBoostPx > 0f) {
+                blur((6.dp * (1f - transparency)).toPx() + effectiveBlurBoostPx)
             }
-            if (lensSupported) {
+            if (lensSupported && shape !is ContinuousCornerBasedShape) {
                 if (buttonInteraction) {
                     lens(12.dp.toPx(), 24.dp.toPx())
                 } else {
@@ -188,7 +202,7 @@ internal fun Modifier.liquidGlassBackdrop(
                 scaleY = scale
             }
         },
-        highlight = if (nativeOutlineSupported) {
+        highlight = if (nativeOutlineSupported && !controlEdge) {
             { liquidGlassHighlight() }
         } else {
             null
@@ -224,11 +238,14 @@ internal fun Modifier.liquidGlassBackdrop(
                     )
                 )
             }
+            if (contrastScrimColor.alpha > 0f) drawRect(contrastScrimColor)
         }
     )
     // Kyant's highlight shader only understands CornerBasedShape. Keep custom G2 paths on
     // the same single 0.5dp outline without layering a second border over normal shapes.
-    return if (nativeOutlineSupported) {
+    return if (controlEdge) {
+        glassModifier.liquidGlassControlEdge(shape, controlEdgeColor, isDark, controlEdgeForceCanvas)
+    } else if (nativeOutlineSupported) {
         glassModifier
     } else {
         glassModifier.border(LiquidGlassOutlineWidth, liquidGlassFallbackOutlineBrush(), shape)
@@ -236,7 +253,12 @@ internal fun Modifier.liquidGlassBackdrop(
 }
 
 internal fun supportsLiquidGlassLens(shape: Shape): Boolean =
-    shape is CornerBasedShape
+    shape is CornerBasedShape || shape is RoundedRectangularShape
+
+// Backdrop's highlight lighting assumes circular corners. Continuous masks use
+// the cached path rim instead; the lens still reads their radius as an SDF proxy.
+internal fun supportsLiquidGlassHighlight(shape: Shape): Boolean =
+    shape is CornerBasedShape && shape !is ContinuousCornerBasedShape
 
 @Composable
 fun Modifier.liquidGlassSheetSurface(
@@ -249,10 +271,14 @@ fun Modifier.liquidGlassSheetSurface(
     val isDark = LocalIsDarkTheme.current
     val transparency = LocalLiquidGlassTransparency.current
     val activeBackdrop = backdrop ?: LocalLiquidGlassBackdrop.current
+    val contrastScrim = liquidGlassContrastScrim(LocalLiquidGlassContrastEnabled.current, fallbackColor)
 
     return if (isLiquidGlass) {
-        val floatingShape = RoundedCornerShape(28.dp)
-        val sheetTransparency = (transparency - 0.10f).coerceIn(0f, 0.90f)
+        val floatingShape = AppRoundedCornerShape(28.dp)
+        val sheetTransparency = liquidGlassContrastTransparency(
+            LocalLiquidGlassContrastEnabled.current,
+            (transparency - 0.10f).coerceIn(0f, 0.90f)
+        )
         val scrimAlpha = (0.81f - sheetTransparency * 0.25f).coerceIn(0.58f, 0.81f)
         val floatingSurface = padding(start = 14.dp, end = 14.dp, bottom = 12.dp)
             .shadow(
@@ -269,13 +295,16 @@ fun Modifier.liquidGlassSheetSurface(
                 shape = floatingShape,
                 isDark = isDark,
                 transparency = sheetTransparency,
+                reduceTransparency = LocalReduceTransparency.current,
                 contentScrimColor = fallbackColor.copy(alpha = scrimAlpha),
+                contrastScrimColor = contrastScrim,
                 scaleOnPress = false
             )
         } else {
             floatingSurface
                 .clip(floatingShape)
                 .background(fallbackColor)
+                .background(contrastScrim)
                 .border(
                     width = LiquidGlassOutlineWidth,
                     brush = liquidGlassFallbackOutlineBrush(),
@@ -302,13 +331,14 @@ fun LiquidGlassSheetContainer(
     contentModifier: Modifier = Modifier,
     backdrop: Backdrop? = null,
     forceFallback: Boolean = false,
+    surfaceVisible: Boolean = true,
     contentAlignment: Alignment = Alignment.TopStart,
     content: @Composable BoxScope.() -> Unit
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val parentBackdrop = backdrop ?: LocalLiquidGlassBackdrop.current
     val containerBackdrop = rememberLayerBackdrop()
-    val contentShape = if (isLiquidGlass) RoundedCornerShape(28.dp) else shape
+    val contentShape = if (isLiquidGlass) AppRoundedCornerShape(28.dp) else shape
 
     // 弹层保持手机端宽度（平板不拉长，避免内容排版被拉伸）。
     // widthIn 必须位于调用方 fillMaxWidth 之前（外层）才能生效，
@@ -319,16 +349,22 @@ fun LiquidGlassSheetContainer(
                 modifier = Modifier
                     .matchParentSize()
                     .then(
-                        if (isLiquidGlass) Modifier.layerBackdrop(containerBackdrop) else Modifier
+                        if (isLiquidGlass && surfaceVisible) Modifier.layerBackdrop(containerBackdrop) else Modifier
                     )
-                    .liquidGlassSheetSurface(
-                         fallbackColor = fallbackColor,
-                         shape = shape,
-                         backdrop = parentBackdrop,
-                         forceFallback = forceFallback
+                    .then(
+                        if (surfaceVisible) {
+                            Modifier.liquidGlassSheetSurface(
+                                fallbackColor = fallbackColor,
+                                shape = shape,
+                                backdrop = parentBackdrop,
+                                forceFallback = forceFallback
+                            )
+                        } else {
+                            Modifier
+                        }
                      )
             )
-            ProvideLiquidGlassBackdrop(containerBackdrop.takeIf { isLiquidGlass }) {
+            ProvideLiquidGlassBackdrop(containerBackdrop.takeIf { isLiquidGlass && surfaceVisible }) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -360,6 +396,7 @@ fun LiquidGlassColumnSheetContainer(
     contentModifier: Modifier = Modifier,
     backdrop: Backdrop? = null,
     forceFallback: Boolean = false,
+    surfaceVisible: Boolean = true,
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -368,7 +405,8 @@ fun LiquidGlassColumnSheetContainer(
         shape = shape,
         modifier = modifier,
         backdrop = backdrop,
-        forceFallback = forceFallback
+        forceFallback = forceFallback,
+        surfaceVisible = surfaceVisible
     ) {
         Column(
             modifier = contentModifier.fillMaxWidth(),
@@ -397,6 +435,8 @@ fun LiquidGlassSurface(
     blurBoost: Dp = 0.dp,
     decorationModifier: Modifier? = null,
     contentAlignment: Alignment = Alignment.Center,
+    /** Optical control rim; large surfaces keep their existing edge unless explicitly opted in. */
+    controlEdge: Boolean = false,
     content: @Composable BoxScope.() -> Unit
 ) {
     val glassLayer = LocalLiquidGlassLayer.current + 1
@@ -404,11 +444,24 @@ fun LiquidGlassSurface(
         LocalLiquidGlassCapability.current.supported &&
         !forceFallback && glassLayer <= 3
     val isDark = LocalIsDarkTheme.current
-    val transparency = (transparencyOverride ?: LocalLiquidGlassTransparency.current)
-        .coerceIn(0f, 1f)
+    val useControlEdge = controlEdge && LocalLiquidGlassControlEdgeEnabled.current
+    val forceCanvasEdge = LocalLiquidGlassControlEdgeForceCanvas.current
+    val edgeColor = tintColor ?: fallbackColor
+    val contrastScrim = liquidGlassContrastScrim(
+        LocalLiquidGlassContrastEnabled.current,
+        tintColor ?: contentScrimColor.takeIf { it.alpha > 0f } ?: fallbackColor
+    )
+    val transparency = liquidGlassContrastTransparency(
+        LocalLiquidGlassContrastEnabled.current,
+        (transparencyOverride ?: LocalLiquidGlassTransparency.current).coerceIn(0f, 1f)
+    )
     val hdrHighlightEnabled = LocalLiquidGlassHdrHighlightEnabled.current
     val motionEnabled = LocalMotionEnabled.current
-    val activeBackdrop = backdrop ?: LocalLiquidGlassBackdrop.current
+    val inheritedBackdrop = LocalLiquidGlassBackdrop.current
+    val globalBackdrop = LocalLumiBackgroundBackdrop.current
+    // A caller-provided or locally provided backdrop belongs to the surface's
+    // actual page. The global Lumi artwork is only the final fallback.
+    val activeBackdrop = backdrop ?: inheritedBackdrop ?: globalBackdrop
     val density = LocalDensity.current
     val clickInteractionSource = remember { MutableInteractionSource() }
     val pressed by clickInteractionSource.collectIsPressedAsState()
@@ -453,14 +506,25 @@ fun LiquidGlassSurface(
     } else {
         Modifier
     }
-    val surfaceModifier = if (isLiquidGlass && activeBackdrop != null) {
+    // Neutral cards use the artwork's soft 8dp glass. Action surfaces keep their
+    // explicit tint/scrim: their foreground colors depend on that contrast.
+    val surfaceModifier = if (
+        isLiquidGlass && backdrop == null && inheritedBackdrop == null &&
+            globalBackdrop != null &&
+        !interactive && onClick == null && tintColor == null
+    ) {
+        Modifier.lumiCardSurface(fallbackColor, shape, controlEdge = useControlEdge)
+            .background(contrastScrim, shape)
+    } else if (isLiquidGlass && activeBackdrop != null) {
         Modifier.liquidGlassBackdrop(
             backdrop = activeBackdrop,
             shape = shape,
             lensShape = lensShape,
             isDark = isDark,
             transparency = transparency,
+            reduceTransparency = LocalReduceTransparency.current,
             contentScrimColor = contentScrimColor,
+            contrastScrimColor = contrastScrim,
             tintColor = tintColor,
             scaleOnPress = false,
             buttonInteractionState = interactionState,
@@ -469,7 +533,10 @@ fun LiquidGlassSurface(
             blurBoostPx = with(density) { blurBoost.toPx() },
             shadowRadius = 24.dp,
             shadowAlpha = 0f,
-            pressedShadowAlpha = 0.02f
+            pressedShadowAlpha = 0.02f,
+            controlEdge = useControlEdge,
+            controlEdgeColor = edgeColor,
+            controlEdgeForceCanvas = forceCanvasEdge
         )
     } else if (isLiquidGlass) {
         val fallbackScrim = if (tintColor != null) {
@@ -480,6 +547,22 @@ fun LiquidGlassSurface(
             fallbackColor.copy(alpha = 0.42f)
         }
         Modifier
+            .then(
+                if (controlEdge && handlesButtonGesture) Modifier.graphicsLayer {
+                    val transform = liquidGlassButtonLayerTransform(
+                        width = size.width,
+                        height = size.height,
+                        pressProgress = interactionState.pressProgress,
+                        dragOffset = interactionState.offset,
+                        expansionPx = 4.dp.toPx(),
+                        motionEnabled = motionEnabled
+                    )
+                    translationX = transform.translationX
+                    translationY = transform.translationY
+                    scaleX = transform.scaleX
+                    scaleY = transform.scaleY
+                } else Modifier
+            )
             .clip(shape)
             .background(
                 Brush.verticalGradient(
@@ -489,10 +572,10 @@ fun LiquidGlassSurface(
                     )
                 )
             )
-            .border(
-                LiquidGlassOutlineWidth,
-                liquidGlassFallbackOutlineBrush(),
-                shape
+            .background(contrastScrim)
+            .then(
+                if (useControlEdge) Modifier.liquidGlassControlEdge(shape, edgeColor, isDark, forceCanvasEdge)
+                else Modifier.border(LiquidGlassOutlineWidth, liquidGlassFallbackOutlineBrush(), shape)
             )
     } else {
         Modifier
@@ -521,23 +604,11 @@ fun LiquidGlassSurface(
         Modifier
     }
 
-    // The standard outline establishes the glass edge; this restrained shadow adds depth.
-    // Callers that pass their own decorationModifier stay in full control of elevation.
-    val defaultGlassShadow = if (isLiquidGlass) {
-        Modifier.shadow(
-            elevation = 10.dp,
-            shape = shape,
-            clip = false,
-            ambientColor = Color.Black.copy(alpha = if (isDark) 0.24f else 0.12f),
-            spotColor = Color.Black.copy(alpha = if (isDark) 0.34f else 0.18f)
-        )
-    } else {
-        Modifier
-    }
-
+    // Elevation assumes an opaque caster. Under transparent glass its displaced
+    // shadow cutout shows through as a pale patch; the glass outline supplies depth.
     Box(
         modifier = modifier
-            .then(decorationModifier ?: defaultGlassShadow)
+            .then(decorationModifier ?: Modifier)
             .graphicsLayer {
                 scaleX = pressScale
                 scaleY = pressScale
@@ -589,10 +660,6 @@ fun LiquidGlassSurface(
                             tonalHighlight.copy(alpha = 0f)
                         )
                     }
-                    drawRect(
-                        color = Color.White.copy(alpha = 0.08f * pressProgress),
-                        blendMode = BlendMode.Plus
-                    )
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = highlightColors,

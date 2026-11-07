@@ -16,6 +16,28 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE bookId = :bookId ORDER BY createdAt DESC")
     fun getNotesByBookId(bookId: String): Flow<List<NoteEntity>>
 
+    @Query("SELECT * FROM notes")
+    suspend fun getAllNotes(): List<NoteEntity>
+
+    /** Highlights, underlines and notes of every book; ink strokes share this table and are skipped. */
+    @Query(
+        "SELECT * FROM notes WHERE type NOT LIKE 'pdf_ink_%' AND type NOT LIKE 'epub_comic_ink_%' " +
+            "ORDER BY createdAt DESC, id DESC"
+    )
+    fun observeTextNotes(): Flow<List<NoteEntity>>
+
+    @Query(
+        "SELECT * FROM notes WHERE createdAt >= :startMs AND createdAt < :endMs " +
+            "AND type NOT LIKE 'pdf_ink_%' AND type NOT LIKE 'epub_comic_ink_%'"
+    )
+    fun observeTextNotesCreatedBetween(startMs: Long, endMs: Long): Flow<List<NoteEntity>>
+
+    @Query("SELECT tagsJson FROM notes")
+    fun observeTagLists(): Flow<List<String>>
+
+    @Query("UPDATE notes SET tagsJson = :tagsJson, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateTags(id: Long, tagsJson: String, updatedAt: Long)
+
     @Query(
         "SELECT selectedText FROM notes WHERE bookId = :bookId AND TRIM(selectedText) <> '' ORDER BY createdAt DESC LIMIT 1"
     )
@@ -72,6 +94,18 @@ interface NoteDao {
 
     @Query("DELETE FROM notes WHERE bookId = :bookId")
     suspend fun deleteAllNotesByBookId(bookId: String)
+
+    @Query("SELECT * FROM notes WHERE bookId = :bookId AND origin = 'highlight_rule'")
+    suspend fun getGeneratedNotesByBookId(bookId: String): List<NoteEntity>
+
+    @Query("SELECT * FROM notes WHERE sourceRuleId = :ruleId AND origin = 'highlight_rule'")
+    suspend fun getGeneratedNotesForRule(ruleId: String): List<NoteEntity>
+
+    @Query("DELETE FROM notes WHERE bookId = :bookId AND origin = 'highlight_rule'")
+    suspend fun deleteGeneratedNotesByBookId(bookId: String)
+
+    @Query("DELETE FROM notes WHERE sourceRuleId = :ruleId AND origin = 'highlight_rule'")
+    suspend fun deleteGeneratedNotesForRule(ruleId: String)
 
     @Query("DELETE FROM notes WHERE bookId = :bookId AND type NOT LIKE 'pdf_ink_%'")
     suspend fun deleteLegacyPdfAnnotationsByBookId(bookId: String)

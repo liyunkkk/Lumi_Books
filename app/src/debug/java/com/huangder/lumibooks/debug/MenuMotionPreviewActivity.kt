@@ -11,8 +11,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Density
@@ -26,8 +27,11 @@ import com.huangder.lumibooks.ui.reader.TtsPlayerPanel
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.EBookReaderTheme
 import com.huangder.lumibooks.ui.theme.MotionPreference
+import com.huangder.lumibooks.ui.theme.LumiBackgroundScene
+import com.huangder.lumibooks.domain.model.MenuAnimationStyle
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import kotlinx.coroutines.delay
 
 /** Debug-only visual regression fixture; never starts audio or changes saved preferences. */
 class MenuMotionPreviewActivity : ComponentActivity() {
@@ -37,9 +41,11 @@ class MenuMotionPreviewActivity : ComponentActivity() {
         setContent {
             EBookReaderTheme(
                 appTheme = intent.getStringExtra("theme") ?: "liquid_glass",
+                lumiBackgroundScene = if (intent.getStringExtra("theme") == "lumi_chan") LumiBackgroundScene.BOOKSHELF else null,
                 dynamicColor = intent.getStringExtra("theme") == "material3",
                 darkTheme = intent.getBooleanExtra("dark", false),
                 eInkMode = intent.getBooleanExtra("eink", false),
+                menuAnimationStyle = MenuAnimationStyle.fromStoredValue(intent.getStringExtra("menuStyle")),
                 motionPreference = if (intent.getBooleanExtra("reduced", false)) MotionPreference.REDUCED else MotionPreference.STANDARD
             ) {
                 val density = LocalDensity.current
@@ -50,7 +56,9 @@ class MenuMotionPreviewActivity : ComponentActivity() {
                     if (intent.getBooleanExtra("surfaces", false)) SurfaceSamples()
                     else PreviewMenus(
                         intent.getBooleanExtra("solid", false),
-                        intent.getBooleanExtra("transparentBackdrop", false)
+                        intent.getBooleanExtra("transparentBackdrop", false),
+                        intent.getBooleanExtra("demo", false),
+                        intent.getBooleanExtra("open", false)
                     )
                 }
             }
@@ -66,7 +74,7 @@ private fun SurfaceSamples() {
         Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             listOf("Default", "No shadow", "No scrim").forEachIndexed { index, label ->
                 LiquidGlassSurface(
-                    shape = RoundedCornerShape(24.dp), fallbackColor = AppColors.CardBg, backdrop = backdrop,
+                    shape = AppRoundedCornerShape(24.dp), fallbackColor = AppColors.CardBg, backdrop = backdrop,
                     contentScrimColor = if (index == 2) Color.Transparent else AppColors.CardBg.copy(alpha = 0.62f),
                     decorationModifier = if (index == 1) Modifier else null,
                     modifier = Modifier.fillMaxWidth().height(128.dp)
@@ -77,7 +85,7 @@ private fun SurfaceSamples() {
 }
 
 @Composable
-private fun PreviewMenus(solid: Boolean, transparentBackdrop: Boolean) {
+private fun PreviewMenus(solid: Boolean, transparentBackdrop: Boolean, demo: Boolean, open: Boolean) {
     val backdrop = rememberLayerBackdrop()
     var selected by remember { mutableStateOf("Ready") }
     var actions by remember { mutableIntStateOf(0) }
@@ -91,6 +99,11 @@ private fun PreviewMenus(solid: Boolean, transparentBackdrop: Boolean) {
             Modifier.background(AppColors.WindowBg).layerBackdrop(backdrop)
         } else Modifier.layerBackdrop(backdrop).background(AppColors.WindowBg)
         Box(Modifier.fillMaxSize().then(background)) {
+            Box(Modifier.align(Alignment.TopEnd).padding(top = 180.dp, end = 20.dp)
+                .size(240.dp, 360.dp).background(
+                    Brush.verticalGradient(listOf(Color(0xFFD72544), Color(0xFF743CA6))),
+                    AppRoundedCornerShape(16.dp)
+                ))
             Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 Text("Menu motion QA", color = AppColors.TextPrimary)
                 Text(selected + " / actions=" + actions, color = AppColors.TextPrimary)
@@ -98,19 +111,48 @@ private fun PreviewMenus(solid: Boolean, transparentBackdrop: Boolean) {
             }
         }
         val host = LocalLiquidGlassMenuHost.current!!
+        val menu = LiquidGlassMenuSpec(
+            Rect.Zero, 220.dp,
+            items = (1..12).map { index ->
+                LiquidGlassMenuItem(
+                    "Option " + index,
+                    icon = if (index <= 3) AppIcons.Bookmark.regular else null,
+                    selected = index == 2,
+                    groupTitle = if (index == 4) "Layout" else null,
+                    dividerBefore = index == 9
+                ) { selected = "Option " + index; actions++ }
+            },
+            sourceId = sourceId,
+            forceSolid = solid
+        )
+        LaunchedEffect(demo) {
+            if (demo) {
+                delay(1200)
+                host.show(menu)
+                delay(1500)
+                host.dismiss()
+                delay(800)
+                host.show(menu)
+                delay(160)
+                host.dismiss()
+                delay(100)
+                host.show(menu)
+                delay(1200)
+                host.dismiss()
+            }
+        }
+        LaunchedEffect(open) {
+            if (open) {
+                delay(600)
+                host.show(menu)
+            }
+        }
         LiquidGlassIconButton(
             imageVector = AppIcons.DotsThreeVertical,
             contentDescription = "Open menu",
             size = 44.dp,
             onClick = {
-                host.toggle(LiquidGlassMenuSpec(
-                    Rect.Zero, 196.dp,
-                    items = (1..12).map { index ->
-                        LiquidGlassMenuItem("Option " + index, selected = index == 2) { selected = "Option " + index; actions++ }
-                    },
-                    sourceId = sourceId,
-                    forceSolid = solid
-                ))
+                host.toggle(menu)
             },
             modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(24.dp)
                 .liquidGlassMenuAnchor(sourceId)

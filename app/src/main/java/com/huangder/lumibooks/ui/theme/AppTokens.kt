@@ -16,15 +16,21 @@ import androidx.compose.ui.unit.sp
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
 import com.huangder.lumibooks.domain.model.parseAppAccentArgb
+import com.huangder.lumibooks.domain.model.LiquidGlassStyle
 import com.huangder.lumibooks.util.DownloadedFonts
 
 /** 全局深色模式状态，由 MainActivity 根据 DataStore 设置注入 */
 val LocalIsDarkTheme = staticCompositionLocalOf { false }
 val LocalUseMaterial3Theme = staticCompositionLocalOf { false }
 val LocalAppTheme = staticCompositionLocalOf { "lumi" }
+/** Raw persisted theme id, retained when a theme resolves to liquid glass. */
+val LocalAppThemeVariant = staticCompositionLocalOf { "lumi" }
 val LocalAppAccentHex = staticCompositionLocalOf { DEFAULT_APP_ACCENT_HEX }
 val LocalAppAccentColor = staticCompositionLocalOf { Color(parseAppAccentArgb(DEFAULT_APP_ACCENT_HEX)) }
 val LocalOnAppAccentColor = staticCompositionLocalOf { Color.White }
+/** Disables decorative blur and optical distortion while preserving glass frosting. */
+val LocalReduceTransparency = staticCompositionLocalOf { false }
+val LocalLiquidGlassStyle = staticCompositionLocalOf { LiquidGlassStyle.DEFAULT }
 val LocalLiquidGlassTransparency = staticCompositionLocalOf { 0.55f }
 val LocalLiquidGlassHdrHighlightEnabled = staticCompositionLocalOf { false }
 val LocalLiquidGlassCapability = staticCompositionLocalOf {
@@ -33,6 +39,7 @@ val LocalLiquidGlassCapability = staticCompositionLocalOf {
 val LocalEInkMode = staticCompositionLocalOf { false }
 val LocalMotionEnabled = staticCompositionLocalOf { true }
 val LocalCardOutlinesEnabled = staticCompositionLocalOf { false }
+val LocalCoverReadingProgressEnabled = staticCompositionLocalOf { false }
 
 /** Adds the optional high-contrast edge used by standard (non-liquid) cards. */
 @Composable
@@ -44,15 +51,29 @@ fun Modifier.cardOutline(shape: Shape): Modifier {
 
 enum class MotionPreference {
     STANDARD,
+    FAST,
     REDUCED;
 
     companion object {
         fun fromStoredValue(value: String?): MotionPreference =
-            if (value == "reduced") REDUCED else STANDARD
+            when (value) {
+                "fast" -> FAST
+                "reduced" -> REDUCED
+                else -> STANDARD
+            }
     }
+
+    val visualDurationScale: Float
+        get() = if (this == FAST) 2f / 3f else 1f
+
+    val motionEnabled: Boolean
+        get() = this != REDUCED
 }
 
 val LocalMotionPreference = staticCompositionLocalOf { MotionPreference.STANDARD }
+val LocalMenuAnimationStyle = staticCompositionLocalOf {
+    com.huangder.lumibooks.domain.model.MenuAnimationStyle.LIQUID
+}
 
 object GlobalFontMode {
     const val DEFAULT = "default"
@@ -116,6 +137,7 @@ object AppColors {
 
     // Material 3 uses the system palette; Default and Liquid Glass use the configured accent.
     val WindowBg: Color @Composable get() = if (LocalEInkMode.current) Color.White else if (LocalUseMaterial3Theme.current) MaterialTheme.colorScheme.background else if (LocalIsDarkTheme.current) DarkWindowBg else LightWindowBg
+    val PageBg: Color @Composable get() = if (LocalLumiBackgroundPresent.current) Color.Transparent else WindowBg
     val CardBg: Color @Composable get() = if (LocalEInkMode.current) Color.White else if (LocalUseMaterial3Theme.current) MaterialTheme.colorScheme.surfaceContainerLow else if (LocalIsDarkTheme.current) DarkCardBg else LightCardBg
     val TextPrimary: Color @Composable get() = if (LocalEInkMode.current) Color.Black else if (LocalUseMaterial3Theme.current) MaterialTheme.colorScheme.onBackground else if (LocalIsDarkTheme.current) DarkTextPrimary else LightTextPrimary
     val TextSecondary: Color @Composable get() = if (LocalEInkMode.current) Color(0xFF444444) else if (LocalUseMaterial3Theme.current) MaterialTheme.colorScheme.onSurfaceVariant else if (LocalIsDarkTheme.current) DarkTextSecondary else LightTextSecondary

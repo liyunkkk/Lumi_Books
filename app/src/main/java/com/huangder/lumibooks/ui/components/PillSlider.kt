@@ -1,5 +1,9 @@
 package com.huangder.lumibooks.ui.components
 
+import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
+import com.huangder.lumibooks.ui.theme.drawAppShape
+
 /*
  * Glass rendering and motion are adapted from AndroidLiquidGlass' LiquidSlider sample.
  * Copyright 2025 Kyant. Licensed under Apache-2.0.
@@ -29,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -48,6 +51,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.huangder.lumibooks.ui.theme.AppColors
+import com.huangder.lumibooks.ui.theme.LocalEInkMode
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
 import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassTransparency
@@ -88,12 +92,16 @@ fun PillSlider(
     activeColor: Color = AppColors.ControlActive,
     inactiveColor: Color = AppColors.BgGray,
     opaqueLiquidThumb: Boolean = false,
-    onDragValueChange: ((Float) -> Unit)? = null
+    forceNonGlass: Boolean = false,
+    onDragValueChange: ((Float) -> Unit)? = null,
+    onInteractionChange: ((Boolean) -> Unit)? = null
 ) {
     val rangeLength = valueRange.endInclusive - valueRange.start
-    val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
+    val trackShape = AppRoundedCornerShape(50)
+    val isLiquidGlass = LocalAppTheme.current == "liquid_glass" && !LocalEInkMode.current && !forceNonGlass
     val isDark = LocalIsDarkTheme.current
     val transparency = LocalLiquidGlassTransparency.current
+    val reduceTransparency = LocalReduceTransparency.current
     val motionEnabled = LocalMotionEnabled.current
     val backdrop = LocalLiquidGlassBackdrop.current
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
@@ -102,6 +110,7 @@ fun PillSlider(
     val latestValue by rememberUpdatedState(value)
     val latestOnValueChange by rememberUpdatedState(onValueChange)
     val latestOnDragValueChange by rememberUpdatedState(onDragValueChange)
+    val latestOnInteractionChange by rememberUpdatedState(onInteractionChange)
     var pendingCommittedValue by remember { mutableStateOf<Float?>(null) }
     val motionState = remember(
         animationScope,
@@ -172,73 +181,78 @@ fun PillSlider(
                     if (widthPx <= 0f || rangeLength <= 0f) return@awaitEachGesture
 
                     motionState.beginInteraction()
-                    val startValue = motionState.value
-                    val startX = down.position.x
-                    val startY = down.position.y
-                    var dragged = false
-                    var released = false
-                    var cancelledByScroll = false
-                    var lastDragCallbackAtMillis = 0L
+                    latestOnInteractionChange?.invoke(true)
+                    try {
+                        val startValue = motionState.value
+                        val startX = down.position.x
+                        val startY = down.position.y
+                        var dragged = false
+                        var released = false
+                        var cancelledByScroll = false
+                        var lastDragCallbackAtMillis = 0L
 
-                    while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (change.changedToUpIgnoreConsumed()) {
-                            released = true
-                            break
-                        }
-                        if (!change.pressed) break
-
-                        val positionDx = change.position.x - startX
-                        val positionDy = change.position.y - startY
-                        if (!dragged) {
-                            if (change.isConsumed) {
-                                cancelledByScroll = true
+                        while (true) {
+                            val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (change.changedToUpIgnoreConsumed()) {
+                                released = true
                                 break
                             }
-                            if (abs(positionDy) >= viewConfiguration.touchSlop && abs(positionDy) > abs(positionDx)) {
-                                cancelledByScroll = true
-                                break
+                            if (!change.pressed) break
+
+                            val positionDx = change.position.x - startX
+                            val positionDy = change.position.y - startY
+                            if (!dragged) {
+                                if (change.isConsumed) {
+                                    cancelledByScroll = true
+                                    break
+                                }
+                                if (abs(positionDy) >= viewConfiguration.touchSlop && abs(positionDy) > abs(positionDx)) {
+                                    cancelledByScroll = true
+                                    break
+                                }
+                                if (abs(positionDx) < viewConfiguration.touchSlop || abs(positionDx) < abs(positionDy)) {
+                                    continue
+                                }
+                                dragged = true
                             }
-                            if (abs(positionDx) < viewConfiguration.touchSlop || abs(positionDx) < abs(positionDy)) {
-                                continue
+
+                            val direction = if (isLtr) 1f else -1f
+                            val directValue = (startValue + direction * positionDx / widthPx * rangeLength)
+                                .coerceIn(valueRange)
+                            motionState.dragTo(directValue)
+                            val now = SystemClock.uptimeMillis()
+                            if (now - lastDragCallbackAtMillis >= SliderDragCallbackIntervalMillis) {
+                                latestOnDragValueChange?.invoke(directValue)
+                                lastDragCallbackAtMillis = now
                             }
-                            dragged = true
+                            change.consume()
                         }
 
-                        val direction = if (isLtr) 1f else -1f
-                        val directValue = (startValue + direction * positionDx / widthPx * rangeLength)
-                            .coerceIn(valueRange)
-                        motionState.dragTo(directValue)
-                        val now = SystemClock.uptimeMillis()
-                        if (now - lastDragCallbackAtMillis >= SliderDragCallbackIntervalMillis) {
-                            latestOnDragValueChange?.invoke(directValue)
-                            lastDragCallbackAtMillis = now
+                        when {
+                            dragged -> {
+                                val target = snapSliderValue(motionState.targetValue, valueRange, step)
+                                pendingCommittedValue = target
+                                motionState.settleTo(target)
+                                latestOnValueChange(target)
+                            }
+                            cancelledByScroll || !released -> {
+                                motionState.cancelInteraction(latestValue.coerceIn(valueRange))
+                            }
+                            else -> {
+                                val fraction = (startX / widthPx).coerceIn(0f, 1f)
+                                val target = snapSliderValue(
+                                    sliderValueFromFraction(fraction, valueRange, isLtr),
+                                    valueRange,
+                                    step
+                                )
+                                pendingCommittedValue = target
+                                motionState.animateToValue(target)
+                                latestOnValueChange(target)
+                            }
                         }
-                        change.consume()
-                    }
-
-                    when {
-                        cancelledByScroll || !released -> {
-                            motionState.cancelInteraction(latestValue.coerceIn(valueRange))
-                        }
-                        dragged -> {
-                            val target = snapSliderValue(motionState.targetValue, valueRange, step)
-                            pendingCommittedValue = target
-                            motionState.settleTo(target)
-                            latestOnValueChange(target)
-                        }
-                        else -> {
-                            val fraction = (startX / widthPx).coerceIn(0f, 1f)
-                            val target = snapSliderValue(
-                                sliderValueFromFraction(fraction, valueRange, isLtr),
-                                valueRange,
-                                step
-                            )
-                            pendingCommittedValue = target
-                            motionState.animateToValue(target)
-                            latestOnValueChange(target)
-                        }
+                    } finally {
+                        latestOnInteractionChange?.invoke(false)
                     }
                 }
             },
@@ -247,18 +261,17 @@ fun PillSlider(
         val visualFraction = sliderFraction(motionState.value, valueRange, isLtr)
         if (!isLiquidGlass) {
             Canvas(modifier = Modifier.fillMaxWidth().height(trackHeight)) {
-                val radius = size.height / 2f
-                drawRoundRect(
+                drawAppShape(
+                    shape = trackShape,
                     color = inactiveColor,
-                    cornerRadius = CornerRadius(radius, radius),
                     size = size
                 )
                 val activeWidth = size.width * visualFraction
                 if (activeWidth > 0f) {
                     clipRect(right = activeWidth) {
-                        drawRoundRect(
+                        drawAppShape(
+                            shape = trackShape,
                             color = activeColor,
-                            cornerRadius = CornerRadius(radius, radius),
                             size = size
                         )
                     }
@@ -267,7 +280,7 @@ fun PillSlider(
             return@BoxWithConstraints
         }
 
-        val glassActiveColor = AppColors.Accent
+        val glassActiveColor = activeColor
         val trackBackdrop = rememberLayerBackdrop()
         Box(
             modifier = Modifier
@@ -276,23 +289,22 @@ fun PillSlider(
                 .layerBackdrop(trackBackdrop)
         ) {
             Canvas(Modifier.matchParentSize()) {
-                val radius = size.height / 2f
                 val glassTrackColor = if (isDark) {
                     Color(0xFF787880).copy(alpha = 0.36f)
                 } else {
                     Color(0xFF787878).copy(alpha = 0.20f)
                 }
-                drawRoundRect(
+                drawAppShape(
+                    shape = trackShape,
                     color = glassTrackColor,
-                    cornerRadius = CornerRadius(radius, radius),
                     size = Size(size.width, size.height)
                 )
                 val activeWidth = size.width * visualFraction
                 if (activeWidth > 0f) {
                     clipRect(right = activeWidth) {
-                        drawRoundRect(
+                        drawAppShape(
+                            shape = trackShape,
                             color = glassActiveColor,
-                            cornerRadius = CornerRadius(radius, radius),
                             size = Size(size.width, size.height)
                         )
                     }
@@ -338,11 +350,13 @@ fun PillSlider(
                     val opticalProgress = if (motionEnabled) pressProgress else 0f
                     val blurRadius = 8.dp.toPx() * (1f - transparency) * (1f - opticalProgress)
                     if (blurRadius > 0f) blur(blurRadius)
-                    lens(
-                        10.dp.toPx() * opticalProgress,
-                        14.dp.toPx() * opticalProgress,
-                        chromaticAberration = opticalProgress > 0.05f
-                    )
+                    if (!reduceTransparency) {
+                        lens(
+                            10.dp.toPx() * opticalProgress,
+                            14.dp.toPx() * opticalProgress,
+                            chromaticAberration = opticalProgress > 0.05f
+                        )
+                    }
                 },
                 highlight = { Highlight.Ambient.copy(alpha = pressProgress) },
                 shadow = { Shadow(radius = 4.dp, color = Color.Black.copy(alpha = 0.05f)) },

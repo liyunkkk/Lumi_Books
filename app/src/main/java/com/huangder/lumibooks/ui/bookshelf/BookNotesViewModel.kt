@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.ui.bookshelf
 
+import com.huangder.lumibooks.ui.excerpt.withReaderTheme
+import kotlinx.coroutines.flow.first
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,6 +22,7 @@ data class BookNotesUiState(
     val book: Book? = null,
     val bookmarks: List<Bookmark> = emptyList(),
     val notes: List<Note> = emptyList(),  // 包含高亮和笔记
+    val availableTags: List<String> = emptyList(),
     val isLoading: Boolean = true,
     val isExporting: Boolean = false
 ) {
@@ -33,7 +36,8 @@ class BookNotesViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val bookRepository: BookRepository,
     private val readingRepository: ReadingRepository,
-    private val exportBuilder: BookNotesExportBuilder
+    private val exportBuilder: BookNotesExportBuilder,
+    private val dataStoreManager: com.huangder.lumibooks.data.local.DataStoreManager
 ) : ViewModel() {
 
     private val bookId: String = savedStateHandle.get<String>("bookId") ?: ""
@@ -41,10 +45,18 @@ class BookNotesViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(BookNotesUiState())
     val uiState: StateFlow<BookNotesUiState> = _uiState.asStateFlow()
 
+    suspend fun excerptTheme(request: com.huangder.lumibooks.ui.excerpt.ExcerptRequest, dark: Boolean): com.huangder.lumibooks.ui.excerpt.ExcerptRequest =
+        request.withReaderTheme(dataStoreManager.readerPreferences(bookId).first(), dark)
+
     init {
         loadBook()
         loadBookmarks()
         loadNotes()
+        viewModelScope.launch {
+            readingRepository.observeAnnotationTags().collectLatest { tags ->
+                _uiState.value = _uiState.value.copy(availableTags = tags)
+            }
+        }
     }
 
     private fun loadBook() {
@@ -65,7 +77,8 @@ class BookNotesViewModel @Inject constructor(
     private fun loadNotes() {
         viewModelScope.launch {
             readingRepository.getNotesByBookId(bookId).collectLatest { notes ->
-                _uiState.value = _uiState.value.copy(notes = notes)
+                // Ink strokes are drawings, not marks: keep them out of lists, filters and export.
+                _uiState.value = _uiState.value.copy(notes = notes.filterNot { it.isInkStroke })
             }
         }
     }
@@ -76,10 +89,39 @@ class BookNotesViewModel @Inject constructor(
         }
     }
 
+    fun updateBookmarkRemark(bookmark: Bookmark, remark: String) {
+        updateBookmarkRemarkAndTags(bookmark, remark, bookmark.tags)
+    }
+
+    fun updateBookmarkRemarkAndTags(bookmark: Bookmark, remark: String, tags: List<String>) {
+        viewModelScope.launch {
+            val current = _uiState.value.bookmarks.firstOrNull { it.syncId == bookmark.syncId } ?: bookmark
+            readingRepository.updateBookmark(current.copy(remark = remark.trim(), tags = tags))
+        }
+    }
+
     fun deleteNote(note: Note) {
         viewModelScope.launch {
             readingRepository.deleteNote(note)
         }
+    }
+
+    suspend fun updateNoteTags(note: Note, tags: List<String>) {
+        readingRepository.updateNoteTags(note, tags)
+    }
+
+    suspend fun createTag(name: String) = readingRepository.createAnnotationTag(name)
+
+    suspend fun updateBookmarkTags(bookmark: Bookmark, tags: List<String>) {
+        readingRepository.updateBookmarkTags(bookmark, tags)
+    }
+
+    fun renameTag(old: String, new: String) {
+        viewModelScope.launch { readingRepository.renameAnnotationTag(old, new) }
+    }
+
+    fun deleteTag(name: String) {
+        viewModelScope.launch { readingRepository.deleteAnnotationTag(name) }
     }
 
     fun prepareExport(onComplete: (Result<BookNotesExportDocument>) -> Unit) {

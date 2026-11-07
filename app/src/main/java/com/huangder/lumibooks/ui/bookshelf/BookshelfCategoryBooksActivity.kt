@@ -47,15 +47,18 @@ class BookshelfCategoryBooksActivity : ComponentActivity() {
             return
         }
 
+        val launchTheme = com.huangder.lumibooks.util.LaunchThemeController.themeSnapshot(this)
         setContent {
-            val appTheme by dataStoreManager.appTheme.collectAsState(initial = "lumi")
-            val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = DEFAULT_APP_ACCENT_HEX)
-            val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = "system")
-            val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = 0.55f)
-            val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = false)
-            val darkMode by dataStoreManager.darkMode.collectAsState(initial = "system")
-            val eInkMode by dataStoreManager.eInkModeEnabled.collectAsState(initial = false)
-            val predictiveBackEnabled by dataStoreManager.predictiveBackEnabled.collectAsState(initial = true)
+            val appTheme by dataStoreManager.appTheme.collectAsState(initial = launchTheme.appTheme)
+            val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = launchTheme.appAccentColor)
+            val appFontSize by dataStoreManager.appFontSize.collectAsState(initial = launchTheme.appFontSize)
+            val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = launchTheme.globalFontMode)
+            val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = launchTheme.liquidGlassTransparency)
+            val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = launchTheme.liquidGlassHdrHighlightEnabled)
+            val darkMode by dataStoreManager.darkMode.collectAsState(initial = launchTheme.darkMode)
+            val coverReadingProgressEnabled by dataStoreManager.coverReadingProgressEnabled.collectAsState(initial = false)
+            val eInkMode by dataStoreManager.eInkModeEnabled.collectAsState(initial = launchTheme.eInkModeEnabled)
+            val predictiveBackEnabled by dataStoreManager.predictiveBackEnabled.collectAsState(initial = launchTheme.predictiveBackEnabled)
             val isDark = if (eInkMode) false else when (darkMode) {
                 "dark" -> true
                 "light" -> false
@@ -64,21 +67,34 @@ class BookshelfCategoryBooksActivity : ComponentActivity() {
             val capability = rememberLiquidGlassCapability(eInkMode, LocalView.current)
             val effectiveTheme = effectiveAppTheme(appTheme, capability)
 
+            val motion by dataStoreManager.motionPreference.collectAsState(initial = launchTheme.motionPreference)
+            val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
+            val liquidGlassStyle by dataStoreManager.liquidGlassStyle
+                .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
+                .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
+                liquidGlassStyle = liquidGlassStyle,
+                reduceTransparencyEnabled = reduceTransparencyEnabled,
+                menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
+                motionPreference = com.huangder.lumibooks.ui.theme.MotionPreference.fromStoredValue(motion),
                 darkTheme = isDark,
                 dynamicColor = effectiveTheme == "material3",
-                appTheme = effectiveTheme,
+                appTheme = appTheme,
+                coverReadingProgressEnabled = coverReadingProgressEnabled,
+                lumiBackgroundScene = com.huangder.lumibooks.ui.theme.LumiBackgroundScene.SECONDARY,
                 appAccentColor = appAccentColor,
                 liquidGlassTransparency = liquidGlassTransparency,
                 liquidGlassHdrHighlightEnabled = liquidGlassHdrHighlightEnabled && !eInkMode,
                 eInkMode = eInkMode,
+                appFontSize = appFontSize,
                 globalFontMode = globalFontMode
             ) {
                 ConfigurableActivityBack(
                     predictiveBackEnabled = predictiveBackEnabled,
                     onBack = { finish() }
                 )
-                Surface(modifier = Modifier.fillMaxSize(), color = AppColors.WindowBg) {
+                Surface(modifier = Modifier.fillMaxSize(), color = AppColors.PageBg) {
                     LiquidGlassDialogHost(modifier = Modifier.fillMaxSize()) {
                         BookshelfCategoryBooksRoute(
                             selectedTarget = target,
@@ -116,6 +132,7 @@ class BookshelfCategoryBooksActivity : ComponentActivity() {
                 is BookshelfCategoryTarget.EpubMobi -> "epub_mobi"
                 is BookshelfCategoryTarget.Pdf -> "pdf"
                 is BookshelfCategoryTarget.Txt -> "txt"
+                is BookshelfCategoryTarget.Markdown -> "markdown"
                 is BookshelfCategoryTarget.Comic -> "cbz"
                 is BookshelfCategoryTarget.Favorites -> "favorites"
                 is BookshelfCategoryTarget.Tag -> "tag"
@@ -141,6 +158,7 @@ class BookshelfCategoryBooksActivity : ComponentActivity() {
                 "epub_mobi" -> BookshelfCategoryTarget.EpubMobi(title)
                 "pdf" -> BookshelfCategoryTarget.Pdf(title)
                 "txt" -> BookshelfCategoryTarget.Txt(title)
+                "markdown" -> BookshelfCategoryTarget.Markdown(title)
                 "cbz" -> BookshelfCategoryTarget.Comic(title)
                 "favorites" -> BookshelfCategoryTarget.Favorites(title)
                 "tag" -> getStringExtra(EXTRA_TAG_ID)

@@ -1,6 +1,13 @@
 package com.huangder.lumibooks.data.local
 
+import com.huangder.lumibooks.domain.model.AppFontSize
+import com.huangder.lumibooks.domain.model.SelectionMenuSettings
+import com.huangder.lumibooks.domain.model.LongPressSelectionRange
+import com.huangder.lumibooks.domain.model.ReaderVolumeKeyAction
+import kotlinx.coroutines.launch
+
 import android.content.Context
+import com.huangder.lumibooks.domain.model.MenuAnimationStyle
 import android.hardware.display.DisplayManager
 import android.view.Display
 import androidx.datastore.core.DataStore
@@ -22,6 +29,7 @@ import com.huangder.lumibooks.domain.model.CustomFontPresetCodec
 import com.huangder.lumibooks.domain.model.HighlightPalette
 import com.huangder.lumibooks.domain.model.HighlightPaletteCodec
 import com.huangder.lumibooks.domain.model.AppIconStyle
+import com.huangder.lumibooks.domain.model.LumiEasterEgg
 import com.huangder.lumibooks.domain.model.BookOpenTransition
 import com.huangder.lumibooks.domain.model.WebdavConfig
 import com.huangder.lumibooks.domain.model.WebdavSyncContent
@@ -47,6 +55,7 @@ import com.huangder.lumibooks.domain.model.ReaderPageAnimationSettings
 import com.huangder.lumibooks.domain.model.ReaderPageTransition
 import com.huangder.lumibooks.domain.model.ReaderFirstOpenHintPolicy
 import com.huangder.lumibooks.domain.model.defaultReaderCornerContent
+import com.huangder.lumibooks.domain.model.LiquidGlassStyle
 import com.huangder.lumibooks.util.LaunchThemeController
 import com.huangder.lumibooks.util.LaunchThemeSnapshot
 import com.huangder.lumibooks.util.WelcomeLaunchSnapshot
@@ -62,6 +71,9 @@ import com.huangder.lumibooks.util.parser.TxtTocRuleImportResult
 import com.huangder.lumibooks.util.parser.LegadoTxtTocRuleCodec
 import com.huangder.lumibooks.tts.ExternalTtsProtocol
 import com.huangder.lumibooks.tts.ExternalTtsResumePosition
+import com.huangder.lumibooks.tts.TtsListeningPosition
+import com.huangder.lumibooks.tts.TtsStartChoice
+import com.huangder.lumibooks.tts.TtsReaderResumeChoice
 import com.huangder.lumibooks.tts.ExternalTtsSettings
 import com.huangder.lumibooks.tts.ExternalTtsConfig
 import com.huangder.lumibooks.tts.FloatingSubtitleSettings
@@ -74,6 +86,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.Dispatchers
@@ -82,6 +95,7 @@ import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.huangder.lumibooks.data.backup.PortablePreference
+import com.huangder.lumibooks.data.backup.shouldApplyIncomingPortablePreference
 import java.security.MessageDigest
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -117,6 +131,7 @@ data class ReaderPreferencesSnapshot(
     val pageTransition: String,
     val readerThemeSuiteState: ReaderThemeSuiteState,
     val readerThemeSuiteBookScoped: Boolean,
+    val readerButtonContrastEnabled: Boolean = false,
     val readerThemeSuiteBookActiveId: String?,
     val readerThemeSuiteBookActiveBookLayoutId: String?,
     val pdfPageMode: String,
@@ -125,9 +140,13 @@ data class ReaderPreferencesSnapshot(
     val showReaderChapterProgress: Boolean,
     val showReaderPageNumber: Boolean,
     val showReaderBattery: Boolean,
-    val volumeKeyPageTurnEnabled: Boolean,
+    val volumeKeyUpAction: ReaderVolumeKeyAction,
+    val volumeKeyDownAction: ReaderVolumeKeyAction,
+    val bookmarkRemarkPromptEnabled: Boolean,
     val bionicReadingEnabled: Boolean,
     val comicModeEnabled: Boolean,
+    val lineGuideEnabled: Boolean,
+    val lineGuideDimLevel: Int,
     val bodyFontWeight: Int,
     val eInkModeEnabled: Boolean,
     val twoPageSpreadEnabled: Boolean,
@@ -145,7 +164,8 @@ data class ReaderPreferencesSnapshot(
     val paragraphSpacing: Float,
     val firstLineIndent: Float,
     val chineseMode: String,
-    val selectionMenuItems: Map<String, Boolean>,
+    val selectionMenuItems: SelectionMenuSettings,
+    val longPressSelectionRange: LongPressSelectionRange = LongPressSelectionRange.DEFAULT,
     val customHighlightPalettes: List<HighlightPalette>,
     val activeHighlightPaletteId: String?,
     val renderMode: EpubRenderMode,
@@ -158,13 +178,76 @@ data class ReaderPreferencesSnapshot(
     val readerFirstOpenHintsDisabled: Boolean,
     val optimizeLayout: Boolean,
     val useEpubCss: Boolean,
-    val readerWritingMode: ReaderWritingMode
+    val readerWritingMode: ReaderWritingMode,
+    val imageAdjustments: com.huangder.lumibooks.domain.model.ReaderImageAdjustments =
+        com.huangder.lumibooks.domain.model.ReaderImageAdjustments(),
+    val rasterHorizontalCropEnabled: Boolean = false,
+    val rasterManualCropEnabled: Boolean = false,
+    val rasterManualCrop: com.huangder.lumibooks.ui.reader.RasterManualCrop = com.huangder.lumibooks.ui.reader.RasterManualCrop(),
+    /** PDF / CBZ 的按书锁定缩放比例。 */
+    val rasterZoomLocked: Boolean = false,
+    val rasterZoomScale: Float = 1f,
+    val epubComicReader: Boolean = false,
+    val nativeEpubCssEnabled: Boolean = false
 )
 
 @Singleton
 class DataStoreManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) : TtsSettingsStore {
+    // Application-owned writer finishes final slider commits even when the reader closes.
+    private val imageAdjustmentWrites = kotlinx.coroutines.channels.Channel<Pair<String,
+        com.huangder.lumibooks.domain.model.ReaderImageAdjustments>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+    private val imageAdjustmentScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+    )
+    init {
+        imageAdjustmentScope.launch {
+            for ((bookId, settings) in imageAdjustmentWrites) {
+                try {
+                    saveReaderImageAdjustments(bookId, settings)
+                } catch (error: java.io.IOException) {
+                    android.util.Log.e("DataStoreManager", "Could not save image adjustments", error)
+                }
+            }
+        }
+    }
+
+    fun persistReaderImageAdjustments(bookId: String, settings: com.huangder.lumibooks.domain.model.ReaderImageAdjustments) {
+        imageAdjustmentWrites.trySend(bookId to settings.normalized())
+    }
+
+    suspend fun saveReaderImageAdjustments(bookId: String, settings: com.huangder.lumibooks.domain.model.ReaderImageAdjustments) {
+        context.dataStore.edit { it[stringPreferencesKey("reader_image_adjustments_$bookId")] = settings.encode() }
+    }
+    suspend fun saveRasterHorizontalCropEnabled(bookId: String, enabled: Boolean) {
+        context.dataStore.edit { it[booleanPreferencesKey("raster_horizontal_crop_$bookId")] = enabled }
+    }
+    suspend fun saveRasterManualCrop(bookId: String, enabled: Boolean,
+        crop: com.huangder.lumibooks.ui.reader.RasterManualCrop) {
+        context.dataStore.edit {
+            it[booleanPreferencesKey("raster_manual_crop_enabled_$bookId")] = enabled
+            it[stringPreferencesKey("raster_manual_crop_$bookId")] = crop.normalized().encode()
+        }
+    }
+
+    fun bookReview(bookId: String): Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[stringPreferencesKey("book_review_$bookId")].orEmpty()
+    }.distinctUntilChanged()
+
+    fun bookReviewRating(bookId: String): Flow<Float> = context.dataStore.data.map { preferences ->
+        (preferences[floatPreferencesKey("book_review_rating_$bookId")] ?: 0f).coerceIn(0f, 5f)
+    }.distinctUntilChanged()
+
+    suspend fun saveBookReview(bookId: String, review: String, rating: Float) {
+        val reviewKey = stringPreferencesKey("book_review_$bookId")
+        val ratingKey = floatPreferencesKey("book_review_rating_$bookId")
+        context.dataStore.edit { preferences ->
+            if (review.isBlank()) preferences.remove(reviewKey) else preferences[reviewKey] = review
+            preferences[ratingKey] = rating.coerceIn(0f, 5f)
+        }
+    }
+
     private val readerMigrationMutex = Mutex()
     @Volatile private var readerMigrationsComplete = false
     private val deviceSupportsHdr: Boolean by lazy {
@@ -229,6 +312,7 @@ class DataStoreManager @Inject constructor(
         private val PAGE_IMAGE_CROP = booleanPreferencesKey("page_image_crop")
         private val READER_TEXT_COLOR = intPreferencesKey("reader_text_color")
         private val READER_THEME_SUITES = stringPreferencesKey("reader_theme_suites")
+        private val READER_BUTTON_CONTRAST_ENABLED = booleanPreferencesKey("reader_button_contrast_enabled")
         private val ACTIVE_READER_THEME_SUITE_ID = stringPreferencesKey("active_reader_theme_suite_id")
         private val ACTIVE_BOOK_LAYOUT_THEME_SUITE_ID =
             stringPreferencesKey("active_book_layout_theme_suite_id")
@@ -247,6 +331,7 @@ class DataStoreManager @Inject constructor(
         private val CUSTOM_HIGHLIGHT_PALETTES = stringPreferencesKey("custom_highlight_palettes")
         private val ACTIVE_HIGHLIGHT_PALETTE_ID = stringPreferencesKey("active_highlight_palette_id")
         private val SELECTION_MENU_ITEMS = stringPreferencesKey("selection_menu_items")
+        private val LONG_PRESS_SELECTION_RANGE = stringPreferencesKey("long_press_selection_range")
         private val TTS_FLOATING_WINDOW = booleanPreferencesKey("tts_floating_window")
         private val TTS_FLOATING_X_FRACTION = floatPreferencesKey("tts_floating_x_fraction")
         private val TTS_FLOATING_Y_FRACTION = floatPreferencesKey("tts_floating_y_fraction")
@@ -257,6 +342,9 @@ class DataStoreManager @Inject constructor(
         private val TTS_FLOATING_HEIGHT_DP = floatPreferencesKey("tts_floating_height_dp")
         private val PREFERRED_TTS_ENGINE = stringPreferencesKey("preferred_tts_engine")
         private val TTS_PROVIDER_SELECTION = stringPreferencesKey("tts_provider_selection")
+        private val TTS_START_CHOICE = stringPreferencesKey("tts_start_choice")
+        private val TTS_READER_RESUME_CHOICE = stringPreferencesKey("tts_reader_resume_choice")
+        private val TTS_READER_RESUME_HINT_MIGRATED = booleanPreferencesKey("tts_reader_resume_hint_migrated_v1")
         private val BODY_FONT_WEIGHT = intPreferencesKey("body_font_weight")
         private val APPLY_TO_BODY_ONLY = booleanPreferencesKey("apply_to_body_only")
         private val SHOW_COVER_PROGRESS = booleanPreferencesKey("show_cover_progress")
@@ -269,6 +357,9 @@ class DataStoreManager @Inject constructor(
         private val SHOW_READER_PAGE_NUMBER = booleanPreferencesKey("show_reader_page_number")
         private val SHOW_READER_BATTERY = booleanPreferencesKey("show_reader_battery")
         private val VOLUME_KEY_PAGE_TURN = booleanPreferencesKey("volume_key_page_turn")
+        private val VOLUME_KEY_UP_ACTION = stringPreferencesKey("volume_key_up_action")
+        private val VOLUME_KEY_DOWN_ACTION = stringPreferencesKey("volume_key_down_action")
+        private val BOOKMARK_REMARK_PROMPT_ENABLED = booleanPreferencesKey("bookmark_remark_prompt_enabled")
         private val BIONIC_READING_ENABLED = booleanPreferencesKey("bionic_reading_enabled")
         private val COMIC_MODE = booleanPreferencesKey("comic_mode")
         private val SCREEN_SLEEP_TIMEOUT_SECONDS = intPreferencesKey("screen_sleep_timeout_seconds")
@@ -294,9 +385,14 @@ class DataStoreManager @Inject constructor(
         private val APP_ICON_STYLE = stringPreferencesKey("app_icon_style")
         private val APP_THEME = stringPreferencesKey("app_theme")
         private val HOME_SCREEN_MODE = stringPreferencesKey("home_screen_mode")
+
+        private val LUMI_EASTER_EGG_UNLOCKED = booleanPreferencesKey("lumi_easter_egg_unlocked")
         private val STARTUP_SCREEN = stringPreferencesKey("startup_screen")
         private val APP_ACCENT_COLOR = stringPreferencesKey("app_accent_color")
+        private val APP_FONT_SIZE = stringPreferencesKey("app_font_size")
         private val GLOBAL_FONT_MODE = stringPreferencesKey("global_font_mode")
+        private val REDUCE_TRANSPARENCY_ENABLED = booleanPreferencesKey("reduce_transparency_enabled")
+        private val LIQUID_GLASS_STYLE = stringPreferencesKey("liquid_glass_style")
         private val LIQUID_GLASS_TRANSPARENCY = floatPreferencesKey("liquid_glass_transparency")
         private val LIQUID_GLASS_HDR_HIGHLIGHT_ENABLED = booleanPreferencesKey("liquid_glass_hdr_highlight_enabled")
         private val CARD_OUTLINES_ENABLED = booleanPreferencesKey("card_outlines_enabled")
@@ -305,7 +401,9 @@ class DataStoreManager @Inject constructor(
         private val WIDGET_THEME_MODE = stringPreferencesKey("widget_theme_mode")
         private val ENTRANCE_ANIMATIONS_ENABLED = booleanPreferencesKey("entrance_animations_enabled")
         private val MOTION_PREFERENCE = stringPreferencesKey("motion_preference")
+        private val MENU_ANIMATION_STYLE = stringPreferencesKey("menu_animation_style")
         private val BOOK_OPEN_TRANSITION = stringPreferencesKey("book_open_transition")
+        private val COVER_READING_PROGRESS_ENABLED = booleanPreferencesKey("cover_reading_progress_enabled")
         private val E_INK_MODE_ENABLED = booleanPreferencesKey("e_ink_mode_enabled")
         private val TWO_PAGE_SPREAD_ENABLED = booleanPreferencesKey("two_page_spread_enabled")
         private val PAGE_RENDER_MODE = stringPreferencesKey("page_render_mode")
@@ -338,6 +436,7 @@ class DataStoreManager @Inject constructor(
         private val MINERU_CONSENT_ACCEPTED_AT = longPreferencesKey("mineru_consent_accepted_at")
 
         // 外部 TTS 听书设置
+        private val AI_TRANSLATION_SETTINGS = stringPreferencesKey("ai_translation_settings")
         private val EXTERNAL_TTS_ENABLED = booleanPreferencesKey("external_tts_enabled")
         private val EXTERNAL_TTS_PROTOCOL = stringPreferencesKey("external_tts_protocol")
         private val EXTERNAL_TTS_BASE_URL = stringPreferencesKey("external_tts_base_url")
@@ -405,16 +504,7 @@ class DataStoreManager @Inject constructor(
                     ReaderLayoutTarget.BOOK_LAYOUT
                 )
             )
-            val selectionItems = preferences[SELECTION_MENU_ITEMS]
-                ?.takeIf(String::isNotBlank)
-                ?.let { raw ->
-                    runCatching {
-                        JSONObject(raw).let { json ->
-                            json.keys().asSequence().associateWith(json::getBoolean)
-                        }
-                    }.getOrDefault(emptyMap())
-                }
-                .orEmpty()
+            val selectionItems = decodeSelectionMenuSettings(preferences[SELECTION_MENU_ITEMS])
             val modeKey = stringPreferencesKey("epub_render_mode_$bookId")
             val themeSuiteBookScopedKey = booleanPreferencesKey("reader_theme_suite_book_scoped_$bookId")
             val themeSuiteBookActiveKey = stringPreferencesKey("reader_theme_suite_book_active_$bookId")
@@ -487,21 +577,42 @@ class DataStoreManager @Inject constructor(
                 pageTransition = ReaderPageTransition.normalizeKey(preferences[PAGE_TRANSITION]),
                 readerThemeSuiteState = suiteState,
                 readerThemeSuiteBookScoped = preferences[themeSuiteBookScopedKey] ?: false,
+                readerButtonContrastEnabled = preferences[READER_BUTTON_CONTRAST_ENABLED] ?: false,
                 readerThemeSuiteBookActiveId = preferences[themeSuiteBookActiveKey],
                 readerThemeSuiteBookActiveBookLayoutId =
                     preferences[themeSuiteBookActiveBookLayoutKey],
                 pdfPageMode = PdfPageMode.normalizeKey(preferences[PDF_PAGE_MODE]),
                 cbzReadingDirection = preferences[stringPreferencesKey("cbz_reading_direction_$bookId")],
+                epubComicReader = preferences[booleanPreferencesKey("epub_comic_reader_$bookId")] ?: false,
+                nativeEpubCssEnabled = preferences[booleanPreferencesKey("native_epub_css_$bookId")] ?: false,
                 showReaderChapterProgress = preferences[SHOW_READER_CHAPTER_PROGRESS] ?: true,
                 showReaderPageNumber = preferences[SHOW_READER_PAGE_NUMBER] ?: true,
                 showReaderBattery = preferences[SHOW_READER_BATTERY] ?: true,
-                volumeKeyPageTurnEnabled = preferences[VOLUME_KEY_PAGE_TURN] ?: false,
+                volumeKeyUpAction = preferences[VOLUME_KEY_UP_ACTION]?.let(ReaderVolumeKeyAction::fromStorage)
+                    ?: if (preferences[VOLUME_KEY_PAGE_TURN] == true) ReaderVolumeKeyAction.PREVIOUS_PAGE
+                    else ReaderVolumeKeyAction.SYSTEM_VOLUME,
+                volumeKeyDownAction = preferences[VOLUME_KEY_DOWN_ACTION]?.let(ReaderVolumeKeyAction::fromStorage)
+                    ?: if (preferences[VOLUME_KEY_PAGE_TURN] == true) ReaderVolumeKeyAction.NEXT_PAGE
+                    else ReaderVolumeKeyAction.SYSTEM_VOLUME,
+                bookmarkRemarkPromptEnabled = preferences[BOOKMARK_REMARK_PROMPT_ENABLED] ?: true,
                 bionicReadingEnabled = preferences[BIONIC_READING_ENABLED] ?: false,
                 comicModeEnabled = preferences[booleanPreferencesKey("comic_mode_$bookId")] ?: (preferences[COMIC_MODE] ?: false),
+                lineGuideEnabled = preferences[booleanPreferencesKey("line_guide_enabled_$bookId")] ?: false,
+                lineGuideDimLevel = (preferences[intPreferencesKey("line_guide_dim_$bookId")] ?: 2).coerceIn(0, 4),
+                imageAdjustments = com.huangder.lumibooks.domain.model.ReaderImageAdjustments.decode(
+                    preferences[stringPreferencesKey("reader_image_adjustments_$bookId")]
+                ),
+                rasterHorizontalCropEnabled = preferences[booleanPreferencesKey("raster_horizontal_crop_$bookId")] ?: false,
+                rasterManualCropEnabled = preferences[booleanPreferencesKey("raster_manual_crop_enabled_$bookId")] ?: false,
+                rasterManualCrop = com.huangder.lumibooks.ui.reader.RasterManualCrop.decode(
+                    preferences[stringPreferencesKey("raster_manual_crop_$bookId")]),
                 bodyFontWeight = preferences[BODY_FONT_WEIGHT] ?: 400,
                 eInkModeEnabled = preferences[E_INK_MODE_ENABLED] ?: false,
                 twoPageSpreadEnabled = preferences[TWO_PAGE_SPREAD_ENABLED] ?: true,
                 pageRenderMode = PageRenderMode.normalizeKey(preferences[PAGE_RENDER_MODE]),
+                rasterZoomLocked = preferences[booleanPreferencesKey("raster_zoom_locked_$bookId")] ?: false,
+                rasterZoomScale = (preferences[floatPreferencesKey("raster_zoom_scale_$bookId")] ?: 1f)
+                    .coerceIn(1f, 5f),
                 screenSleepTimeoutSeconds = preferences[SCREEN_SLEEP_TIMEOUT_SECONDS]
                     ?.takeIf { it in SCREEN_SLEEP_TIMEOUT_SECONDS_OPTIONS }
                     ?: DEFAULT_SCREEN_SLEEP_TIMEOUT_SECONDS,
@@ -516,6 +627,7 @@ class DataStoreManager @Inject constructor(
                 firstLineIndent = preferences[FIRST_LINE_INDENT] ?: 2f,
                 chineseMode = preferences[stringPreferencesKey("chinese_mode")] ?: "original",
                 selectionMenuItems = selectionItems,
+                longPressSelectionRange = LongPressSelectionRange.fromKey(preferences[LONG_PRESS_SELECTION_RANGE]),
                 customHighlightPalettes = decodeHighlightPalettes(preferences),
                 activeHighlightPaletteId = preferences[ACTIVE_HIGHLIGHT_PALETTE_ID],
                 renderMode = resolvedRenderMode,
@@ -663,16 +775,13 @@ class DataStoreManager @Inject constructor(
         }.getOrDefault(emptyList())
     }
 
-    /** 选择文本菜单项开关（JSON 对象，如 "{\"copy\":true,\"search\":true}"），为空时默认全部开启 */
-    val selectionMenuItems: Flow<Map<String, Boolean>> = context.dataStore.data.map { preferences ->
-        val raw = preferences[SELECTION_MENU_ITEMS] ?: ""
-        if (raw.isBlank()) emptyMap()
-        else try {
-            val obj = org.json.JSONObject(raw)
-            val map = mutableMapOf<String, Boolean>()
-            obj.keys().forEach { key -> map[key] = obj.getBoolean(key) }
-            map
-        } catch (_: Exception) { emptyMap() }
+    /** Text selection actions and order, with migration from visibility-only settings. */
+    val selectionMenuItems: Flow<SelectionMenuSettings> = context.dataStore.data.map { preferences ->
+        decodeSelectionMenuSettings(preferences[SELECTION_MENU_ITEMS])
+    }
+
+    val longPressSelectionRange: Flow<LongPressSelectionRange> = context.dataStore.data.map { preferences ->
+        LongPressSelectionRange.fromKey(preferences[LONG_PRESS_SELECTION_RANGE])
     }
 
     val floatingSubtitleSettings: Flow<FloatingSubtitleSettings> = context.dataStore.data.map { preferences ->
@@ -792,8 +901,17 @@ class DataStoreManager @Inject constructor(
         preferences[SHOW_READER_BATTERY] ?: true
     }
 
-    val volumeKeyPageTurnEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[VOLUME_KEY_PAGE_TURN] ?: false
+    val volumeKeyActions: Flow<Pair<ReaderVolumeKeyAction, ReaderVolumeKeyAction>> = context.dataStore.data.map { preferences ->
+        val legacyPageTurnEnabled = preferences[VOLUME_KEY_PAGE_TURN] == true
+        val upAction = preferences[VOLUME_KEY_UP_ACTION]?.let(ReaderVolumeKeyAction::fromStorage)
+            ?: if (legacyPageTurnEnabled) ReaderVolumeKeyAction.PREVIOUS_PAGE else ReaderVolumeKeyAction.SYSTEM_VOLUME
+        val downAction = preferences[VOLUME_KEY_DOWN_ACTION]?.let(ReaderVolumeKeyAction::fromStorage)
+            ?: if (legacyPageTurnEnabled) ReaderVolumeKeyAction.NEXT_PAGE else ReaderVolumeKeyAction.SYSTEM_VOLUME
+        upAction to downAction
+    }
+
+    val bookmarkRemarkPromptEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[BOOKMARK_REMARK_PROMPT_ENABLED] ?: true
     }
 
     val bionicReadingEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -845,11 +963,18 @@ class DataStoreManager @Inject constructor(
 
     // 应用设置
     val appIconStyle: Flow<String> = context.dataStore.data.map { preferences ->
-        AppIconStyle.normalize(preferences[APP_ICON_STYLE])
+        AppIconStyle.normalize(
+            preferences[APP_ICON_STYLE],
+            preferences[LUMI_EASTER_EGG_UNLOCKED] ?: false
+        )
     }
 
+    val lumiEasterEggUnlocked: Flow<Boolean> = context.dataStore.data.map {
+        it[LUMI_EASTER_EGG_UNLOCKED] ?: false
+    }.distinctUntilChanged()
+
     val appTheme: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[APP_THEME] ?: "lumi"
+        LumiEasterEgg.normalizeTheme(preferences[APP_THEME], preferences[LUMI_EASTER_EGG_UNLOCKED] == true)
     }
 
     val homeScreenMode: Flow<String> = context.dataStore.data.map { preferences ->
@@ -863,12 +988,24 @@ class DataStoreManager @Inject constructor(
         normalizeAppAccentHex(preferences[APP_ACCENT_COLOR])
     }
 
+    val appFontSize: Flow<AppFontSize> = context.dataStore.data.map { preferences ->
+        AppFontSize.fromStoredValue(preferences[APP_FONT_SIZE])
+    }.distinctUntilChanged()
+
     val globalFontMode: Flow<String> = context.dataStore.data.map { preferences ->
         when (preferences[GLOBAL_FONT_MODE]) {
             "default" -> "default"
             else -> "system"
         }
     }
+
+    val reduceTransparencyEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[REDUCE_TRANSPARENCY_ENABLED] ?: false
+    }.distinctUntilChanged()
+
+    val liquidGlassStyle: Flow<LiquidGlassStyle> = context.dataStore.data.map { preferences ->
+        LiquidGlassStyle.fromStoredValue(preferences[LIQUID_GLASS_STYLE])
+    }.distinctUntilChanged()
 
     val liquidGlassTransparency: Flow<Float> = context.dataStore.data.map { preferences ->
         preferences[LIQUID_GLASS_TRANSPARENCY] ?: 0.55f
@@ -906,9 +1043,14 @@ class DataStoreManager @Inject constructor(
     /** Full motion policy. The legacy entrance flag remains the migration fallback. */
     val motionPreference: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[MOTION_PREFERENCE]
-            ?.takeIf { it == "standard" || it == "reduced" }
+            ?.takeIf { it == "standard" || it == "fast" || it == "reduced" }
             ?: if (preferences[ENTRANCE_ANIMATIONS_ENABLED] == false) "reduced" else "standard"
     }
+
+    /** Menu style is independent of the global reduced-motion preference. */
+    val menuAnimationStyle: Flow<String> = context.dataStore.data.map { preferences ->
+        MenuAnimationStyle.normalize(preferences[MENU_ANIMATION_STYLE])
+    }.distinctUntilChanged()
 
     /** Opening transition for books. Defaults to the cover-to-window hero motion. */
     val bookOpenTransition: Flow<String> = context.dataStore.data.map { preferences ->
@@ -917,6 +1059,16 @@ class DataStoreManager @Inject constructor(
 
     val eInkModeEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[E_INK_MODE_ENABLED] ?: false
+    }
+
+    val coverReadingProgressEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[COVER_READING_PROGRESS_ENABLED] ?: false
+    }.distinctUntilChanged()
+
+    suspend fun saveCoverReadingProgressEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[COVER_READING_PROGRESS_ENABLED] = enabled
+        }
     }
 
     val twoPageSpreadEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -970,17 +1122,25 @@ class DataStoreManager @Inject constructor(
     /** Single DataStore read used to refresh the non-blocking Activity launch snapshot. */
     val launchThemeSnapshot: Flow<LaunchThemeSnapshot> = context.dataStore.data.map { preferences ->
         LaunchThemeSnapshot(
-            iconStyle = AppIconStyle.normalize(preferences[APP_ICON_STYLE]),
-            appTheme = preferences[APP_THEME] ?: "lumi",
+            iconStyle = AppIconStyle.normalize(
+                preferences[APP_ICON_STYLE],
+                preferences[LUMI_EASTER_EGG_UNLOCKED] ?: false
+            ),
+            easterEggUnlocked = preferences[LUMI_EASTER_EGG_UNLOCKED] ?: false,
+            appTheme = LumiEasterEgg.normalizeTheme(preferences[APP_THEME], preferences[LUMI_EASTER_EGG_UNLOCKED] == true),
             appAccentColor = normalizeAppAccentHex(preferences[APP_ACCENT_COLOR]),
+            appFontSize = AppFontSize.fromStoredValue(preferences[APP_FONT_SIZE]),
             globalFontMode = if (preferences[GLOBAL_FONT_MODE] == "default") "default" else "system",
+            reduceTransparencyEnabled = preferences[REDUCE_TRANSPARENCY_ENABLED] ?: false,
+            liquidGlassStyle = LiquidGlassStyle.fromStoredValue(preferences[LIQUID_GLASS_STYLE]),
             liquidGlassTransparency = preferences[LIQUID_GLASS_TRANSPARENCY] ?: 0.55f,
             liquidGlassHdrHighlightEnabled =
                 preferences[LIQUID_GLASS_HDR_HIGHLIGHT_ENABLED] ?: deviceSupportsHdr,
             cardOutlinesEnabled = preferences[CARD_OUTLINES_ENABLED] ?: false,
             darkMode = preferences[DARK_MODE] ?: "system",
+            menuAnimationStyle = MenuAnimationStyle.normalize(preferences[MENU_ANIMATION_STYLE]),
             motionPreference = preferences[MOTION_PREFERENCE]
-                ?.takeIf { it == "standard" || it == "reduced" }
+                ?.takeIf { it == "standard" || it == "fast" || it == "reduced" }
                 ?: if (preferences[ENTRANCE_ANIMATIONS_ENABLED] == false) "reduced" else "standard",
             eInkModeEnabled = preferences[E_INK_MODE_ENABLED] ?: false,
             predictiveBackEnabled = preferences[PREDICTIVE_BACK_ENABLED] ?: true
@@ -1034,6 +1194,14 @@ class DataStoreManager @Inject constructor(
     }
 
     // 外部 TTS 听书设置
+    val translationSettings: Flow<com.huangder.lumibooks.translation.TranslationSettings> = context.dataStore.data
+        .map { com.huangder.lumibooks.translation.TranslationSettings.fromJson(it[AI_TRANSLATION_SETTINGS]) }
+        .distinctUntilChanged()
+
+    suspend fun saveTranslationSettings(settings: com.huangder.lumibooks.translation.TranslationSettings) {
+        context.dataStore.edit { it[AI_TRANSLATION_SETTINGS] = settings.toJson() }
+    }
+
     override val externalTtsSettings: Flow<ExternalTtsSettings> = context.dataStore.data.map { preferences ->
         ExternalTtsSettings(
             enabled = preferences[EXTERNAL_TTS_ENABLED] ?: false,
@@ -1086,6 +1254,52 @@ class DataStoreManager @Inject constructor(
             val raw = preferences[externalTtsResumeKey(bookId)] ?: return@map null
             parseResumePosition(raw, bookId)
         }
+
+    override fun ttsListeningPosition(bookId: String): Flow<TtsListeningPosition?> =
+        context.dataStore.data.map { preferences ->
+            preferences[ttsListeningPositionKey(bookId)]?.let { TtsListeningPosition.decode(bookId, it) }
+        }
+
+    override val ttsStartChoice: Flow<TtsStartChoice?> = context.dataStore.data.map {
+        TtsStartChoice.fromStoredValue(it[TTS_START_CHOICE])
+    }
+
+    override suspend fun saveTtsStartChoice(choice: TtsStartChoice?) {
+        context.dataStore.edit { preferences ->
+            if (choice == null) preferences.remove(TTS_START_CHOICE)
+            else preferences[TTS_START_CHOICE] = choice.storedValue
+        }
+    }
+
+    val ttsReaderResumeChoice: Flow<TtsReaderResumeChoice?> = context.dataStore.data.onStart {
+        // Reset choices remembered by the old opening dialog once, before any reader
+        // sees them. Choices made in settings after this upgrade continue to persist.
+        context.dataStore.edit { preferences ->
+            if (preferences[TTS_READER_RESUME_HINT_MIGRATED] != true) {
+                preferences.remove(TTS_READER_RESUME_CHOICE)
+                preferences[TTS_READER_RESUME_HINT_MIGRATED] = true
+            }
+        }
+    }.map {
+        TtsReaderResumeChoice.fromStoredValue(it[TTS_READER_RESUME_CHOICE])
+    }
+
+    suspend fun saveTtsReaderResumeChoice(choice: TtsReaderResumeChoice?) {
+        context.dataStore.edit { preferences ->
+            preferences[TTS_READER_RESUME_HINT_MIGRATED] = true
+            if (choice == null) preferences.remove(TTS_READER_RESUME_CHOICE)
+            else preferences[TTS_READER_RESUME_CHOICE] = choice.storedValue
+        }
+    }
+
+    override suspend fun saveTtsListeningPosition(position: TtsListeningPosition) {
+        context.dataStore.edit { preferences ->
+            preferences[ttsListeningPositionKey(position.bookId)] = position.encode()
+        }
+    }
+
+    private fun ttsListeningPositionKey(bookId: String) =
+        stringPreferencesKey("tts_listening_position_$bookId")
 
     // 应用语言
     val appLanguage: Flow<String> = context.dataStore.data.map { preferences ->
@@ -1345,16 +1559,14 @@ class DataStoreManager @Inject constructor(
         }
     }
 
-    suspend fun saveSelectionMenuItems(items: Map<String, Boolean>) {
+    suspend fun saveSelectionMenuItems(items: SelectionMenuSettings) {
         context.dataStore.edit { preferences ->
-            if (items.isEmpty()) {
-                preferences.remove(SELECTION_MENU_ITEMS)
-            } else {
-                val obj = JSONObject()
-                items.forEach { (k, v) -> obj.put(k, v) }
-                preferences[SELECTION_MENU_ITEMS] = obj.toString()
-            }
+            preferences[SELECTION_MENU_ITEMS] = encodeSelectionMenuSettings(items)
         }
+    }
+
+    suspend fun saveLongPressSelectionRange(range: LongPressSelectionRange) {
+        context.dataStore.edit { preferences -> preferences[LONG_PRESS_SELECTION_RANGE] = range.storageKey }
     }
 
     suspend fun saveTtsFloatingWindow(enabled: Boolean) {
@@ -1472,10 +1684,16 @@ class DataStoreManager @Inject constructor(
         }
     }
 
-    suspend fun saveVolumeKeyPageTurnEnabled(enabled: Boolean) {
+    suspend fun saveVolumeKeyActions(up: ReaderVolumeKeyAction, down: ReaderVolumeKeyAction) {
         context.dataStore.edit { preferences ->
-            preferences[VOLUME_KEY_PAGE_TURN] = enabled
+            preferences[VOLUME_KEY_UP_ACTION] = up.storageValue
+            preferences[VOLUME_KEY_DOWN_ACTION] = down.storageValue
+            preferences.remove(VOLUME_KEY_PAGE_TURN)
         }
+    }
+
+    suspend fun saveBookmarkRemarkPromptEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[BOOKMARK_REMARK_PROMPT_ENABLED] = enabled }
     }
 
     suspend fun saveBionicReadingEnabled(enabled: Boolean) {
@@ -1495,6 +1713,14 @@ class DataStoreManager @Inject constructor(
 
     suspend fun saveComicMode(enabled: Boolean) {
         saveComicMode(null, enabled)
+    }
+
+    suspend fun saveLineGuideEnabled(bookId: String, enabled: Boolean) {
+        context.dataStore.edit { it[booleanPreferencesKey("line_guide_enabled_$bookId")] = enabled }
+    }
+
+    suspend fun saveLineGuideDimLevel(bookId: String, level: Int) {
+        context.dataStore.edit { it[intPreferencesKey("line_guide_dim_$bookId")] = level.coerceIn(0, 4) }
     }
 
     suspend fun saveScreenSleepTimeoutSeconds(seconds: Int) {
@@ -1583,10 +1809,16 @@ class DataStoreManager @Inject constructor(
         context.dataStore.edit { preferences -> preferences[SHOW_FINISHED_BADGE] = enabled }
     }
 
-    suspend fun resetAdvancedReaderSettings(targetSuiteId: String? = null) {
+    suspend fun resetAdvancedReaderSettings(
+        targetSuiteId: String? = null,
+        layout: ReaderLayoutTarget = ReaderLayoutTarget.READER_LAYOUT,
+        modeDark: Boolean? = null
+    ) {
         context.dataStore.edit { preferences ->
-            val shouldApplyLegacyThemeFields = targetSuiteId == null ||
-                targetSuiteId == preferences[ACTIVE_READER_THEME_SUITE_ID]
+            val shouldApplyLegacyThemeFields = layout == ReaderLayoutTarget.READER_LAYOUT &&
+                modeDark == null && (targetSuiteId == null ||
+                    targetSuiteId == preferences[ACTIVE_READER_THEME_SUITE_ID]
+                )
             if (shouldApplyLegacyThemeFields) {
                 preferences[LINE_HEIGHT] = 1.5f
                 preferences[LETTER_SPACING] = 0f
@@ -1606,6 +1838,9 @@ class DataStoreManager @Inject constructor(
             preferences[SHOW_READER_PAGE_NUMBER] = true
             preferences[SHOW_READER_BATTERY] = true
             preferences[VOLUME_KEY_PAGE_TURN] = false
+            preferences[VOLUME_KEY_UP_ACTION] = ReaderVolumeKeyAction.SYSTEM_VOLUME.storageValue
+            preferences[VOLUME_KEY_DOWN_ACTION] = ReaderVolumeKeyAction.SYSTEM_VOLUME.storageValue
+            preferences[BOOKMARK_REMARK_PROMPT_ENABLED] = true
             preferences[BIONIC_READING_ENABLED] = false
             preferences[SCREEN_SLEEP_TIMEOUT_SECONDS] = DEFAULT_SCREEN_SLEEP_TIMEOUT_SECONDS
             preferences[READER_EDGE_TAP_MODE] = ReaderEdgeTapMode.LEFT_PREVIOUS_RIGHT_NEXT.key
@@ -1617,52 +1852,30 @@ class DataStoreManager @Inject constructor(
             preferences.remove(READER_CORNER_MARGIN_RIGHT)
             preferences.remove(READER_CORNER_MARGIN_TOP)
             preferences.remove(READER_CORNER_MARGIN_BOTTOM)
-            val reset = ReaderThemeSettings(
-                textColor = null,
-                fontType = "system",
-                lineHeight = 1.5f,
-                letterSpacing = 0f,
-                textAlignment = ReaderTextAlignment.NATURAL,
-                paragraphSpacing = 2f,
-                firstLineIndent = 2f,
-                marginLeft = 38f,
-                marginRight = 38f,
-                marginTop = 64f,
-                marginBottom = 64f
+            fun ReaderThemeSettings.resetTypography() = copy(
+                textColor = null, fontType = "system", lineHeight = 1.5f,
+                letterSpacing = 0f, textAlignment = ReaderTextAlignment.NATURAL,
+                paragraphSpacing = 2f, firstLineIndent = 2f,
+                marginLeft = 38f, marginRight = 38f,
+                marginTop = 64f, marginBottom = 64f
             )
             if (targetSuiteId == null) {
-                preferences.updateActiveReaderThemeSuite {
-                    copy(
-                        textColor = reset.textColor,
-                        fontType = reset.fontType,
-                        lineHeight = reset.lineHeight,
-                        letterSpacing = reset.letterSpacing,
-                        textAlignment = reset.textAlignment,
-                        paragraphSpacing = reset.paragraphSpacing,
-                        firstLineIndent = reset.firstLineIndent,
-                        marginLeft = reset.marginLeft,
-                        marginRight = reset.marginRight,
-                        marginTop = reset.marginTop,
-                        marginBottom = reset.marginBottom
-                    )
-                }
+                preferences.updateActiveReaderThemeSuite { resetTypography() }
             } else {
                 val suites = readThemeSuites(preferences)
                 preferences[READER_THEME_SUITES] = ReaderThemeSuiteCodec.encode(
                     suites.map { suite ->
-                        if (suite.id == targetSuiteId) suite.copy(settings = suite.settings.copy(
-                            textColor = reset.textColor,
-                            fontType = reset.fontType,
-                            lineHeight = reset.lineHeight,
-                            letterSpacing = reset.letterSpacing,
-                            textAlignment = reset.textAlignment,
-                            paragraphSpacing = reset.paragraphSpacing,
-                            firstLineIndent = reset.firstLineIndent,
-                            marginLeft = reset.marginLeft,
-                            marginRight = reset.marginRight,
-                            marginTop = reset.marginTop,
-                            marginBottom = reset.marginBottom
-                        )) else suite
+                        if (suite.id != targetSuiteId) suite else when (layout) {
+                            ReaderLayoutTarget.BOOK_LAYOUT -> suite.withSettings(
+                                layout, suite.settingsFor(layout).resetTypography()
+                            )
+                            ReaderLayoutTarget.READER_LAYOUT -> if (modeDark != null) {
+                                suite.withModeSettings(
+                                    modeDark,
+                                    suite.settingsFor(layout, modeDark).resetTypography()
+                                )
+                            } else suite.withSettings(layout, suite.settings.resetTypography())
+                        }
                     }
                 )
             }
@@ -1826,18 +2039,24 @@ class DataStoreManager @Inject constructor(
     suspend fun updateReaderThemeSuite(
         suiteId: String,
         layout: ReaderLayoutTarget,
-        settings: ReaderThemeSettings
+        settings: ReaderThemeSettings,
+        modeDark: Boolean? = null
     ) {
         context.dataStore.edit { preferences ->
             val suites = readThemeSuites(preferences)
             if (suites.none { it.id == suiteId }) return@edit
             val updated = ReaderThemeSuites.normalized(suites.map { suite ->
-                if (suite.id == suiteId) suite.withSettings(layout, settings) else suite
+                if (suite.id != suiteId) suite
+                else if (layout == ReaderLayoutTarget.READER_LAYOUT && modeDark != null) {
+                    suite.withModeSettings(modeDark, settings)
+                } else {
+                    suite.withSettings(layout, settings)
+                }
             })
             preferences[READER_THEME_SUITES] = ReaderThemeSuiteCodec.encode(updated)
             preferences[READER_THEME_SUITES_VERSION] = READER_THEME_SUITES_VERSION_VALUE
             // Legacy flat keys keep mirroring the reader-layout set only.
-            if (layout == ReaderLayoutTarget.READER_LAYOUT &&
+            if (layout == ReaderLayoutTarget.READER_LAYOUT && modeDark == null &&
                 preferences[ACTIVE_READER_THEME_SUITE_ID] == suiteId
             ) {
                 preferences.applyReaderThemeSettings(updated.first { it.id == suiteId }.settings)
@@ -1868,6 +2087,10 @@ class DataStoreManager @Inject constructor(
 
     fun readerThemeSuiteBookScoped(bookId: String): Flow<Boolean> =
         context.dataStore.data.map { it[booleanPreferencesKey("reader_theme_suite_book_scoped_$bookId")] ?: false }
+
+    suspend fun saveReaderButtonContrastEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[READER_BUTTON_CONTRAST_ENABLED] = enabled }
+    }
 
     suspend fun setReaderThemeSuiteBookScoped(
         bookId: String,
@@ -1982,12 +2205,28 @@ class DataStoreManager @Inject constructor(
         context.dataStore.edit { preferences -> preferences[key] = mode.storageValue }
     }
 
+    suspend fun saveNativeEpubCssEnabled(bookId: String, enabled: Boolean) {
+        context.dataStore.edit { it[booleanPreferencesKey("native_epub_css_$bookId")] = enabled }
+    }
+
+    /** Markdown opens in WebView by default; an explicit layout choice survives reopening. */
+    suspend fun initializeMarkdownRenderMode(bookId: String) {
+        val key = stringPreferencesKey("epub_render_mode_$bookId")
+        context.dataStore.edit { preferences ->
+            if (!preferences.contains(key)) preferences[key] = EpubRenderMode.BOOK_LAYOUT.storageValue
+        }
+    }
+
     fun txtEncoding(bookId: String): Flow<String> {
         val key = stringPreferencesKey("txt_encoding_$bookId")
         return context.dataStore.data.map { preferences -> preferences[key] ?: "auto" }
     }
 
     /** Per-book CBZ reading direction; absent until the user picks one. */
+    suspend fun saveEpubComicReader(bookId: String, enabled: Boolean) {
+        context.dataStore.edit { it[booleanPreferencesKey("epub_comic_reader_$bookId")] = enabled }
+    }
+
     fun cbzReadingDirection(bookId: String): Flow<String?> {
         val key = stringPreferencesKey("cbz_reading_direction_$bookId")
         return context.dataStore.data.map { preferences -> preferences[key] }
@@ -1996,6 +2235,16 @@ class DataStoreManager @Inject constructor(
     suspend fun saveCbzReadingDirection(bookId: String, directionKey: String) {
         val key = stringPreferencesKey("cbz_reading_direction_$bookId")
         context.dataStore.edit { preferences -> preferences[key] = directionKey }
+    }
+
+    /** Saves the per-book zoom ratio used by PDF and CBZ readers. */
+    suspend fun saveRasterZoom(bookId: String, locked: Boolean, scale: Float) {
+        val lockedKey = booleanPreferencesKey("raster_zoom_locked_$bookId")
+        val scaleKey = floatPreferencesKey("raster_zoom_scale_$bookId")
+        context.dataStore.edit { preferences ->
+            preferences[lockedKey] = locked
+            preferences[scaleKey] = scale.coerceIn(1f, 5f)
+        }
     }
 
     suspend fun saveTxtEncoding(bookId: String, encoding: String) {
@@ -2340,7 +2589,9 @@ class DataStoreManager @Inject constructor(
 
     suspend fun saveAppTheme(theme: String) {
         context.dataStore.edit { preferences ->
-            preferences[APP_THEME] = theme
+            if (LumiEasterEgg.canSelect(theme, preferences[LUMI_EASTER_EGG_UNLOCKED] == true)) {
+                preferences[APP_THEME] = theme
+            }
         }
     }
 
@@ -2350,6 +2601,11 @@ class DataStoreManager @Inject constructor(
         }
     }
 
+    suspend fun unlockLumiEasterEgg() {
+        context.dataStore.edit { it[LUMI_EASTER_EGG_UNLOCKED] = true }
+        LaunchThemeController.updateEasterEggSnapshot(context, true)
+    }
+
     suspend fun saveStartupScreen(screen: String) {
         context.dataStore.edit { preferences ->
             preferences[STARTUP_SCREEN] = normalizeStartupScreen(screen)
@@ -2357,10 +2613,15 @@ class DataStoreManager @Inject constructor(
     }
 
     suspend fun saveAppIconStyle(style: String): Boolean {
+        var accepted = false
         val normalized = AppIconStyle.normalize(style)
-        context.dataStore.edit { preferences ->
+        val saved = context.dataStore.edit { preferences ->
+            if (!LumiEasterEgg.canSelect(style, preferences[LUMI_EASTER_EGG_UNLOCKED] == true)) return@edit
             preferences[APP_ICON_STYLE] = normalized
+            accepted = true
         }
+        if (!accepted) return false
+        LaunchThemeController.updateEasterEggSnapshot(context, saved[LUMI_EASTER_EGG_UNLOCKED] == true)
         LaunchThemeController.updateIconStyleSnapshot(context, normalized)
         return LaunchThemeController.applyIconStyle(context, normalized)
     }
@@ -2377,6 +2638,12 @@ class DataStoreManager @Inject constructor(
         }
     }
 
+    suspend fun saveAppFontSize(size: AppFontSize) {
+        context.dataStore.edit { preferences ->
+            preferences[APP_FONT_SIZE] = size.storedValue
+        }
+    }
+
     suspend fun saveGlobalFontMode(mode: String) {
         context.dataStore.edit { preferences ->
             preferences[GLOBAL_FONT_MODE] = if (mode == "system") "system" else "default"
@@ -2388,6 +2655,25 @@ class DataStoreManager @Inject constructor(
             preferences[APP_THEME] = "liquid_glass"
             preferences[LIQUID_GLASS_TRANSPARENCY] = transparency.coerceIn(0f, 1f)
         }
+    }
+
+    suspend fun saveReduceTransparencyEnabled(enabled: Boolean) {
+        val saved = context.dataStore.edit { preferences ->
+            preferences[REDUCE_TRANSPARENCY_ENABLED] = enabled
+        }
+        LaunchThemeController.updateReduceTransparencySnapshot(
+            context, saved[REDUCE_TRANSPARENCY_ENABLED] ?: false
+        )
+    }
+
+    suspend fun saveLiquidGlassStyle(style: LiquidGlassStyle) {
+        val saved = context.dataStore.edit { preferences ->
+            preferences[LIQUID_GLASS_STYLE] = style.storedValue
+        }
+        // Keep the first frame correct even when the process exits before the app collector runs.
+        LaunchThemeController.updateLiquidGlassStyleSnapshot(
+            context, LiquidGlassStyle.fromStoredValue(saved[LIQUID_GLASS_STYLE])
+        )
     }
 
     suspend fun saveLiquidGlassTransparency(transparency: Float) {
@@ -2431,11 +2717,15 @@ class DataStoreManager @Inject constructor(
     }
 
     suspend fun saveMotionPreference(preference: String) {
-        val normalized = if (preference == "reduced") "reduced" else "standard"
+        val normalized = when (preference) {
+            "fast" -> "fast"
+            "reduced" -> "reduced"
+            else -> "standard"
+        }
         context.dataStore.edit { preferences ->
             preferences[MOTION_PREFERENCE] = normalized
             // Keep older builds and exported settings in sync.
-            preferences[ENTRANCE_ANIMATIONS_ENABLED] = normalized == "standard"
+            preferences[ENTRANCE_ANIMATIONS_ENABLED] = normalized != "reduced"
         }
     }
 
@@ -2443,6 +2733,12 @@ class DataStoreManager @Inject constructor(
         val normalized = BookOpenTransition.normalize(transition)
         context.dataStore.edit { preferences ->
             preferences[BOOK_OPEN_TRANSITION] = normalized
+        }
+    }
+
+    suspend fun saveMenuAnimationStyle(style: String) {
+        context.dataStore.edit { preferences ->
+            preferences[MENU_ANIMATION_STYLE] = MenuAnimationStyle.normalize(style)
         }
     }
 
@@ -2887,10 +3183,26 @@ class DataStoreManager @Inject constructor(
 
     suspend fun applyPortablePreferences(entries: List<PortablePreference>) {
         if (entries.isEmpty()) return
-        context.dataStore.edit { preferences ->
+        val saved = context.dataStore.edit { preferences ->
+            val alreadyUnlocked = preferences[LUMI_EASTER_EGG_UNLOCKED] == true
             val metadata = JSONObject(preferences[PORTABLE_PREFERENCE_METADATA] ?: "{}")
             for (entry in entries) {
                 if (!isPortablePreferenceKey(entry.key)) continue
+                val oldMetadata = metadata.optJSONObject(entry.key)
+                val currentValue = preferences.asMap().entries
+                    .firstOrNull { it.key.name == entry.key }
+                    ?.let { (key, value) -> encodePortablePreference(key.name, value) }
+                val currentFingerprint = currentValue?.let {
+                    portablePreferenceFingerprint(it.type, it.value)
+                }
+                if (!shouldApplyIncomingPortablePreference(
+                        hasPreviousMetadata = oldMetadata != null,
+                        hasCurrentValue = currentValue != null,
+                        currentFingerprint = currentFingerprint,
+                        previousFingerprint = oldMetadata?.optString("fingerprint"),
+                        previousWasDeleted = oldMetadata?.optBoolean("deleted") == true
+                    )
+                ) continue
                 applyPortablePreference(preferences, entry)
                 val fingerprint = if (entry.deleted) "" else portablePreferenceFingerprint(entry.type, entry.value)
                 metadata.put(
@@ -2904,7 +3216,14 @@ class DataStoreManager @Inject constructor(
                 )
             }
             preferences[PORTABLE_PREFERENCE_METADATA] = metadata.toString()
+            if (alreadyUnlocked) preferences[LUMI_EASTER_EGG_UNLOCKED] = true
+            val unlocked = preferences[LUMI_EASTER_EGG_UNLOCKED] == true
+            preferences[APP_THEME] = LumiEasterEgg.normalizeTheme(preferences[APP_THEME], unlocked)
+            preferences[APP_ICON_STYLE] = AppIconStyle.normalize(preferences[APP_ICON_STYLE], unlocked)
         }
+        LaunchThemeController.updateReduceTransparencySnapshot(
+            context, saved[REDUCE_TRANSPARENCY_ENABLED] ?: false
+        )
     }
 
     suspend fun replacePortablePreferences(entries: List<PortablePreference>, deviceId: String) {
@@ -2979,6 +3298,7 @@ class DataStoreManager @Inject constructor(
 
     private fun isPortablePreferenceKey(key: String): Boolean {
         if (key == PORTABLE_PREFERENCE_METADATA.name) return false
+        if (key == TTS_READER_RESUME_HINT_MIGRATED.name) return false
         if (key.startsWith("webdav_")) return false
         if (key == "authorized_book_directories") return false
         if (key in nonPortablePreferenceKeys) return false
@@ -3216,6 +3536,7 @@ class DataStoreManager @Inject constructor(
 
     suspend fun clearAll() {
         context.dataStore.edit { it.clear() }
+        LaunchThemeController.updateReduceTransparencySnapshot(context, false)
         LaunchThemeController.updateWelcomeSnapshot(
             context = context,
             completedInstallTime = 0L,

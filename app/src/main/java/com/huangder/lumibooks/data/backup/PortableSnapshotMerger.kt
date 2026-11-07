@@ -76,6 +76,10 @@ object PortableSnapshotMerger {
             folders = folders,
             bookFolderLinks = folderLinks,
             tags = tags,
+            annotationTags = mergeLatest(
+                local.annotationTags, remote.annotationTags, { it.name }, { it.updatedAt },
+                { if (it.isDeleted) "1" else "0" }
+            ).distinctByLatest({ it.name }, { it.updatedAt }),
             bookTagLinks = tagLinks,
             readingRecords = mergeReadingRecords(local.readingRecords, remote.readingRecords)
                 .filter { it.bookId in validBookIds },
@@ -105,7 +109,16 @@ object PortableSnapshotMerger {
             ),
             bookSourcesJson = mergeJsonSources(local.bookSourcesJson, remote.bookSourcesJson),
             legadoBooksJson = mergeJsonLegadoBooks(local.legadoBooksJson, remote.legadoBooksJson),
-            replaceRulesJson = mergeJsonReplaceRules(local.replaceRulesJson, remote.replaceRulesJson)
+            replaceRulesJson = mergeJsonReplaceRules(local.replaceRulesJson, remote.replaceRulesJson),
+            highlightRules = mergeLatest(
+                local.highlightRules, remote.highlightRules, { it.id }, { it.updatedAt }, { it.rawJson }
+            ),
+            bookHighlightRuleStates = (local.bookHighlightRuleStates + remote.bookHighlightRuleStates)
+                .distinctBy { "${it.bookId}:${it.ruleId}" },
+            bookHighlightSettings = (local.bookHighlightSettings + remote.bookHighlightSettings)
+                .groupBy { it.bookId }.map { (_, values) -> values.maxBy { it.revision } },
+            highlightRuleExclusions = (local.highlightRuleExclusions + remote.highlightRuleExclusions)
+                .distinctBy { "${it.bookId}:${it.ruleId}:${it.matchKey}" }
         )
     }
 

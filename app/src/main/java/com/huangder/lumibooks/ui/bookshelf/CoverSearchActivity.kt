@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.ContextThemeWrapper
 import android.view.PixelCopy
 import android.view.View
 import android.webkit.WebChromeClient
@@ -24,8 +25,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.spring
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.delayMillis
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.expandHorizontally
@@ -51,7 +53,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -92,6 +94,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.ui.components.LiquidGlassDialogHost
@@ -165,15 +169,28 @@ class CoverSearchActivity : ComponentActivity() {
         }
 
         setContent {
+            val appFontSize by dataStoreManager.appFontSize.collectAsState(initial = launchTheme.appFontSize)
             val capability = rememberLiquidGlassCapability(view = LocalView.current)
             val resolvedAppTheme = effectiveAppTheme(launchTheme.appTheme, capability)
+            val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
+            val liquidGlassStyle by dataStoreManager.liquidGlassStyle
+                .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
+                .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
+                liquidGlassStyle = liquidGlassStyle,
+                reduceTransparencyEnabled = reduceTransparencyEnabled,
+                menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
                 darkTheme = isDark,
                 dynamicColor = resolvedAppTheme == "material3",
-                appTheme = resolvedAppTheme,
+                appTheme = launchTheme.appTheme,
+                eInkMode = launchTheme.eInkModeEnabled,
+                motionPreference = com.huangder.lumibooks.ui.theme.MotionPreference.fromStoredValue(launchTheme.motionPreference),
+                lumiBackgroundScene = com.huangder.lumibooks.ui.theme.LumiBackgroundScene.SECONDARY,
                 appAccentColor = launchTheme.appAccentColor,
                 liquidGlassTransparency = launchTheme.liquidGlassTransparency,
                 liquidGlassHdrHighlightEnabled = launchTheme.liquidGlassHdrHighlightEnabled,
+                appFontSize = appFontSize,
                 globalFontMode = launchTheme.globalFontMode
             ) {
                 LiquidGlassDialogHost(modifier = Modifier.fillMaxSize()) {
@@ -222,12 +239,29 @@ private fun CoverSearchScreen(
     var queryText by remember { mutableStateOf(bookTitle) }
     var selectedEngine by remember { mutableStateOf(CoverSearchEngine.BING) }
 
-    val webView = remember {
-        WebView(context).apply {
+    // WebView derives prefers-color-scheme from its themed context. The activity's
+    // platform theme is fixed to light, so use an explicit wrapper that follows the
+    // Compose theme and enable algorithmic darkening for sites without dark CSS.
+    val webView = remember(context, isDark) {
+        val webViewTheme = if (isDark) {
+            R.style.Theme_EBookReader_WebView_Dark
+        } else {
+            R.style.Theme_EBookReader_WebView_Light
+        }
+        WebView(ContextThemeWrapper(context, webViewTheme)).apply {
             setBackgroundColor(if (isDark) 0xFF000000.toInt() else 0xFFFBFBFC.toInt())
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.defaultTextEncodingName = "UTF-8"
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+                WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, isDark)
+            } else if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+                @Suppress("DEPRECATION")
+                WebSettingsCompat.setForceDark(
+                    settings,
+                    if (isDark) WebSettingsCompat.FORCE_DARK_ON else WebSettingsCompat.FORCE_DARK_OFF
+                )
+            }
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     // 仅放行 http(s)，其余（mailto: 等）交给系统
@@ -262,7 +296,7 @@ private fun CoverSearchScreen(
     // 进入裁剪模式时居中初始化 3:4 框；退出时等淡出动画结束后清空（页面可能已滚动）
     LaunchedEffect(cropMode, containerSize) {
         if (!cropMode) {
-            delay(200)
+            delay(delayMillis(200L))
             if (!cropMode) cropFrame = null
         } else if (containerSize != Size.Zero && cropFrame == null) {
             var width = containerSize.height * 0.62f * COVER_ASPECT_RATIO
@@ -284,7 +318,7 @@ private fun CoverSearchScreen(
                 CoverSearchViewModel.SaveResult.Success -> {
                     capturing = false
                     showSuccess = true
-                    delay(500)
+                    delay(delayMillis(500L))
                     onExit()
                 }
                 is CoverSearchViewModel.SaveResult.Error -> {
@@ -342,7 +376,7 @@ private fun CoverSearchScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppColors.WindowBg)
+            .background(AppColors.PageBg)
     ) {
         Column(
             modifier = Modifier
@@ -366,12 +400,12 @@ private fun CoverSearchScreen(
                     .weight(1f)
                     .fillMaxWidth()
                     .padding(horizontal = AppSpace.md - AppSpace.xs)
-                    .clip(RoundedCornerShape(22.dp))
+                    .clip(AppRoundedCornerShape(22.dp))
                     .background(AppColors.BgGray)
                     .border(
                         width = 1.dp,
                         color = AppColors.Divider.copy(alpha = 0.65f),
-                        shape = RoundedCornerShape(22.dp)
+                        shape = AppRoundedCornerShape(22.dp)
                     )
                     .onGloballyPositioned { coordinates ->
                         containerSize = Size(
@@ -487,8 +521,9 @@ private fun CoverSearchBottomBar(
                     CoverSearchEngine.BAIDU -> stringResource(R.string.cover_search_engine_baidu)
                     CoverSearchEngine.GOOGLE -> stringResource(R.string.cover_search_engine_google)
                 }
-                val shape = RoundedCornerShape(50)
+                val shape = AppRoundedCornerShape(50)
                 LiquidGlassSurface(
+                    controlEdge = true,
                     shape = shape,
                     fallbackColor = if (selected) AppColors.Accent else AppColors.CardBg,
                     contentScrimColor = if (isLiquidGlass) {
@@ -568,6 +603,7 @@ private fun CoverSearchBottomBar(
         Spacer(Modifier.size(AppSpace.sm))
         val cropShape = CircleShape
         LiquidGlassSurface(
+            controlEdge = true,
             shape = cropShape,
             fallbackColor = if (cropMode) AppColors.Accent else AppColors.CardBg,
             contentScrimColor = if (isLiquidGlass) {
@@ -658,7 +694,8 @@ private fun CoverSearchTopBar(
 
         if (isLiquidGlass) {
             LiquidGlassSurface(
-                shape = RoundedCornerShape(50),
+                controlEdge = true,
+                shape = AppRoundedCornerShape(50),
                 fallbackColor = AppColors.CardBg,
                 contentScrimColor = AppColors.CardBg.copy(alpha = 0.42f),
                 modifier = Modifier.weight(1f)
@@ -676,7 +713,7 @@ private fun CoverSearchTopBar(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(50))
+                    .clip(AppRoundedCornerShape(50))
                     .background(AppColors.BgGray.copy(alpha = 0.65f))
                     .padding(horizontal = AppSpace.md, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically

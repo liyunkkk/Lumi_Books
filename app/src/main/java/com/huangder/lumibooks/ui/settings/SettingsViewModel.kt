@@ -10,8 +10,11 @@ import com.huangder.lumibooks.R
 import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.domain.repository.BookRepository
 import com.huangder.lumibooks.domain.model.normalizeAppAccentHex
+import com.huangder.lumibooks.domain.model.AppFontSize
 import com.huangder.lumibooks.domain.model.AppIconStyle
 import com.huangder.lumibooks.domain.model.BookOpenTransition
+import com.huangder.lumibooks.domain.model.LongPressSelectionRange
+import com.huangder.lumibooks.domain.model.LiquidGlassStyle
 import com.huangder.lumibooks.util.BookFileAccess
 import com.huangder.lumibooks.util.FileUtils
 import com.huangder.lumibooks.util.UpdateChecker
@@ -72,14 +75,26 @@ class SettingsViewModel @Inject constructor(
     private val externalTtsAudioCache: ExternalTtsAudioCache,
     private val webdavSyncManager: com.huangder.lumibooks.data.sync.WebdavSyncManager,
     private val webdavTokenStore: com.huangder.lumibooks.data.local.WebdavTokenStore,
+    private val webdavAutoSyncScheduler: com.huangder.lumibooks.data.sync.WebdavAutoSyncScheduler,
     private val floatingSubtitleOverlayController: FloatingSubtitleOverlayController,
     private val backupArchiveManager: BackupArchiveManager,
+    private val dictionaryRepository: com.huangder.lumibooks.dictionary.DictionaryRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     val txtTocCustomRules: kotlinx.coroutines.flow.Flow<List<TxtTocRule>> = dataStoreManager.txtTocCustomRules()
     val txtTocThirdPartyRules: kotlinx.coroutines.flow.Flow<List<TxtTocRule>> =
         dataStoreManager.txtTocThirdPartyRules()
+
+    fun saveSelectionMenuItems(items: com.huangder.lumibooks.domain.model.SelectionMenuSettings) {
+        _uiState.update { it.copy(selectionMenuItems = items) }
+        viewModelScope.launch { dataStoreManager.saveSelectionMenuItems(items) }
+    }
+
+    fun saveLongPressSelectionRange(range: LongPressSelectionRange) {
+        _uiState.update { it.copy(longPressSelectionRange = range) }
+        viewModelScope.launch { dataStoreManager.saveLongPressSelectionRange(range) }
+    }
 
     fun saveTxtTocCustomRules(rules: List<TxtTocRule>) {
         viewModelScope.launch { dataStoreManager.saveTxtTocCustomRules(rules) }
@@ -120,7 +135,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     private val _uiState = MutableStateFlow(
-        SettingsUiState(nickname = context.getString(R.string.default_nickname))
+        SettingsUiState(
+            nickname = context.getString(R.string.default_nickname),
+            lumiEasterEggUnlocked = com.huangder.lumibooks.util.LaunchThemeController.themeSnapshot(context).easterEggUnlocked
+        )
     )
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
     private var predictiveBackVisualOverride: Boolean? = null
@@ -135,6 +153,16 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun collectAllPreferences() {
+        viewModelScope.launch {
+            dataStoreManager.selectionMenuItems.collectLatest { items ->
+                _uiState.update { it.copy(selectionMenuItems = items) }
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.longPressSelectionRange.collectLatest { range ->
+                _uiState.update { it.copy(longPressSelectionRange = range) }
+            }
+        }
         viewModelScope.launch {
             dataStoreManager.avatarUri.collectLatest { uri ->
                 _uiState.value = _uiState.value.copy(avatarUri = uri)
@@ -191,6 +219,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            dataStoreManager.lumiEasterEggUnlocked.collectLatest { unlocked ->
+                _uiState.value = _uiState.value.copy(lumiEasterEggUnlocked = unlocked)
+            }
+        }
+        viewModelScope.launch {
             dataStoreManager.startupScreen.collectLatest { screen ->
                 _uiState.value = _uiState.value.copy(startupScreen = screen)
             }
@@ -206,8 +239,23 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            dataStoreManager.appFontSize.collectLatest { size ->
+                _uiState.update { it.copy(appFontSize = size) }
+            }
+        }
+        viewModelScope.launch {
             dataStoreManager.globalFontMode.collectLatest { mode ->
                 _uiState.value = _uiState.value.copy(globalFontMode = mode)
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.reduceTransparencyEnabled.collectLatest { enabled ->
+                _uiState.update { it.copy(reduceTransparencyEnabled = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.liquidGlassStyle.collectLatest { style ->
+                _uiState.update { it.copy(liquidGlassStyle = style) }
             }
         }
         viewModelScope.launch {
@@ -246,6 +294,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            dataStoreManager.menuAnimationStyle.collectLatest { style ->
+                _uiState.value = _uiState.value.copy(menuAnimationStyle = style)
+            }
+        }
+        viewModelScope.launch {
             dataStoreManager.entranceAnimationsEnabled.collectLatest { enabled ->
                 _uiState.value = _uiState.value.copy(entranceAnimationsEnabled = enabled)
             }
@@ -258,6 +311,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.eInkModeEnabled.collectLatest { enabled ->
                 _uiState.value = _uiState.value.copy(eInkModeEnabled = enabled)
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.coverReadingProgressEnabled.collectLatest { enabled ->
+                _uiState.update { it.copy(coverReadingProgressEnabled = enabled) }
             }
         }
         viewModelScope.launch {
@@ -371,6 +429,16 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.ttsProviderSelection.collectLatest { selection ->
                 _uiState.value = _uiState.value.copy(ttsProviderSelection = selection)
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.ttsStartChoice.collectLatest { choice ->
+                _uiState.value = _uiState.value.copy(ttsStartChoice = choice)
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.ttsReaderResumeChoice.collectLatest { choice ->
+                _uiState.value = _uiState.value.copy(ttsReaderResumeChoice = choice)
             }
         }
         viewModelScope.launch {
@@ -502,7 +570,8 @@ class SettingsViewModel @Inject constructor(
     // ─── 显示与外观 ───
 
     fun saveAppIconStyle(style: String) {
-        val normalized = AppIconStyle.normalize(style)
+        if (!com.huangder.lumibooks.domain.model.LumiEasterEgg.canSelect(style, _uiState.value.lumiEasterEggUnlocked)) return
+        val normalized = AppIconStyle.normalize(style, _uiState.value.lumiEasterEggUnlocked)
         if (_uiState.value.appIconStyle == normalized) return
         _uiState.value = _uiState.value.copy(appIconStyle = normalized)
         viewModelScope.launch {
@@ -513,6 +582,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun saveAppTheme(theme: String) {
+        if (theme == "lumi_chan" && !_uiState.value.lumiEasterEggUnlocked) {
+            Toast.makeText(context, "诶？这是什么Σ(°△°|||)︴", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (_uiState.value.appTheme == theme) return
         _uiState.value = _uiState.value.copy(appTheme = theme)
         viewModelScope.launch {
@@ -547,6 +620,14 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun saveTtsStartChoice(choice: com.huangder.lumibooks.tts.TtsStartChoice?) {
+        viewModelScope.launch { dataStoreManager.saveTtsStartChoice(choice) }
+    }
+
+    fun saveTtsReaderResumeChoice(choice: com.huangder.lumibooks.tts.TtsReaderResumeChoice?) {
+        viewModelScope.launch { dataStoreManager.saveTtsReaderResumeChoice(choice) }
+    }
+
     fun refreshInstalledTtsEngines() {
         _uiState.value = _uiState.value.copy(
             installedTtsEngines = ttsEngine.getInstalledEngines()
@@ -562,6 +643,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun saveAppFontSize(value: String) {
+        val size = AppFontSize.fromStoredValue(value)
+        if (_uiState.value.appFontSize == size) return
+        _uiState.update { it.copy(appFontSize = size) }
+        viewModelScope.launch { dataStoreManager.saveAppFontSize(size) }
+    }
+
     fun saveGlobalFontMode(mode: String) {
         val normalized = if (mode == "system") "system" else "default"
         if (_uiState.value.globalFontMode == normalized) return
@@ -569,6 +657,20 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.saveGlobalFontMode(normalized)
         }
+    }
+
+    fun saveReduceTransparencyEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(reduceTransparencyEnabled = enabled) }
+        viewModelScope.launch {
+            dataStoreManager.saveReduceTransparencyEnabled(enabled)
+        }
+    }
+
+    fun saveLiquidGlassStyle(value: String) {
+        val style = LiquidGlassStyle.fromStoredValue(value)
+        if (_uiState.value.liquidGlassStyle == style) return
+        _uiState.update { it.copy(liquidGlassStyle = style) }
+        viewModelScope.launch { dataStoreManager.saveLiquidGlassStyle(style) }
     }
 
     fun saveLiquidGlassTransparency(transparency: Float) {
@@ -656,11 +758,15 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun saveMotionPreference(preference: String) {
-        val normalized = if (preference == "reduced") "reduced" else "standard"
+        val normalized = when (preference) {
+            "fast" -> "fast"
+            "reduced" -> "reduced"
+            else -> "standard"
+        }
         if (_uiState.value.motionPreference == normalized) return
         _uiState.value = _uiState.value.copy(
             motionPreference = normalized,
-            entranceAnimationsEnabled = normalized == "standard"
+            entranceAnimationsEnabled = normalized != "reduced"
         )
         viewModelScope.launch {
             dataStoreManager.saveMotionPreference(normalized)
@@ -672,6 +778,21 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(entranceAnimationsEnabled = enabled)
         viewModelScope.launch {
             dataStoreManager.saveEntranceAnimationsEnabled(enabled)
+        }
+    }
+
+    fun saveMenuAnimationStyle(style: String) {
+        val normalized = com.huangder.lumibooks.domain.model.MenuAnimationStyle.normalize(style)
+        if (_uiState.value.menuAnimationStyle == normalized) return
+        _uiState.value = _uiState.value.copy(menuAnimationStyle = normalized)
+        viewModelScope.launch { dataStoreManager.saveMenuAnimationStyle(normalized) }
+    }
+
+    fun unlockLumiEasterEgg(onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val succeeded = runCatching { dataStoreManager.unlockLumiEasterEgg() }.isSuccess
+            if (succeeded) _uiState.update { it.copy(lumiEasterEggUnlocked = true) }
+            onComplete(succeeded)
         }
     }
 
@@ -689,6 +810,13 @@ class SettingsViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(eInkModeEnabled = enabled)
         viewModelScope.launch {
             dataStoreManager.saveEInkModeEnabled(enabled)
+        }
+    }
+
+    fun saveCoverReadingProgressEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(coverReadingProgressEnabled = enabled) }
+        viewModelScope.launch {
+            dataStoreManager.saveCoverReadingProgressEnabled(enabled)
         }
     }
 
@@ -1007,6 +1135,7 @@ class SettingsViewModel @Inject constructor(
     fun clearAllData() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                dictionaryRepository.clearAll()
                 // 清除缓存
                 context.cacheDir.deleteRecursively()
                 // 清除内部存储（保留头像）
@@ -1060,6 +1189,7 @@ class SettingsViewModel @Inject constructor(
 
             val cacheSize = getDirSize(context.cacheDir)
             val filesSize = getDirSize(context.filesDir)
+            val dictionarySize = dictionaryRepository.sizeBytes()
             val externalTtsCacheSize = externalTtsAudioCache.sizeBytes()
             val genericCacheSize = (cacheSize + filesSize - externalTtsCacheSize).coerceAtLeast(0L)
             val coversDirSize = getDirSize(FileUtils.getCoversDirectory(context))
@@ -1081,6 +1211,7 @@ class SettingsViewModel @Inject constructor(
             _uiState.update { state ->
                 state.copy(
                     storageInfo = StorageInfo(
+                        dictionarySizeBytes = dictionarySize,
                         isCalculating = false,
                         appSizeBytes = appSize,
                         cacheSizeBytes = genericCacheSize,
@@ -1297,6 +1428,7 @@ class SettingsViewModel @Inject constructor(
                 webdavTokenStore.save(password)
             }
             dataStoreManager.saveWebdavConfig(config.copy(enabled = true))
+            webdavAutoSyncScheduler.scheduleImmediate()
         }
     }
 
@@ -1367,6 +1499,34 @@ class SettingsViewModel @Inject constructor(
                 Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
             }
         }
+    }
+
+    fun showWebdavTestLocalNetworkPermissionRequired() {
+        val message = context.getString(R.string.webdav_error_local_network_permission)
+        _uiState.update {
+            it.copy(
+                webdavTesting = false,
+                webdavTestResult = message,
+                webdavTestSucceeded = false
+            )
+        }
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+
+    fun showWebdavSyncLocalNetworkPermissionRequired() {
+        val message = context.getString(R.string.webdav_error_local_network_permission)
+        _uiState.update {
+            it.copy(webdavSyncResult = message, webdavSyncSucceeded = false)
+        }
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+
+    fun showWebdavLocalNetworkPermissionRequired() {
+        Toast.makeText(
+            context,
+            R.string.webdav_error_local_network_permission,
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     fun saveWebdavSyncMode(mode: String) {

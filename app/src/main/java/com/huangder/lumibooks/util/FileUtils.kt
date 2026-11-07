@@ -61,6 +61,36 @@ object FileUtils {
         }
     }
 
+    /**
+     * Moves an app-private file (for example a finished remote download) into the books directory
+     * under a unique display name. Falls back to copy-then-delete across file systems.
+     */
+    fun moveFileToInternal(context: Context, source: File, fileName: String): File? {
+        val booksDir = getBooksDirectory(context)
+        val safeFileName = File(fileName).name.takeUnless {
+            it.isBlank() || it == "." || it == ".."
+        } ?: "book"
+        val requested = File(booksDir, safeFileName)
+        val target = if (!requested.exists()) requested else {
+            val base = safeFileName.substringBeforeLast('.', safeFileName)
+            val extension = safeFileName.substringAfterLast('.', "")
+            generateSequence(2) { it + 1 }
+                .map { index -> File(booksDir, if (extension.isBlank()) "$base ($index)" else "$base ($index).$extension") }
+                .first { !it.exists() }
+        }
+        return try {
+            if (!source.renameTo(target)) {
+                source.inputStream().use { input -> FileOutputStream(target).use { input.copyTo(it) } }
+                source.delete()
+            }
+            target
+        } catch (error: Exception) {
+            runCatching { target.delete() }
+            error.printStackTrace()
+            null
+        }
+    }
+
     fun generateBookId(): String {
         return UUID.randomUUID().toString()
     }
@@ -221,6 +251,15 @@ object FileUtils {
      */
     fun deleteAppManagedBookFile(context: Context, location: String): Boolean {
         if (!isAppManagedBookLocation(context, location)) return true
+        val document = File(location).canonicalFile
+        val markdownRoot = File(getBooksDirectory(context), "markdown").canonicalFile
+        val versionDirectory = document.parentFile
+        val bookDirectory = versionDirectory?.parentFile
+        if (document.name == "document.md" && bookDirectory?.parentFile == markdownRoot &&
+            versionDirectory.name.matches(Regex("[a-f0-9]{64}")) &&
+            bookDirectory.name.matches(Regex("[A-Za-z0-9_-]+"))) {
+            return bookDirectory.deleteRecursively()
+        }
         return deleteFile(File(location))
     }
 

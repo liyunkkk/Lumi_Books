@@ -1,9 +1,11 @@
 package com.huangder.lumibooks.ui.settings
 
 import com.huangder.lumibooks.data.local.DataStoreManager
+import com.huangder.lumibooks.domain.model.AppFontSize
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
 import com.huangder.lumibooks.domain.model.AppIconStyle
 import com.huangder.lumibooks.domain.model.BookOpenTransition
+import com.huangder.lumibooks.domain.model.LiquidGlassStyle
 
 /** 单本书的文件大小明细 */
 data class BookSizeItem(
@@ -15,6 +17,7 @@ data class BookSizeItem(
 
 /** 存储空间分解数据 */
 data class StorageInfo(
+    val dictionarySizeBytes: Long = 0,
     val isCalculating: Boolean = true,
     val appSizeBytes: Long = 0,
     val cacheSizeBytes: Long = 0,
@@ -57,6 +60,10 @@ data class SettingsUiState(
     val nickname: String = "",
 
     // 阅读设置
+    val selectionMenuItems: com.huangder.lumibooks.domain.model.SelectionMenuSettings =
+        com.huangder.lumibooks.domain.model.SelectionMenuSettings(),
+    val longPressSelectionRange: com.huangder.lumibooks.domain.model.LongPressSelectionRange =
+        com.huangder.lumibooks.domain.model.LongPressSelectionRange.DEFAULT,
     val fontSize: Float = 16f,
     val lineHeight: Float = 1.5f,
     val letterSpacing: Float = 0f,
@@ -66,20 +73,26 @@ data class SettingsUiState(
 
     // 显示与外观
     val appIconStyle: String = AppIconStyle.LUMI_2.storedValue,
-    val appTheme: String = "lumi",         // "lumi" / "material3" / "liquid_glass"
+    val appTheme: String = "lumi",         // "lumi" / "material3" / "liquid_glass" / "lumi_chan"
+    val lumiEasterEggUnlocked: Boolean = false,
     val startupScreen: String = DataStoreManager.DEFAULT_STARTUP_SCREEN,
     val homeScreenMode: String = DataStoreManager.DEFAULT_HOME_SCREEN_MODE,
     val appAccentColor: String = DEFAULT_APP_ACCENT_HEX,
+    val appFontSize: AppFontSize = AppFontSize.STANDARD,
     val globalFontMode: String = "system", // "default" / "system"
+    val reduceTransparencyEnabled: Boolean = false,
+    val liquidGlassStyle: LiquidGlassStyle = LiquidGlassStyle.DEFAULT,
     val liquidGlassTransparency: Float = 0.55f,
     val liquidGlassHdrHighlightEnabled: Boolean = false,
     val cardOutlinesEnabled: Boolean = false,
     val darkMode: String = "system",       // "system" / "light" / "dark"
     val widgetBackgroundOpacity: Int = 100, // 桌面小组件背景不透明度 0-100
     val widgetThemeMode: String = "follow_app", // 小组件配色 "follow_app" / "light" / "dark"
-    val motionPreference: String = "standard", // "standard" / "reduced"
+    val motionPreference: String = "standard", // "standard" / "fast" / "reduced"
+    val menuAnimationStyle: String = com.huangder.lumibooks.domain.model.MenuAnimationStyle.LIQUID.storedValue,
     val entranceAnimationsEnabled: Boolean = true,
     val bookOpenTransition: String = BookOpenTransition.HERO.storedValue, // "hero" / "loading_page"
+    val coverReadingProgressEnabled: Boolean = false,
     val eInkModeEnabled: Boolean = false,
     val twoPageSpreadEnabled: Boolean = true,
     val predictiveBackEnabled: Boolean = true,
@@ -95,6 +108,8 @@ data class SettingsUiState(
     val externalTtsSettings: com.huangder.lumibooks.tts.ExternalTtsSettings = com.huangder.lumibooks.tts.ExternalTtsSettings(),
     val externalTtsHasToken: Boolean = false,
     val externalTtsSettingsLoaded: Boolean = false,
+    val ttsStartChoice: com.huangder.lumibooks.tts.TtsStartChoice? = null,
+    val ttsReaderResumeChoice: com.huangder.lumibooks.tts.TtsReaderResumeChoice? = null,
     val ttsProviderSelection: com.huangder.lumibooks.tts.TtsProviderSelection =
         com.huangder.lumibooks.tts.TtsProviderSelection.SystemDefault,
     val installedTtsEngines: List<com.huangder.lumibooks.tts.InstalledTtsEngine> = emptyList(),

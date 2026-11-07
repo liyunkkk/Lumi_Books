@@ -2,8 +2,8 @@ package com.huangder.lumibooks.ui.bookshelf
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.spring
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -48,6 +48,7 @@ import com.huangder.lumibooks.ui.animation.coverFlowEntranceItem
 import com.huangder.lumibooks.ui.components.ConfigurableBackHandler
 import com.huangder.lumibooks.ui.components.FinishedReadingIndicator
 import com.huangder.lumibooks.ui.components.LocalShowFinishedBadge
+import com.huangder.lumibooks.ui.components.BookProgressStatus
 import com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop
 import com.huangder.lumibooks.ui.icons.AppIcons
 import com.huangder.lumibooks.ui.theme.AppColors
@@ -193,7 +194,7 @@ internal fun CoverFlowBookshelf(
         .onGloballyPositioned { rootCoordinates[0] = it }) {
         Box(Modifier.matchParentSize()
             .then(if (isLiquidGlass) Modifier.layerBackdrop(controlsBackdrop) else Modifier)
-            .background(AppColors.WindowBg))
+            .background(AppColors.PageBg))
         Column(Modifier.fillMaxSize().padding(top = topPadding, bottom = bottomPadding)) {
             CoverFlowFolderNavigation(
                 folders, folderBookCounts, onFolderClick, onFolderRename, onFolderDelete,
@@ -234,14 +235,21 @@ internal fun CoverFlowBookshelf(
                             alpha = (1f - progress.value) * (1f - departure)
                         },
                             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                            CoverFlowMetadata(books, state, syncedBookIds,
+                            CoverFlowMetadata(books, state, syncedBookIds, downloadStates,
                                 Modifier.fillMaxWidth().height((100f * density.fontScale.coerceIn(1f, 1.6f)).dp))
                             Box(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 12.dp), contentAlignment = Alignment.TopCenter) {
+                                CoverFlowScrollbar(
+                                    state = state,
+                                    bookCount = books.size,
+                                    enabled = enabled && libraryReady && !isEditing && !transferring,
+                                    motionEnabled = motionEnabled,
+                                    modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth().padding(horizontal = 20.dp)
+                                )
                                 val menuBook = books.firstOrNull { it.id == state.menuBookId }
                                 androidx.compose.animation.AnimatedVisibility(menuBook != null && !isEditing && enabled,
                                     enter = fadeIn(tween(110)) + scaleIn(initialScale = if (motionEnabled) 0.92f else 1f,
                                         animationSpec = spring(dampingRatio = 0.9f, stiffness = 450f)),
-                                    exit = fadeOut(tween(90)) + scaleOut(targetScale = if (motionEnabled) 0.96f else 1f)) {
+                                    exit = fadeOut(tween(90)) + scaleOut(spring(stiffness = 400f), targetScale = if (motionEnabled) 0.96f else 1f)) {
                                     // Keep the outgoing content until AnimatedVisibility finishes its exit.
                                     val displayed = remember { menuBook ?: books[state.focusedIndex.coerceIn(books.indices)] }
                                     val current = books.firstOrNull { it.id == displayed.id } ?: displayed
@@ -304,9 +312,10 @@ internal fun CoverFlowBookshelf(
         val hero = books.firstOrNull { it.id == heroBookId }
         val source = heroSource
         if (transferring && motionEnabled && hero != null && source != null) {
+            val heroShape = com.huangder.lumibooks.ui.theme.AppRoundedCornerShape(2.dp)
             val width = with(density) { source.bounds.width.toDp() }
             val height = with(density) { source.bounds.height.toDp() }
-            CoverFlowCover(hero, downloadStates[hero.id], Modifier.size(width, height)
+            CoverFlowCover(hero, Modifier.size(width, height)
                 .clearAndSetSemantics { }
                 .graphicsLayer {
                     val p = progress.value.coerceIn(0f, 1f)
@@ -321,7 +330,7 @@ internal fun CoverFlowBookshelf(
                     scaleY = (source.bounds.height + (target.height - source.bounds.height) * p) / source.bounds.height
                     rotationY = source.rotation * (1f - p)
                     cameraDistance = source.camera
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape((2f + 12f * p).dp / scaleX)
+                    shape = heroShape.copy(androidx.compose.foundation.shape.CornerSize((2f + 12f * p).dp / scaleX))
                     clip = true
                 })
         }
@@ -330,7 +339,13 @@ internal fun CoverFlowBookshelf(
 }
 
 @Composable
-private fun CoverFlowMetadata(books: List<Book>, state: CoverFlowState, syncedIds: Set<String>, modifier: Modifier) {
+private fun CoverFlowMetadata(
+    books: List<Book>,
+    state: CoverFlowState,
+    syncedIds: Set<String>,
+    downloadStates: Map<String, BookDownloadState>,
+    modifier: Modifier
+) {
     val first by remember(state) { derivedStateOf { floor(state.position).toInt() } }
     Box(modifier.clearAndSetSemantics { }, contentAlignment = Alignment.TopCenter) {
         (first..first + 1).forEach { index ->
@@ -340,9 +355,7 @@ private fun CoverFlowMetadata(books: List<Book>, state: CoverFlowState, syncedId
                     .graphicsLayer { alpha = (1f - abs(index - state.position)).coerceIn(0f, 1f) },
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                        val percent = (book.readingProgress.takeIf { it.isFinite() } ?: 0f).coerceIn(0f, 1f) * 100f
-                        val titleAndProgress = if (book.isReadingFinished) book.title else "${book.title} · ${percent.toInt()}%"
-                        Text(titleAndProgress, color = AppColors.TextPrimary, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif,
+                        Text(book.title, color = AppColors.TextPrimary, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif,
                             fontSize = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
                             modifier = Modifier.weight(1f, fill = false))
                         if (book.isFavorite) Icon(AppIcons.Heart.filled, null, tint = AppColors.Accent,
@@ -353,8 +366,13 @@ private fun CoverFlowMetadata(books: List<Book>, state: CoverFlowState, syncedId
                     Text(book.author, color = AppColors.TextSecondary, fontSize = 14.sp,
                         fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-                    if (LocalShowFinishedBadge.current && book.isReadingFinished) {
-                        FinishedReadingIndicator(Modifier.padding(top = 4.dp))
+                    if (LocalShowFinishedBadge.current) {
+                        BookProgressStatus(
+                            book = book,
+                            downloadState = downloadStates[book.id],
+                            compact = true,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
                     }
                     if (book.isMissing) Text(stringResource(R.string.book_file_unavailable),
                         color = androidx.compose.ui.graphics.Color(0xFFD92D3A), fontSize = 12.sp, maxLines = 1)

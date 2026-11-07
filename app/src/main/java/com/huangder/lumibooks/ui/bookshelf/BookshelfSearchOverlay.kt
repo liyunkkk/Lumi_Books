@@ -15,9 +15,10 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
+import com.huangder.lumibooks.ui.animation.VisualMotion.spring
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.delayMillis
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -47,7 +48,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -64,7 +65,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -92,7 +92,8 @@ import androidx.compose.ui.platform.LocalContext
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.data.sync.BookDownloadState
-import com.huangder.lumibooks.ui.components.BookCoverProgressOverlay
+import com.huangder.lumibooks.ui.components.BookCoverStatusBadge
+import com.huangder.lumibooks.ui.components.BookProgressStatus
 import com.huangder.lumibooks.domain.model.LibraryFolder
 import com.huangder.lumibooks.ui.components.LiquidGlassSurface
 import com.huangder.lumibooks.ui.animation.HorizontalOverscrollBounce
@@ -120,19 +121,14 @@ internal fun BookshelfSearchLauncher(
     val shape = CircleShape
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     LiquidGlassSurface(
+        controlEdge = true,
         shape = shape,
         fallbackColor = AppColors.CardBg,
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.72f),
         onClick = onClick.takeIf { isLiquidGlass },
         interactive = isLiquidGlass,
         effectPadding = 1.dp,
-        decorationModifier = Modifier.shadow(
-            elevation = 16.dp,
-            shape = shape,
-            clip = false,
-            ambientColor = Color.Black.copy(alpha = 0.10f),
-            spotColor = Color.Black.copy(alpha = 0.13f)
-        ),
+        decorationModifier = Modifier,
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp)
@@ -192,6 +188,7 @@ internal fun BookshelfSearchOverlay(
     onRemoveCustomCover: (Book) -> Unit,
     onTags: (Book) -> Unit,
     onBookmarksNotes: (Book) -> Unit,
+    onToggleReadStatus: (Book) -> Unit,
     launcherBounds: Rect,
     onSearchInDiscover: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -255,7 +252,7 @@ internal fun BookshelfSearchOverlay(
     }
     LaunchedEffect(visible, eInkMode) {
         if (visible) {
-            if (!eInkMode) delay(140)
+            if (!eInkMode) delay(delayMillis(140L))
             focusRequester.requestFocus()
         } else {
             keyboardController?.hide()
@@ -403,7 +400,8 @@ internal fun BookshelfSearchOverlay(
                                     onCustomCover = { onCustomCover(book) },
                                     onRemoveCustomCover = { onRemoveCustomCover(book) },
                                     onTags = { onTags(book) },
-                                    onBookmarksNotes = { onBookmarksNotes(book) }
+            onBookmarksNotes = { onBookmarksNotes(book) },
+            onToggleReadStatus = { onToggleReadStatus(book) }
                                 )
                             }
                             if (onSearchInDiscover != null) {
@@ -458,17 +456,12 @@ private fun ActiveBookshelfSearchField(
 ) {
     val shape = CircleShape
     LiquidGlassSurface(
+        controlEdge = true,
         shape = shape,
         fallbackColor = AppColors.CardBg,
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.78f),
         effectPadding = 1.dp,
-        decorationModifier = Modifier.shadow(
-            elevation = 20.dp,
-            shape = shape,
-            clip = false,
-            ambientColor = Color.Black.copy(alpha = 0.12f),
-            spotColor = Color.Black.copy(alpha = 0.16f)
-        ),
+        decorationModifier = Modifier,
         modifier = modifier
             .fillMaxWidth()
             .height(height)
@@ -544,6 +537,7 @@ internal fun BookshelfSearchResultItem(
     onRemoveCustomCover: () -> Unit,
     onTags: () -> Unit,
     onBookmarksNotes: () -> Unit,
+    onToggleReadStatus: () -> Unit = {},
     selectionMode: Boolean = false,
     selected: Boolean = false,
     onSelectionToggle: () -> Unit = {},
@@ -634,7 +628,8 @@ internal fun BookshelfSearchResultItem(
                     onCustomCover = onCustomCover,
                     onRemoveCustomCover = onRemoveCustomCover,
                     onTags = onTags,
-                    onBookmarksNotes = onBookmarksNotes
+                    onBookmarksNotes = onBookmarksNotes,
+                    onToggleReadStatus = onToggleReadStatus
                 )
             }
         }
@@ -654,20 +649,14 @@ private fun BookshelfSearchResultCard(
     val context = LocalContext.current
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val favoritePink = if (LocalIsDarkTheme.current) Color(0xFFFF8A80) else Color(0xFFE85D5D)
-    val shape = RoundedCornerShape(if (isLiquidGlass) 24.dp else 16.dp)
+    val shape = AppRoundedCornerShape(if (isLiquidGlass) 24.dp else 16.dp)
     LiquidGlassSurface(
         shape = shape,
         fallbackColor = AppColors.CardBg,
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.76f),
         interactive = false,
         effectPadding = 1.dp,
-        decorationModifier = Modifier.shadow(
-            elevation = 17.dp,
-            shape = shape,
-            clip = false,
-            ambientColor = Color.Black.copy(alpha = 0.10f),
-            spotColor = Color.Black.copy(alpha = 0.14f)
-        ),
+        decorationModifier = Modifier,
         modifier = modifier
             .fillMaxWidth()
             .height(116.dp)
@@ -701,7 +690,7 @@ private fun BookshelfSearchResultCard(
                             takeCharacters = 6
                         )
                     )
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(AppRoundedCornerShape(14.dp))
                     .background(AppColors.BgGray),
                 contentAlignment = Alignment.Center
             ) {
@@ -728,11 +717,9 @@ private fun BookshelfSearchResultCard(
                     )
                 }
 
-                BookCoverProgressOverlay(
+                BookCoverStatusBadge(
                     book = book,
-                    downloadState = downloadState,
-                    compact = true,
-                    badgeCornerRadius = 14.dp
+                    compact = true
                 )
             }
 
@@ -758,6 +745,12 @@ private fun BookshelfSearchResultCard(
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
+                )
+                BookProgressStatus(
+                    book = book,
+                    downloadState = downloadState,
+                    compact = true,
+                    modifier = Modifier.padding(top = 2.dp)
                 )
             }
 
@@ -825,7 +818,8 @@ private fun SearchResultActionRow(
     onCustomCover: () -> Unit,
     onRemoveCustomCover: () -> Unit,
     onTags: () -> Unit,
-    onBookmarksNotes: () -> Unit
+    onBookmarksNotes: () -> Unit,
+    onToggleReadStatus: () -> Unit
 ) {
     val hasCustomCover = FileUtils.isCustomCover(book.coverPath)
     val favoritePink = if (LocalIsDarkTheme.current) Color(0xFFFF8A80) else Color(0xFFE85D5D)
@@ -914,6 +908,15 @@ private fun SearchResultActionRow(
             visible = visible,
             animationIndex = if (hasCustomCover) 7 else 6,
             onClick = onBookmarksNotes
+        )
+        SearchActionButton(
+            icon = AppIcons.BookOpen,
+            contentDescription = stringResource(if (book.isReadingFinished) R.string.book_unmark_read else R.string.book_mark_read),
+            label = stringResource(if (book.isReadingFinished) R.string.book_unmark_read else R.string.book_mark_read),
+            width = 124.dp,
+            visible = visible,
+            animationIndex = if (hasCustomCover) 8 else 7,
+            onClick = onToggleReadStatus
         )
         SearchActionButton(
             icon = AppIcons.FolderSimple,
@@ -1013,7 +1016,7 @@ internal fun SearchActionButton(
     val eInkMode = LocalEInkMode.current
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass" && !eInkMode
     val isDark = LocalIsDarkTheme.current
-    val shape = if (label == null) CircleShape else RoundedCornerShape(50)
+    val shape = if (label == null) CircleShape else AppRoundedCornerShape(50)
     val effectiveTintedColor = tintedColor?.let { if (eInkMode) Color.Black else it }
     val effectiveContentColor = if (eInkMode && tintedColor != null) Color.White else contentColor
     val fallback = effectiveTintedColor ?: AppColors.CardBg
@@ -1054,19 +1057,14 @@ internal fun SearchActionButton(
         }
     ) {
     LiquidGlassSurface(
+        controlEdge = true,
         shape = shape,
         fallbackColor = fallback,
         contentScrimColor = scrim,
         onClick = onClick.takeIf { isLiquidGlass },
         interactive = isLiquidGlass,
         effectPadding = 1.dp,
-        decorationModifier = Modifier.shadow(
-            elevation = 12.dp,
-            shape = shape,
-            clip = false,
-            ambientColor = Color.Black.copy(alpha = 0.10f),
-            spotColor = Color.Black.copy(alpha = 0.13f)
-        ),
+        decorationModifier = Modifier,
         modifier = Modifier
             .width(width)
             .height(36.dp)
