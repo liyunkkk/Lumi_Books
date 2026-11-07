@@ -2,9 +2,6 @@
 
 package com.huangder.lumibooks.ui.bookshelf
 
-/** 书籍/文件夹/「导入书籍」三种网格卡片的封面比例，集中定义避免只改一处导致尺寸漂移。 */
-private const val GRID_COVER_ASPECT_RATIO = 0.75f
-private const val COMPACT_GRID_COVER_ASPECT_RATIO = 0.66f
 import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
@@ -184,6 +181,10 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+
+/** 书籍/文件夹/「导入书籍」三种网格卡片的封面比例，集中定义避免只改一处导致尺寸漂移。 */
+private const val GRID_COVER_ASPECT_RATIO = 0.75f
+private const val COMPACT_GRID_COVER_ASPECT_RATIO = 0.66f
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
