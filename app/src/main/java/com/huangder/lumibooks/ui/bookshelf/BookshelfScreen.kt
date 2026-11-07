@@ -1217,7 +1217,6 @@ fun BookshelfScreen(
             isNowReadingHidden = isBookNowReadingHidden,
             isHidden = isBookHidden,
             onToggleHidden = onToggleHidden,
-            onToggleReadStatus = onToggleReadStatus ?: {},
             onArchive = onArchive,
             hiddenLibrary = hiddenLibrary,
             onToggleHideNowReading = { book ->
