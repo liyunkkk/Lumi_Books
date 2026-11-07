@@ -67,14 +67,25 @@ jobs:
         run: exit 1
       - name: Verify APK outputs
         run: |
-          find app/build/outputs/apk -type f -name '*.apk' -print
-          test -n "$(find app/build/outputs/apk -type f -name '*.apk' -print -quit)"
+          # 上游把 buildDirectory 改到了 build/oss 或 build/official，这里兼容三种布局。
+          APK_ROOT=""
+          for d in app/build/oss/outputs/apk app/build/official/outputs/apk app/build/outputs/apk; do
+            if [ -d "$d" ]; then APK_ROOT="$d"; break; fi
+          done
+          if [ -z "$APK_ROOT" ]; then
+            echo "::error::No APK output directory found"
+            find app/build -maxdepth 3 -type d -name apk 2>/dev/null || true
+            exit 1
+          fi
+          echo "APK_ROOT=$APK_ROOT" >> "$GITHUB_ENV"
+          find "$APK_ROOT" -type f -name '*.apk' -print
+          test -n "$(find "$APK_ROOT" -type f -name '*.apk' -print -quit)"
       - name: Upload arm64 Release APK
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: lumi-books-source-arm64-release-${{ github.run_number }}
-          path: app/build/outputs/apk/release/*arm64-v8a*.apk
+          path: ${{ env.APK_ROOT }}/release/*arm64-v8a*.apk
           if-no-files-found: warn
           retention-days: 14
       - name: Upload universal Release APK
@@ -82,7 +93,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lumi-books-source-universal-release-${{ github.run_number }}
-          path: app/build/outputs/apk/release/*universal*.apk
+          path: ${{ env.APK_ROOT }}/release/*universal*.apk
           if-no-files-found: warn
           retention-days: 14
       - name: Upload arm64 Debug APK
@@ -90,7 +101,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lumi-books-source-arm64-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/*arm64-v8a*.apk
+          path: ${{ env.APK_ROOT }}/debug/*arm64-v8a*.apk
           if-no-files-found: warn
           retention-days: 14
       - name: Upload universal Debug APK
@@ -98,7 +109,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lumi-books-source-universal-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/*universal*.apk
+          path: ${{ env.APK_ROOT }}/debug/*universal*.apk
           if-no-files-found: warn
           retention-days: 14
       - name: Create GitHub Release
@@ -110,5 +121,5 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            app/build/outputs/apk/release/*.apk
-            app/build/outputs/apk/debug/*.apk
+            ${{ env.APK_ROOT }}/release/*.apk
+            ${{ env.APK_ROOT }}/debug/*.apk
