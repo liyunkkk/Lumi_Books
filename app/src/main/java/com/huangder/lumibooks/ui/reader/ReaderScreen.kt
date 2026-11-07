@@ -4852,6 +4852,12 @@ private fun ReaderScreenContent(
                 currentAnchor = uiState.currentTocAnchor,
                 bookmarks = bookmarks,
                 chapterTitles = uiState.chapterTitles,
+                onRefreshChapters = if (isOnlineBook) {
+                    { viewModel.refreshCurrentOnlineBook() }
+                } else {
+                    null
+                },
+                isRefreshingChapters = isRefreshingOnlineBook,
                 onChapterSelected = { entry ->
                     scope.launch {
                         val target = viewModel.resolveTocTarget(
@@ -6976,13 +6982,22 @@ internal fun ReaderTopBar(
             add(LiquidGlassMenuItem(stringResource(R.string.reader_txt_toc_rule), AppIcons.Gear) { onTocRuleClick() })
         }
     }
+    // 右侧竖排按钮的实际数量：听书 + 书签 + 净化 + (在线书: 换源 + 刷新) + (文本格式: 更多)。
+    // 高度必须按实际数量计算，否则 4 个以上按钮会溢出互相挤压。
+    val sideActionCount = 3 +
+        (if (isOnlineBook) 2 else 0) +
+        (if (readerFormatSupportsText(bookFormat)) 1 else 0)
+    val sideItemHeight = sideRailItemSize?.height ?: 36.dp
+    val sideRailHeight = READER_MENU_TOP_PADDING +
+        sideItemHeight * sideActionCount +
+        READER_MENU_ITEM_GAP * (sideActionCount - 1).coerceAtLeast(0) +
+        8.dp
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(when {
                 horizontalActions -> 112.dp
-                sideRailItemSize != null -> 82.dp + sideRailItemSize.height * 3 + 20.dp
-                else -> (82 + 3 * 46).dp
+                else -> maxOf(82.dp + sideItemHeight * 3 + 20.dp, sideRailHeight)
             })
     ) {
         if (!isLiquidGlass) {
@@ -9791,6 +9806,8 @@ private fun TocSheet(
     onEditBookmarkRemark: (com.huangder.lumibooks.domain.model.Bookmark, String, List<String>) -> Unit = { _, _, _ -> },
     onCreateTag: (suspend (String) -> Unit)? = null,
     onEditBookmarkTags: (com.huangder.lumibooks.domain.model.Bookmark) -> Unit,
+    onRefreshChapters: (() -> Unit)? = null,
+    isRefreshingChapters: Boolean = false,
     onDismiss: () -> Unit
 ) {
     // Keep fold choices while this book's reader remains open, including across sheet reopens.
@@ -9947,6 +9964,19 @@ private fun TocSheet(
                     contentColor = AppColors.TextPrimary,
                     normalContainerColor = LightBgGray
                 )
+                // 刷新最新章节：在线书可用，紧邻关闭按钮放在左上角
+                if (onRefreshChapters != null) {
+                    Spacer(Modifier.width(8.dp))
+                    LiquidGlassIconButton(
+                        imageVector = AppIcons.ArrowClockwise,
+                        contentDescription = "刷新最新章节",
+                        onClick = { if (!isRefreshingChapters) onRefreshChapters.invoke() },
+                        size = 44.dp,
+                        iconSize = 20.dp,
+                        contentColor = if (isRefreshingChapters) AppColors.Accent else AppColors.TextPrimary,
+                        normalContainerColor = LightBgGray
+                    )
+                }
                 Spacer(Modifier.width(AppSpace.sm))
                 Text(
                     text = stringResource(R.string.reader_toc),
