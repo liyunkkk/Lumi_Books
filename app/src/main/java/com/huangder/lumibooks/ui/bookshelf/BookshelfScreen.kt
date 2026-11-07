@@ -1216,9 +1216,17 @@ fun BookshelfScreen(
             state = contextMenuState,
             isNowReadingHidden = isBookNowReadingHidden,
             isHidden = isBookHidden,
-            onToggleHidden = onToggleHidden,
-            onArchive = onArchive,
-            hiddenLibrary = hiddenLibrary,
+            onToggleHidden = { book ->
+                if (book.id in uiState.hiddenBookIds || selectedFilter == BookshelfFilter.Hidden) {
+                    viewModel.unhideBook(book.id)
+                    onMessage("已移出隐藏，书籍恢复到正常书架")
+                } else {
+                    viewModel.hideBook(book.id)
+                    onMessage("书籍已隐藏，可在顶部【已隐藏】分类找回")
+                }
+            },
+            onArchive = { book -> viewModel.archiveBook(book.id) },
+            hiddenLibrary = selectedFilter == BookshelfFilter.Hidden,
             onToggleHideNowReading = { book ->
                 viewModel.toggleHideBookFromNowReading(book.id)
                 val willBeHidden = book.id !in uiState.hiddenFromNowReadingBookIds

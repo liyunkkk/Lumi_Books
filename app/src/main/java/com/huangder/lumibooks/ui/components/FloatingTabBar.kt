@@ -132,6 +132,8 @@ import coil.compose.AsyncImage
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.material3.Icon
+import coil.request.ImageRequest
+import androidx.compose.ui.platform.LocalContext
 
 data class TabItem(
     val icons: IconPair,
@@ -1085,4 +1087,19 @@ fun LiquidGlassSettingsButton(
         liquidGlassBackdrop = liquidGlassBackdrop,
         modifier = modifier
     )
+}
+/** fork 自有：头像图片请求（带 lastModified 缓存键，头像更新后能刷新）。 */
+private fun rememberAvatarImageModel(avatarUri: String?): Any? {
+    val context = LocalContext.current
+    return remember(avatarUri) {
+        if (avatarUri.isNullOrBlank()) null
+        else {
+            val file = java.io.File(avatarUri)
+            ImageRequest.Builder(context)
+                .data(file)
+                .memoryCacheKey("avatar_${avatarUri}_${file.lastModified()}")
+                .diskCacheKey("avatar_${avatarUri}_${file.lastModified()}")
+                .build()
+        }
+    }
 }

@@ -1083,6 +1083,7 @@ private fun WeeklyCheckIn(weeklyData: List<DailyReading> = emptyList(), dailyGoa
     ) {
         weeklyData.forEachIndexed { index, data ->
             val isToday = index == todayIndex
+            val isPast = index < todayIndex
             val isFuture = index > todayIndex
             val goalMet = if (hasGoal) data.duration >= goalMs else data.duration > 0L
 
