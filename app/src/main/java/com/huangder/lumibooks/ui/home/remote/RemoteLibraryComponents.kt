@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.ui.home.remote
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
 import android.text.format.Formatter
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
@@ -17,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -69,6 +70,7 @@ fun RemoteErrorKind.messageRes(): Int = when (this) {
     RemoteErrorKind.UNSUPPORTED_FORMAT -> R.string.remote_error_unsupported_format
     RemoteErrorKind.INVALID_FILE -> R.string.remote_error_invalid_file
     RemoteErrorKind.DESTINATION_UNAVAILABLE -> R.string.remote_error_destination
+    RemoteErrorKind.REPORTED_BLOCKED -> R.string.remote_error_reported_blocked
     RemoteErrorKind.UNKNOWN -> R.string.remote_error_unknown
 }
 
@@ -106,7 +108,7 @@ fun RemoteBookCover(
     val brush = when (extension?.lowercase()) {
         "epub" -> Brush.linearGradient(listOf(Color(0xFF9BB7D4), Color(0xFF657D9A)))
         "pdf" -> Brush.linearGradient(listOf(Color(0xFFDFA19C), Color(0xFFB95E5B)))
-        "mobi" -> Brush.linearGradient(listOf(Color(0xFFA8C3A0), Color(0xFF5F8A5C)))
+        "mobi", "azw", "azw3" -> Brush.linearGradient(listOf(Color(0xFFA8C3A0), Color(0xFF5F8A5C)))
         "cbz" -> Brush.linearGradient(listOf(Color(0xFFE0B87C), Color(0xFFB07A3C)))
         else -> Brush.linearGradient(listOf(Color(0xFFB8B0D6), Color(0xFF8179A8)))
     }
@@ -205,7 +207,7 @@ private fun DestinationButton(choice: DestinationChoice) {
                 .padding(horizontal = AppSpace.xs, vertical = AppSpace.xs),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
+            ControlIcon(
                 imageVector = choice.icon,
                 contentDescription = null,
                 tint = contentColor,

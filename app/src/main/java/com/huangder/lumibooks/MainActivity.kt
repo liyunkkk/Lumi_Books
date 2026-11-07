@@ -44,6 +44,7 @@ import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.data.sync.LocalNetworkAccessManager
 import com.huangder.lumibooks.data.sync.WebdavAutoSyncScheduler
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
+import com.huangder.lumibooks.domain.model.AppUiIconStyle
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookFormat
 import com.huangder.lumibooks.domain.repository.BookRepository
@@ -100,7 +101,7 @@ private const val REMOTE_TERMS_URL = "https://huangder.top/terms.html"
 private const val REMOTE_PRIVACY_URL = "https://huangder.top/privacy.html"
 
 /** 外部打开/分享导入支持的书籍扩展名。 */
-private val SUPPORTED_IMPORT_EXTENSIONS = setOf("epub", "pdf", "txt", "mobi", "cbz", "md", "markdown")
+private val SUPPORTED_IMPORT_EXTENSIONS = setOf("epub", "pdf", "txt", "mobi", "azw", "azw3", "cbz", "md", "markdown")
 
 private fun Intent?.extractImportUris(): List<Uri> {
     val importIntent = this ?: return emptyList()
@@ -161,17 +162,25 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_BOOK_ID = "open_book_id"
+        const val EXTRA_RELOAD_READING_POSITION = "reload_reading_position"
         const val EXTRA_OPEN_DESTINATION = "open_destination"
         const val EXTRA_OPEN_FOLDER_ID = "open_folder_id"
         const val DESTINATION_BOOKSHELF = "bookshelf"
+        const val DESTINATION_STATISTICS = "statistics"
+        /** Opens the hidden library page; it shows its own passcode panel unless already unlocked. */
+        const val DESTINATION_HIDDEN_LIBRARY = "hidden_library"
     }
 
     private var systemDarkMode by mutableStateOf(false)
     private var requestedOpenBookId by mutableStateOf<String?>(null)
+    private var requestedReloadBookId by mutableStateOf<String?>(null)
+    private var readingPositionReloadToken by mutableStateOf(0L)
     /** 外部文件打开已匹配到本地书籍时，绕过首页和书籍过渡页直达阅读器。 */
     private var requestedOpenBookDirect by mutableStateOf(false)
     private var requestedOpenBookshelf by mutableStateOf(false)
+    private var requestedOpenStatistics by mutableStateOf(false)
     private var requestedOpenFolderId by mutableStateOf<String?>(null)
+    private var requestedOpenHiddenLibrary by mutableStateOf(false)
     private val authorizedStorageManager = AuthorizedStorageManager()
 
     override fun attachBaseContext(newBase: android.content.Context) {
@@ -189,6 +198,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var ttsController: TtsController
+
+    @Inject
+    lateinit var floatingSubtitleOverlayController: com.huangder.lumibooks.service.FloatingSubtitleOverlayController
 
     @Inject
     lateinit var authorizedFolderSnapshotStore: AuthorizedFolderSnapshotStore
@@ -253,6 +265,10 @@ class MainActivity : ComponentActivity() {
             ?.getStringExtra(EXTRA_OPEN_BOOK_ID)
             ?.takeIf { it.isNotBlank() }
         requestedOpenBookId = requestedBookId
+        if (requestedBookId != null && intent?.getBooleanExtra(EXTRA_RELOAD_READING_POSITION, false) == true) {
+            requestedReloadBookId = requestedBookId
+            readingPositionReloadToken++
+        }
         requestedOpenBookDirect = false
         requestedOpenFolderId = intent
             ?.getStringExtra(EXTRA_OPEN_FOLDER_ID)
@@ -260,6 +276,10 @@ class MainActivity : ComponentActivity() {
         requestedOpenBookshelf = requestedBookId == null &&
             (requestedOpenFolderId != null ||
                 intent?.getStringExtra(EXTRA_OPEN_DESTINATION) == DESTINATION_BOOKSHELF)
+        requestedOpenStatistics = requestedBookId == null && !requestedOpenBookshelf &&
+            intent?.getStringExtra(EXTRA_OPEN_DESTINATION) == DESTINATION_STATISTICS
+        requestedOpenHiddenLibrary = requestedBookId == null &&
+            intent?.getStringExtra(EXTRA_OPEN_DESTINATION) == DESTINATION_HIDDEN_LIBRARY
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -615,7 +635,7 @@ class MainActivity : ComponentActivity() {
             return (metadata?.optString("title")?.takeIf { it.isNotBlank() } ?: fallback.first) to
                 (metadata?.optString("author")?.takeIf { it.isNotBlank() } ?: fallback.second)
         }
-        if (format != BookFormat.EPUB && format != BookFormat.MOBI) return fallback
+        if (!format.supportsEpubFeatures) return fallback
         return runCatching {
             val parser = BookParserFactory.createParser(format, this)
             try {
@@ -638,6 +658,8 @@ class MainActivity : ComponentActivity() {
         "epub" -> BookFormat.EPUB
         "pdf" -> BookFormat.PDF
         "mobi" -> BookFormat.MOBI
+        "azw" -> BookFormat.AZW
+        "azw3" -> BookFormat.AZW3
         "cbz" -> BookFormat.CBZ
         "md", "markdown", "mdpack" -> BookFormat.MARKDOWN
         else -> BookFormat.TXT
@@ -702,6 +724,7 @@ class MainActivity : ComponentActivity() {
         val appFontLaunchSnapshot = com.huangder.lumibooks.util.LaunchThemeController.themeSnapshot(this)
         setContent {
             val appTheme by dataStoreManager.appTheme.collectAsState(initial = LaunchThemeController.themeSnapshot(this).appTheme)
+            val appUiIconStyle by dataStoreManager.appUiIconStyle.collectAsState(initial = AppUiIconStyle.DEFAULT.storedValue)
             val startupScreen by produceState<String?>(initialValue = null, dataStoreManager) {
                 value = dataStoreManager.startupScreen.first()
             }
@@ -784,15 +807,19 @@ class MainActivity : ComponentActivity() {
             val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = com.huangder.lumibooks.util.LaunchThemeController.themeSnapshot(this).menuAnimationStyle)
             val liquidGlassStyle by dataStoreManager.liquidGlassStyle
                 .collectAsState(initial = appFontLaunchSnapshot.liquidGlassStyle)
+            val liquidGlassSamplingQuality by dataStoreManager.liquidGlassSamplingQuality
+                .collectAsState(initial = appFontLaunchSnapshot.liquidGlassSamplingQuality)
             val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
                 .collectAsState(initial = appFontLaunchSnapshot.reduceTransparencyEnabled)
             EBookReaderTheme(
                 liquidGlassStyle = liquidGlassStyle,
+                liquidGlassSamplingQuality = liquidGlassSamplingQuality,
                 reduceTransparencyEnabled = reduceTransparencyEnabled,
                 menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
                 darkTheme = isDark,
                 dynamicColor = effectiveAppTheme == "material3",
                 appTheme = appTheme,
+                appUiIconStyle = AppUiIconStyle.fromStoredValue(appUiIconStyle),
                 appAccentColor = appAccentColor,
                 liquidGlassTransparency = liquidGlassTransparency,
                 liquidGlassHdrHighlightEnabled = liquidGlassHdrHighlightEnabled && !eInkModeEnabled,
@@ -841,6 +868,9 @@ class MainActivity : ComponentActivity() {
                             navCurrentEntry?.destination?.route,
                             navVisibleEntries.map { it.destination.route }
                         )
+                        LaunchedEffect(onReaderRoute) {
+                            floatingSubtitleOverlayController.setReaderVisible(onReaderRoute)
+                        }
                         val globalGlassDialogVisible = !onReaderRoute && (
                             pendingAppUpdate != null ||
                                 pendingRemoteNotice != null ||
@@ -887,10 +917,15 @@ class MainActivity : ComponentActivity() {
                                         com.huangder.lumibooks.domain.model.BookOpenTransition.HERO.storedValue,
                                     predictiveBackEnabled = predictiveBackEnabled && !eInkModeEnabled,
                                     requestedOpenBookId = requestedOpenBookId,
+                                    requestedReloadBookId = requestedReloadBookId,
+                                    readingPositionReloadToken = readingPositionReloadToken,
                                     requestedOpenBookDirect = requestedOpenBookDirect,
                                     requestedOpenBookshelf = requestedOpenBookshelf,
+                                    requestedOpenStatistics = requestedOpenStatistics,
+                                    onOpenStatisticsRequestConsumed = { requestedOpenStatistics = false },
                                     requestedOpenFolderId = requestedOpenFolderId,
-                                    onBeforeOpenDifferentBook = ttsController::stop,
+                                    requestedOpenHiddenLibrary = requestedOpenHiddenLibrary,
+                                    onOpenHiddenLibraryRequestConsumed = { requestedOpenHiddenLibrary = false },
                                     onOpenBookRequestConsumed = {
                                         requestedOpenBookId = null
                                         requestedOpenBookDirect = false

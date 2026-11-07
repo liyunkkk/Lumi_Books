@@ -12,9 +12,11 @@ import com.huangder.lumibooks.domain.repository.BookRepository
 import com.huangder.lumibooks.domain.model.normalizeAppAccentHex
 import com.huangder.lumibooks.domain.model.AppFontSize
 import com.huangder.lumibooks.domain.model.AppIconStyle
+import com.huangder.lumibooks.domain.model.AppUiIconStyle
 import com.huangder.lumibooks.domain.model.BookOpenTransition
 import com.huangder.lumibooks.domain.model.LongPressSelectionRange
 import com.huangder.lumibooks.domain.model.LiquidGlassStyle
+import com.huangder.lumibooks.domain.model.LiquidGlassSamplingQuality
 import com.huangder.lumibooks.util.BookFileAccess
 import com.huangder.lumibooks.util.FileUtils
 import com.huangder.lumibooks.util.UpdateChecker
@@ -30,10 +32,14 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import com.huangder.lumibooks.domain.model.SelectionMenuSettings
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 import android.net.Uri
 import java.io.File
 import java.text.SimpleDateFormat
@@ -86,9 +92,10 @@ class SettingsViewModel @Inject constructor(
     val txtTocThirdPartyRules: kotlinx.coroutines.flow.Flow<List<TxtTocRule>> =
         dataStoreManager.txtTocThirdPartyRules()
 
-    fun saveSelectionMenuItems(items: com.huangder.lumibooks.domain.model.SelectionMenuSettings) {
-        _uiState.update { it.copy(selectionMenuItems = items) }
-        viewModelScope.launch { dataStoreManager.saveSelectionMenuItems(items) }
+    /** Shows the change at once; the DataStore flow then confirms the persisted value. */
+    fun saveSelectionMenuItems(settings: SelectionMenuSettings) {
+        _uiState.update { state -> state.copy(selectionMenuItems = settings) }
+        viewModelScope.launch { dataStoreManager.saveSelectionMenuItems(settings) }
     }
 
     fun saveLongPressSelectionRange(range: LongPressSelectionRange) {
@@ -153,11 +160,9 @@ class SettingsViewModel @Inject constructor(
     }
 
     private fun collectAllPreferences() {
-        viewModelScope.launch {
-            dataStoreManager.selectionMenuItems.collectLatest { items ->
-                _uiState.update { it.copy(selectionMenuItems = items) }
-            }
-        }
+        dataStoreManager.selectionMenuItems
+            .onEach { settings -> _uiState.update { state -> state.copy(selectionMenuItems = settings) } }
+            .launchIn(viewModelScope)
         viewModelScope.launch {
             dataStoreManager.longPressSelectionRange.collectLatest { range ->
                 _uiState.update { it.copy(longPressSelectionRange = range) }
@@ -214,6 +219,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            dataStoreManager.appUiIconStyle.collectLatest { style ->
+                _uiState.update { it.copy(appUiIconStyle = style) }
+            }
+        }
+        viewModelScope.launch {
             dataStoreManager.appTheme.collectLatest { theme ->
                 _uiState.value = _uiState.value.copy(appTheme = theme)
             }
@@ -251,6 +261,11 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.reduceTransparencyEnabled.collectLatest { enabled ->
                 _uiState.update { it.copy(reduceTransparencyEnabled = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            dataStoreManager.liquidGlassSamplingQuality.collectLatest { quality ->
+                _uiState.update { it.copy(liquidGlassSamplingQuality = quality) }
             }
         }
         viewModelScope.launch {
@@ -437,6 +452,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            dataStoreManager.ttsContinueOnReaderExit.collectLatest { choice ->
+                _uiState.value = _uiState.value.copy(ttsContinueOnReaderExit = choice)
+            }
+        }
+        viewModelScope.launch {
             dataStoreManager.ttsReaderResumeChoice.collectLatest { choice ->
                 _uiState.value = _uiState.value.copy(ttsReaderResumeChoice = choice)
             }
@@ -581,6 +601,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun saveAppUiIconStyle(style: String) {
+        val normalized = AppUiIconStyle.normalize(style)
+        if (_uiState.value.appUiIconStyle == normalized) return
+        _uiState.update { it.copy(appUiIconStyle = normalized) }
+        viewModelScope.launch { dataStoreManager.saveAppUiIconStyle(normalized) }
+    }
+
     fun saveAppTheme(theme: String) {
         if (theme == "lumi_chan" && !_uiState.value.lumiEasterEggUnlocked) {
             Toast.makeText(context, "诶？这是什么Σ(°△°|||)︴", Toast.LENGTH_SHORT).show()
@@ -624,6 +651,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { dataStoreManager.saveTtsStartChoice(choice) }
     }
 
+    fun saveTtsContinueOnReaderExit(choice: Boolean?) {
+        viewModelScope.launch { dataStoreManager.saveTtsContinueOnReaderExit(choice) }
+    }
+
     fun saveTtsReaderResumeChoice(choice: com.huangder.lumibooks.tts.TtsReaderResumeChoice?) {
         viewModelScope.launch { dataStoreManager.saveTtsReaderResumeChoice(choice) }
     }
@@ -664,6 +695,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.saveReduceTransparencyEnabled(enabled)
         }
+    }
+
+    fun saveLiquidGlassSamplingQuality(value: String) {
+        val quality = LiquidGlassSamplingQuality.fromStoredValue(value)
+        if (_uiState.value.liquidGlassSamplingQuality == quality) return
+        _uiState.update { it.copy(liquidGlassSamplingQuality = quality) }
+        viewModelScope.launch { dataStoreManager.saveLiquidGlassSamplingQuality(quality) }
     }
 
     fun saveLiquidGlassStyle(value: String) {
@@ -730,10 +768,11 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun saveBodyFontWeight(weight: Int) {
+    fun saveBodyFontWeight(weight: Float) {
+        val normalized = (weight * 10f).roundToInt().coerceIn(1000, 9000) / 10f
         viewModelScope.launch {
-            dataStoreManager.saveBodyFontWeight(weight)
-            _uiState.value = _uiState.value.copy(bodyFontWeight = weight)
+            dataStoreManager.saveBodyFontWeight(normalized)
+            _uiState.value = _uiState.value.copy(bodyFontWeight = normalized)
         }
     }
 
@@ -1092,8 +1131,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 com.huangder.lumibooks.util.cache.ReaderCacheStore.get(context).clear()
+                com.huangder.lumibooks.util.kindle.KindleEpubCache.clear(context)
                 context.cacheDir.listFiles()?.forEach { entry ->
-                    if (entry.name != ExternalTtsAudioCache.DIRECTORY_NAME && entry.name != "reader_cache") {
+                    if (entry.name != ExternalTtsAudioCache.DIRECTORY_NAME && entry.name != "reader_cache" &&
+                        entry.name != com.huangder.lumibooks.util.kindle.KindleEpubCache.DIRECTORY) {
                         entry.deleteRecursively()
                     }
                 }
@@ -1195,7 +1236,9 @@ class SettingsViewModel @Inject constructor(
             val coversDirSize = getDirSize(FileUtils.getCoversDirectory(context))
 
             // SAF 与应用内部文件统一取真实大小，并按大小降序展示。
-            val bookDetails = bookRepository.getAllBooks().first().map { book ->
+            // 隐藏书库的书不列出书名，只把体积计入「其他」。
+            val (hiddenBooks, visibleBooks) = bookRepository.getAllBooks().first().partition { it.isHidden || it.isArchived }
+            val bookDetails = visibleBooks.map { book ->
                 BookSizeItem(
                     bookId = book.id,
                     title = book.title,
@@ -1203,6 +1246,7 @@ class SettingsViewModel @Inject constructor(
                     sizeBytes = BookFileAccess.size(context, book.filePath)
                 )
             }.sortedByDescending { it.sizeBytes }
+            val otherSize = hiddenBooks.sumOf { BookFileAccess.size(context, it.filePath) }
 
             val remaining = MIN_STORAGE_REFRESH_VISIBILITY_MS -
                 (System.currentTimeMillis() - refreshStartedAt)
@@ -1216,6 +1260,7 @@ class SettingsViewModel @Inject constructor(
                         appSizeBytes = appSize,
                         cacheSizeBytes = genericCacheSize,
                         booksSizeBytes = bookDetails.sumOf { it.sizeBytes },
+                        otherSizeBytes = otherSize,
                         coversSizeBytes = coversDirSize,
                         externalTtsCacheSizeBytes = externalTtsCacheSize,
                         externalTtsCacheLimitMb = state.storageInfo.externalTtsCacheLimitMb,

@@ -1,11 +1,11 @@
 {
   "config_version": 1,
-  "generated_at": "2026-11-05T00:00:00+08:00",
-  "latest_version": "2.3.1",
-  "latest_version_code": 22,
-  "release_url": "https://github.com/liyunkkk/Lumi_Books/releases/tag/v2.3.1",
-  "terms_version": 2,
-  "privacy_version": 3,
+  "generated_at": "2026-11-07T00:00:00+08:00",
+  "latest_version": "2.3.11",
+  "latest_version_code": 23,
+  "release_url": "https://github.com/liyunkkk/Lumi_Books/releases/tag/v2.3.11",
+  "terms_version": 3,
+  "privacy_version": 4,
   "update": {
     "latest_version_code": 22,
     "latest_version_name": "Dream",
@@ -34,5 +34,6 @@
         "https://cdn.jsdelivr.net/gh/huangder/Lumi_Books@main/docs/fonts/fandol_fang.ttf"
       ]
     }
-  ]
+  ],
+  "blocked_opds_urls": []
 }

@@ -76,23 +76,8 @@ import com.huangder.lumibooks.ui.theme.AppRadius
 import com.huangder.lumibooks.ui.theme.AppSpace
 import com.huangder.lumibooks.ui.theme.AppType
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
-import com.huangder.lumibooks.util.FileUtils
-import com.huangder.lumibooks.widget.widgetDataEntryPoint
-import io.legado.app.data.appDb
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
-private enum class CoverSourceStep {
-    OPTIONS,
-    SOURCES_SEARCH
-}
-
-private data class SourceCoverItem(
-    val url: String,
-    val sourceName: String,
-    val author: String
-)
+import androidx.compose.ui.res.stringResource
+import com.huangder.lumibooks.ui.components.AppBottomSheet
 
 /**
  * 「自定义封面」来源选择容器：选择图片 / 网络搜索 / 搜索其它书源封面
@@ -110,89 +95,39 @@ fun CustomCoverSourceSheet(
     var currentStep by remember { mutableStateOf(CoverSourceStep.OPTIONS) }
 
     val sheetContent: @Composable () -> Unit = {
-        AnimatedContent(
-            targetState = currentStep,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
-            label = "cover_source_step_anim"
-        ) { step ->
-            when (step) {
-                CoverSourceStep.OPTIONS -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 24.dp, end = 24.dp, top = 22.dp, bottom = 24.dp)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.cover_source_title),
-                            fontSize = AppType.Section,
-                            fontWeight = FontWeight.Bold,
-                            color = AppColors.TextPrimary
-                        )
-                        Text(
-                            text = book.title,
-                            fontSize = AppType.Caption,
-                            color = AppColors.TextSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = AppSpace.xs)
-                        )
-                        Spacer(Modifier.height(AppSpace.lg))
-                        CoverSourceOptionRow(
-                            icon = Icons.Outlined.AutoStories,
-                            title = stringResource(R.string.cover_source_sources_search),
-                            description = stringResource(R.string.cover_source_sources_search_desc),
-                            onClick = { currentStep = CoverSourceStep.SOURCES_SEARCH }
-                        )
-                        Spacer(Modifier.height(AppSpace.sm + AppSpace.xs))
-                        CoverSourceOptionRow(
-                            icon = Icons.Outlined.Image,
-                            title = stringResource(R.string.cover_source_pick_image),
-                            description = stringResource(R.string.cover_source_pick_image_desc),
-                            onClick = onPickImage
-                        )
-                        Spacer(Modifier.height(AppSpace.sm + AppSpace.xs))
-                        CoverSourceOptionRow(
-                            icon = Icons.Outlined.Public,
-                            title = stringResource(R.string.cover_source_web_search),
-                            description = stringResource(R.string.cover_source_web_search_desc),
-                            onClick = onWebSearch
-                        )
-                    }
-                }
-                CoverSourceStep.SOURCES_SEARCH -> {
-                    SourceCoversPickerView(
-                        book = book,
-                        onBack = { currentStep = CoverSourceStep.OPTIONS },
-                        onCoverApplied = onDismiss
-                    )
-                }
-            }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(com.huangder.lumibooks.ui.components.appSheetPadding())
+        ) {
+            com.huangder.lumibooks.ui.components.AppSheetHeader(
+                title = stringResource(R.string.cover_source_title), onClose = onDismiss)
+            Text(
+                text = book.title,
+                fontSize = AppType.Caption,
+                color = AppColors.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = AppSpace.xs)
+            )
+            Spacer(Modifier.height(AppSpace.lg))
+            CoverSourceOptionRow(
+                icon = AppIcons.Image,
+                title = stringResource(R.string.cover_source_pick_image),
+                description = stringResource(R.string.cover_source_pick_image_desc),
+                onClick = onPickImage
+            )
+            Spacer(Modifier.height(AppSpace.sm + AppSpace.xs))
+            CoverSourceOptionRow(
+                icon = AppIcons.Globe,
+                title = stringResource(R.string.cover_source_web_search),
+                description = stringResource(R.string.cover_source_web_search_desc),
+                onClick = onWebSearch
+            )
         }
     }
 
-    if (isLiquidGlass) {
-        LiquidGlassDialog(
-            onDismissRequest = onDismiss,
-            alignment = Alignment.BottomCenter,
-            shape = AppRoundedCornerShape(28.dp),
-            contentScrimColor = AppColors.CardBg.copy(alpha = 0.24f),
-            backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
-        ) {
-            sheetContent()
-        }
-    } else {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = AppColors.CardBg,
-            contentColor = AppColors.TextPrimary,
-            scrimColor = Color.Black.copy(alpha = 0.12f),
-            shape = AppRoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-        ) {
-            sheetContent()
-        }
-    }
+    AppBottomSheet(onDismissRequest = onDismiss) { sheetContent() }
 }
 
 @Composable

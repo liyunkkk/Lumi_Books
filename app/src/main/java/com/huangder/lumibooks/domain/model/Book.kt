@@ -30,10 +30,19 @@ data class Book(
     /** Last display name observed at import/reconciliation time. */
     val sourceDisplayName: String? = null,
     val sourceLastModified: Long = 0L,
-    val isMissing: Boolean = false
+    val isMissing: Boolean = false,
+    val isHidden: Boolean = false,
+    val isManuallyMarkedRead: Boolean = false,
+    val isArchived: Boolean = false
 ) {
     val isReadingFinished: Boolean
-        get() = readingProgress.isFinite() && readingProgress >= 1f
+        get() = isManuallyMarkedRead || (readingProgress.isFinite() && readingProgress >= 1f)
+
+    fun toggleReadStatus(): Book = if (isReadingFinished) {
+        copy(readingProgress = 0f, isManuallyMarkedRead = false)
+    } else {
+        copy(isManuallyMarkedRead = true)
+    }
 
     val contentSha256: String? get() = sourceSha256
     val originalSourceUri: String? get() = sourceUri
@@ -42,7 +51,13 @@ data class Book(
 }
 
 enum class BookFormat {
-    EPUB, PDF, TXT, MOBI, CBZ, MARKDOWN;
+    EPUB, PDF, TXT, MOBI, CBZ, MARKDOWN, AZW, AZW3;
+
+    val isKindle: Boolean get() = this == MOBI || this == AZW || this == AZW3
+    val supportsEpubFeatures: Boolean get() = this == EPUB || isKindle
+    val supportsBookLayout: Boolean get() = supportsEpubFeatures || this == MARKDOWN
+    val supportsTextReading: Boolean get() = !isRasterPageFormat
+    val supportsAnnotations: Boolean get() = this != CBZ
 
     /** Bitmap page sources (PDF/CBZ) are rendered by the raster reader instead of the text engines. */
     val isRasterPageFormat: Boolean get() = this == PDF || this == CBZ
