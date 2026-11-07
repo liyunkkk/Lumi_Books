@@ -45,7 +45,9 @@ import com.huangder.lumibooks.data.local.dao.HighlightRuleDao
         BookHighlightSettingsEntity::class,
         HighlightRuleExclusionEntity::class
     ],
-    version = 20,
+    // 与 2.3.11 的 schema 对齐：设备库可能已被 2.3.11 升到 27，
+    // 版本号偏低会触发 Room 降级迁移失败（A migration from 27 to 20 was required）。
+    version = 27,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
