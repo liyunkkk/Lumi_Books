@@ -176,12 +176,21 @@ fun HomeScreen(
     val activeReadingBooks = remember(
         uiState.books,
         uiState.bookFolderLinks,
+        uiState.folders,
         uiState.hiddenBookIds,
         uiState.hiddenFromNowReadingBookIds,
         uiState.hiddenFolderIds,
         uiState.hiddenFromNowReadingFolderIds
     ) {
-        val hiddenFolderIdSet = uiState.hiddenFolderIds + uiState.hiddenFromNowReadingFolderIds
+        // 隐藏一个文件夹时应连同其所有子文件夹一起生效（与书架侧 folderBookCounts /
+        // booksInFolderTree 的口径保持一致），否则隐藏父文件夹后主页在读卡片仍然显示。
+        val hiddenFolderIdSet = buildSet {
+            addAll(uiState.hiddenFolderIds)
+            addAll(uiState.hiddenFromNowReadingFolderIds)
+            (uiState.hiddenFolderIds + uiState.hiddenFromNowReadingFolderIds).forEach { rootId ->
+                addAll(com.huangder.lumibooks.ui.bookshelf.descendantFolderIds(uiState.folders, rootId))
+            }
+        }
         val folderIdsByBookId = uiState.bookFolderLinks.groupBy({ it.bookId }, { it.folderId })
         uiState.books.filter { book ->
             if (book.id in uiState.hiddenBookIds) return@filter false

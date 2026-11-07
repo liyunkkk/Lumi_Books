@@ -138,8 +138,10 @@ private fun FolderBookPreview(
     modifier: Modifier = Modifier
 ) {
     val slotBackground = AppColors.BgGray
-    val outerPadding = 8.dp
-    val slotGap = 6.dp
+    // 文件夹封面与书籍封面尺寸对齐：不使用外边距，预览图满幅铺开，
+    // 否则文件夹视觉上会比同格的书籍封面小一圈。
+    val outerPadding = 0.dp
+    val slotGap = 2.dp
     Column(
         modifier = modifier
             .background(AppColors.CardBg)

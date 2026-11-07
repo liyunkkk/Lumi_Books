@@ -1,6 +1,10 @@
 @file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.huangder.lumibooks.ui.bookshelf
+
+/** 书籍/文件夹/「导入书籍」三种网格卡片的封面比例，集中定义避免只改一处导致尺寸漂移。 */
+private const val GRID_COVER_ASPECT_RATIO = 0.75f
+private const val COMPACT_GRID_COVER_ASPECT_RATIO = 0.66f
 import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
@@ -1902,6 +1906,8 @@ internal fun BookshelfCollection(
                             contextMenuState = folderContextMenuState,
                             onHaptic = onHaptic,
                             onClick = { onFolderClick(folder) },
+                            compactLayout = renderedMode == BookshelfLayout.Grid ||
+                                renderedMode == BookshelfLayout.CompactGrid,
                         )
                     }
                 }
@@ -1915,6 +1921,9 @@ internal fun BookshelfCollection(
                             contextMenuState = contextMenuState,
                             syncedBookIds = syncedBookIds,
                             downloadState = downloadStates[book.id],
+                            // 网格与紧凑网格只显示封面和书名，不显示阅读进度
+                            hideReadingProgress = renderedMode == BookshelfLayout.Grid ||
+                                renderedMode == BookshelfLayout.CompactGrid,
                             onHaptic = onHaptic,
                             onSelectionToggle = { onSelectionToggle(book) },
                             onClick = { bounds -> onBookClick(book, bounds) }
@@ -1927,7 +1936,11 @@ internal fun BookshelfCollection(
                             play = playEntranceAnimation,
                             index = folders.size + books.size + 2
                         ) {
-                            AddBookItem(onClick = onAddBook)
+                            AddBookItem(
+                                onClick = onAddBook,
+                                compactLayout = renderedMode == BookshelfLayout.Grid ||
+                                    renderedMode == BookshelfLayout.CompactGrid
+                            )
                         }
                     }
                 }
@@ -2593,6 +2606,7 @@ private fun AnimatedBookGridItem(
     contextMenuState: BookContextMenuState,
     syncedBookIds: Set<String>,
     downloadState: BookDownloadState?,
+    hideReadingProgress: Boolean = false,
     onHaptic: () -> Unit,
     onSelectionToggle: () -> Unit,
     onClick: (Rect?) -> Unit
@@ -2633,6 +2647,7 @@ private fun AnimatedBookGridItem(
             contextMenuState = contextMenuState,
             syncedBookIds = syncedBookIds,
             downloadState = downloadState,
+            hideReadingProgress = hideReadingProgress,
             onHaptic = onHaptic,
             onSelectionToggle = onSelectionToggle,
             onClick = onClick
@@ -2651,6 +2666,7 @@ private fun BookGridItem(
     contextMenuState: BookContextMenuState,
     syncedBookIds: Set<String>,
     downloadState: BookDownloadState?,
+    hideReadingProgress: Boolean = false,
     onHaptic: () -> Unit,
     onSelectionToggle: () -> Unit,
     onClick: (Rect?) -> Unit
@@ -2732,7 +2748,10 @@ private fun BookGridItem(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.75f)
+                .aspectRatio(
+                    if (hideReadingProgress) COMPACT_GRID_COVER_ASPECT_RATIO
+                    else GRID_COVER_ASPECT_RATIO
+                )
                 .onGloballyPositioned { coordinates ->
                     coverCoordinates[0] = coordinates
                 }
@@ -2788,10 +2807,13 @@ private fun BookGridItem(
                     )
                 }
             }
-            BookCoverStatusBadge(
-                book = book,
-                compact = true
-            )
+            // 隐藏阅读进度时，封面角标只用于云书下载状态（那是下载入口）。
+            if (!hideReadingProgress || book.isCloudOnly) {
+                BookCoverStatusBadge(
+                    book = book,
+                    compact = true
+                )
+            }
         }
 
         Spacer(Modifier.height(AppSpace.sm))
@@ -2853,12 +2875,15 @@ private fun BookGridItem(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        BookProgressStatus(
-            book = book,
-            downloadState = downloadState,
-            compact = true,
-            modifier = Modifier.padding(top = 2.dp)
-        )
+        // 网格/紧凑网格隐藏阅读进度；云书下载进度仍显示（进度条即下载状态反馈）。
+        if (!hideReadingProgress || book.isCloudOnly) {
+            BookProgressStatus(
+                book = book,
+                downloadState = downloadState,
+                compact = true,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
     }
 }
 
@@ -3000,7 +3025,8 @@ private fun FolderGridItem(
     enabled: Boolean,
     contextMenuState: FolderContextMenuState,
     onHaptic: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    compactLayout: Boolean = false
 ) {
     val coverCorner = if (LocalAppTheme.current == "liquid_glass") 16.dp else AppRadius.sm
     val isTarget = contextMenuState.selectedFolder?.id == folder.id
@@ -3044,17 +3070,19 @@ private fun FolderGridItem(
             previewBooks = previewBooks,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.75f)
+                .aspectRatio(
+                    if (compactLayout) COMPACT_GRID_COVER_ASPECT_RATIO else GRID_COVER_ASPECT_RATIO
+                )
                 .onGloballyPositioned { coordinates -> coverCoordinates[0] = coordinates }
                 .graphicsLayer {
                     scaleX = pressScale
                     scaleY = pressScale
                 }
                 .shadow(
-                    10.dp,
+                    12.dp,
                     AppRoundedCornerShape(coverCorner),
-                    ambientColor = Color(0x08000000),
-                    spotColor = Color(0x08000000)
+                    ambientColor = Color(0x06000000),
+                    spotColor = Color(0x06000000)
                 )
         )
         Spacer(Modifier.height(AppSpace.sm))
@@ -3140,7 +3168,7 @@ private fun AddBookListItem(onClick: () -> Unit) {
 }
 
 @Composable
-private fun AddBookItem(onClick: () -> Unit) {
+private fun AddBookItem(onClick: () -> Unit, compactLayout: Boolean = false) {
     val coverCorner = if (LocalAppTheme.current == "liquid_glass") 16.dp else AppRadius.sm
     val coverShape = AppRoundedCornerShape(coverCorner)
     Column(
@@ -3149,7 +3177,9 @@ private fun AddBookItem(onClick: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.75f)
+                .aspectRatio(
+                    if (compactLayout) COMPACT_GRID_COVER_ASPECT_RATIO else GRID_COVER_ASPECT_RATIO
+                )
                 .clip(coverShape)
                 .background(AppColors.PageBg),
             contentAlignment = Alignment.Center

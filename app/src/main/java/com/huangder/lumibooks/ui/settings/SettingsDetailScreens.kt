@@ -265,8 +265,6 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
     LaunchedEffect(Unit) { viewModel.refreshInstalledTtsEngines() }
     ReplaceRulesManagerCard()
     Spacer(Modifier.height(12.dp))
-    TxtTocRulesManagerRow(viewModel)
-    Spacer(Modifier.height(12.dp))
     val selectionRanges = listOf(
         LongPressSelectionRange.PARAGRAPH to stringResource(R.string.selection_range_paragraph),
         LongPressSelectionRange.LINE to stringResource(R.string.selection_range_line),
