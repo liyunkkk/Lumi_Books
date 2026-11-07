@@ -1089,6 +1089,7 @@ fun LiquidGlassSettingsButton(
     )
 }
 /** fork 自有：头像图片请求（带 lastModified 缓存键，头像更新后能刷新）。 */
+@Composable
 private fun rememberAvatarImageModel(avatarUri: String?): Any? {
     val context = LocalContext.current
     return remember(avatarUri) {
