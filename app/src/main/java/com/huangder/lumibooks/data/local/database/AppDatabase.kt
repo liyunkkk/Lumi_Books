@@ -9,6 +9,8 @@ import com.huangder.lumibooks.data.local.dao.NoteDao
 import com.huangder.lumibooks.data.local.dao.AnnotationTagDao
 import com.huangder.lumibooks.data.local.dao.ReadingRecordDao
 import com.huangder.lumibooks.data.local.dao.TagDao
+import com.huangder.lumibooks.data.local.dao.TagGroupDao
+import com.huangder.lumibooks.data.local.entity.TagGroupEntity
 import com.huangder.lumibooks.data.local.dao.SyncStateDao
 import com.huangder.lumibooks.data.local.entity.BookTagCrossRefEntity
 import com.huangder.lumibooks.data.local.entity.BookEntity
@@ -33,6 +35,7 @@ import com.huangder.lumibooks.data.local.dao.HighlightRuleDao
         FolderEntity::class,
         BookFolderCrossRefEntity::class,
         TagEntity::class,
+        TagGroupEntity::class,
         BookTagCrossRefEntity::class,
         ReadingRecordEntity::class,
         BookmarkEntity::class,
@@ -45,8 +48,6 @@ import com.huangder.lumibooks.data.local.dao.HighlightRuleDao
         BookHighlightSettingsEntity::class,
         HighlightRuleExclusionEntity::class
     ],
-    // 与 2.3.11 的 schema 对齐：设备库可能已被 2.3.11 升到 27，
-    // 版本号偏低会触发 Room 降级迁移失败（A migration from 27 to 20 was required）。
     version = 27,
     exportSchema = false
 )
@@ -57,6 +58,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
     abstract fun annotationTagDao(): AnnotationTagDao
     abstract fun tagDao(): TagDao
+    abstract fun tagGroupDao(): TagGroupDao
     abstract fun folderDao(): FolderDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun highlightRuleDao(): HighlightRuleDao

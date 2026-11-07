@@ -30,11 +30,15 @@ data class BookEntity(
     val sourceSha256: String? = null,
     val sourceDisplayName: String? = null,
     val sourceLastModified: Long = 0L,
-    val isMissing: Boolean = false
+    val isMissing: Boolean = false,
+    val isHidden: Boolean = false,
+    val isManuallyMarkedRead: Boolean = false,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val isArchived: Boolean = false
 )
 
 enum class BookFormat {
-    EPUB, PDF, TXT, MOBI, CBZ, MARKDOWN;
+    EPUB, PDF, TXT, MOBI, CBZ, MARKDOWN, AZW, AZW3;
 
     companion object {
         fun fromString(format: String): BookFormat {
@@ -43,6 +47,8 @@ enum class BookFormat {
                 "PDF" -> PDF
                 "TXT" -> TXT
                 "MOBI" -> MOBI
+                "AZW" -> AZW
+                "AZW3" -> AZW3
                 "CBZ" -> CBZ
                 "MARKDOWN", "MD" -> MARKDOWN
                 else -> TXT

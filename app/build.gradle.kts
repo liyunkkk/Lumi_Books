@@ -28,7 +28,7 @@ android {
         targetSdk = 37
         // 从 2.3.11 回退到 2.3.10 基线后仍需覆盖已装的 23，
         // 否则 pm install 会因 VERSION_DOWNGRADE 失败。
-        versionCode = 24
+        versionCode = 25
         versionName = "2.3.1"
 
         buildConfigField("boolean", "DIAGNOSTIC_BUILD", "false")
