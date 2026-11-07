@@ -4841,6 +4841,18 @@ private fun ReaderScreenContent(
             }
 
             // 目录底部弹出
+            // 刷新最新章节：仅在线书提供。lambda 提到外层定义，避免再增大 ReaderScreenContent 的方法体
+            // （该 Composable 已接近 DEX 校验上限，内联嵌套 lambda 会触发 VerifyError）。
+            val isOnlineBookForToc = remember(uiState.book?.filePath) {
+                uiState.book?.filePath?.startsWith(
+                    com.huangder.lumibooks.util.parser.OnlineBookParser.SCHEME
+                ) == true
+            }
+            val refreshChaptersAction: (() -> Unit)? = if (isOnlineBookForToc) {
+                remember(viewModel) { { viewModel.refreshCurrentOnlineBook() } }
+            } else {
+                null
+            }
             TocSheet(
                 visible = showToc,
                 requestClose = requestCloseToc,
@@ -4850,14 +4862,7 @@ private fun ReaderScreenContent(
                 currentAnchor = uiState.currentTocAnchor,
                 bookmarks = bookmarks,
                 chapterTitles = uiState.chapterTitles,
-                onRefreshChapters = if (uiState.book?.filePath?.startsWith(
-                        com.huangder.lumibooks.util.parser.OnlineBookParser.SCHEME
-                    ) == true
-                ) {
-                    { viewModel.refreshCurrentOnlineBook() }
-                } else {
-                    null
-                },
+                onRefreshChapters = refreshChaptersAction,
                 isRefreshingChapters = isRefreshingOnlineBook,
                 onChapterSelected = { entry ->
                     scope.launch {

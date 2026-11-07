@@ -245,6 +245,31 @@ fun HomeScreen(
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val glowColors = rememberCoverColors(lastReadBook?.coverPath)
     val today = remember { java.time.LocalDate.now() }
+
+    // fork 自有：在读精选 3D 卡片流首页模式（上游无此功能，合并时被上游 HomeScreen 覆盖，
+    // 此处按 91cd9335 的原始实现补回分发）。
+    if (uiState.homeScreenMode == com.huangder.lumibooks.data.local.DataStoreManager.HOME_SCREEN_MODE_CARD_FLOW) {
+        CompositionLocalProvider(
+            LocalShowCoverProgress provides uiState.showCoverProgress,
+            LocalShowFinishedBadge provides uiState.showFinishedBadge
+        ) {
+            CardFlowHomeScreen(
+                books = uiState.books,
+                todayReadingTime = uiState.todayReadingTime,
+                dailyGoal = uiState.dailyGoal,
+                streakDays = uiState.streakDays,
+                avatarUri = uiState.avatarUri,
+                statusBarTopPadding = statusBarTopPadding,
+                bottomContentPadding = bottomContentPadding,
+                onNavigateToReader = onNavigateToReader,
+                onNavigateToStatistics = onNavigateToStatistics,
+                onNavigateToBookshelf = onNavigateToBookshelf,
+                onImportClick = onImportClick
+            )
+        }
+        return
+    }
+
     ProvideInsightsMotion {
     BoxWithConstraints(
         modifier = Modifier

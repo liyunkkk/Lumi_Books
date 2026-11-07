@@ -2751,7 +2751,7 @@ private fun BookGridItem(
             modifier = Modifier
                 .fillMaxWidth()
                 // 紧凑布局：网格间距更小、列更窄，封面改用更高的比例以避免视觉上被压扁变小。
-                .aspectRatio(if (compactLayout) 0.70f else 0.75f)
+                .aspectRatio(if (compactLayout) 0.66f else 0.75f)
                 .onGloballyPositioned { coordinates ->
                     coverCoordinates[0] = coordinates
                 }
@@ -2874,12 +2874,15 @@ private fun BookGridItem(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        BookProgressStatus(
-            book = book,
-            downloadState = downloadState,
-            compact = true,
-            modifier = Modifier.padding(top = 2.dp)
-        )
+        // 紧凑布局不显示阅读进度文本（云书下载进度仍需保留，它是下载状态反馈）。
+        if (!compactLayout || book.isCloudOnly) {
+            BookProgressStatus(
+                book = book,
+                downloadState = downloadState,
+                compact = true,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
     }
 }
 
