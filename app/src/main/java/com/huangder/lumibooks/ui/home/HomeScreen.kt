@@ -313,7 +313,7 @@ fun HomeScreen(
                                 modifier = Modifier.padding(horizontal = AppSpace.lg)
                             )
                         }
-                        Spacer(Modifier.height(dynamicSpacing))
+                        Spacer(Modifier.height(AppSpace.lg))
                     }
                 }
                 if (recentBooks.isNotEmpty()) {
@@ -336,7 +336,7 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        Spacer(Modifier.height(dynamicSpacing))
+                        Spacer(Modifier.height(AppSpace.lg))
                     }
                 }
                 item(key = "reading_goal") {
@@ -1070,6 +1070,8 @@ private fun ArcProgressBar(progress: Float, modifier: Modifier = Modifier) {
 
 @Composable
 private fun WeeklyCheckIn(weeklyData: List<DailyReading> = emptyList(), dailyGoal: Int = 30) {
+    val hasGoal = dailyGoal > 0
+    val goalMs = if (hasGoal) dailyGoal * 60 * 1000L else 0L
     val todayIndex = Calendar.getInstance().get(Calendar.DAY_OF_WEEK) - 1  // 0=周日
     val accentColor = AppColors.Accent
     val pop = rememberPlayOnce("week-dots", 900)
