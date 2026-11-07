@@ -1915,6 +1915,7 @@ internal fun BookshelfCollection(
                             contextMenuState = contextMenuState,
                             syncedBookIds = syncedBookIds,
                             downloadState = downloadStates[book.id],
+                            compactLayout = renderedMode == BookshelfLayout.CompactGrid,
                             onHaptic = onHaptic,
                             onSelectionToggle = { onSelectionToggle(book) },
                             onClick = { bounds -> onBookClick(book, bounds) }
@@ -2593,6 +2594,7 @@ private fun AnimatedBookGridItem(
     contextMenuState: BookContextMenuState,
     syncedBookIds: Set<String>,
     downloadState: BookDownloadState?,
+    compactLayout: Boolean = false,
     onHaptic: () -> Unit,
     onSelectionToggle: () -> Unit,
     onClick: (Rect?) -> Unit
@@ -2633,6 +2635,7 @@ private fun AnimatedBookGridItem(
             contextMenuState = contextMenuState,
             syncedBookIds = syncedBookIds,
             downloadState = downloadState,
+            compactLayout = compactLayout,
             onHaptic = onHaptic,
             onSelectionToggle = onSelectionToggle,
             onClick = onClick
@@ -2651,6 +2654,7 @@ private fun BookGridItem(
     contextMenuState: BookContextMenuState,
     syncedBookIds: Set<String>,
     downloadState: BookDownloadState?,
+    compactLayout: Boolean = false,
     onHaptic: () -> Unit,
     onSelectionToggle: () -> Unit,
     onClick: (Rect?) -> Unit
@@ -2732,7 +2736,8 @@ private fun BookGridItem(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.75f)
+                // 紧凑布局：网格间距更小、列更窄，封面改用更高的比例以避免视觉上被压扁变小。
+                .aspectRatio(if (compactLayout) 0.70f else 0.75f)
                 .onGloballyPositioned { coordinates ->
                     coverCoordinates[0] = coordinates
                 }
@@ -2788,9 +2793,12 @@ private fun BookGridItem(
                     )
                 }
             }
+            // 紧凑布局下不显示阅读进度角标；云书角标仍需保留（是下载入口）。
             BookCoverStatusBadge(
                 book = book,
-                compact = true
+                compact = true,
+                showProgressOverlay = !compactLayout && LocalShowCoverProgress.current,
+                showFinishedBadge = !compactLayout && LocalShowFinishedBadge.current
             )
         }
 
@@ -2800,10 +2808,10 @@ private fun BookGridItem(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = book.title,
-                fontSize = AppType.BodySmall,
+                fontSize = if (compactLayout) AppType.Caption else AppType.BodySmall,
                 fontWeight = FontWeight.SemiBold,
                 color = AppColors.TextPrimary,
-                maxLines = 2,
+                maxLines = if (compactLayout) 1 else 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
             )
