@@ -8577,7 +8577,7 @@ internal fun ContinuousScrollReader(
                     // 漫画模式或纯图片章节：按屏宽等比缩放、无缝上下拼接
                     ComicChapterImages(
                         chapterIndex = chapterIndex,
-                        chapterText = chapterText,
+                        chapterText = selectableText,
                         imageSources = chapterImages,
                         backgroundColor = backgroundColor,
                         onMenuToggle = onMenuToggle
