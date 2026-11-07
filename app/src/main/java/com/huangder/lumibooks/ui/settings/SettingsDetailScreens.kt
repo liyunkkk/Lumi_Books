@@ -8,22 +8,25 @@ import androidx.compose.material.icons.outlined.CleaningServices
 import io.legado.app.data.appDb
 import com.huangder.lumibooks.ui.replace.ReplaceRulesActivity
 
+import com.huangder.lumibooks.ui.icons.ControlIcon
+
+import com.huangder.lumibooks.ui.components.lumiRowClickable
+import com.huangder.lumibooks.ui.components.AppDialogAction
+import com.huangder.lumibooks.ui.components.AppDialogActionRole
+
 import com.huangder.lumibooks.ui.components.lumiCardSurface
 import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
 import com.huangder.lumibooks.ui.icons.AppIcons
 import com.huangder.lumibooks.domain.model.LongPressSelectionRange
+import com.huangder.lumibooks.domain.model.ReaderThemeSettings
 
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
@@ -87,6 +90,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -154,7 +158,6 @@ import com.huangder.lumibooks.tts.ExternalTtsConfig
 import com.huangder.lumibooks.tts.FloatingSubtitleSettings
 import com.huangder.lumibooks.tts.TtsProviderSelection
 import com.huangder.lumibooks.tts.TtsStartChoice
-import com.huangder.lumibooks.tts.TtsReaderResumeChoice
 import com.huangder.lumibooks.ui.components.LiquidGlassSwitch
 import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassDialogHost
@@ -174,7 +177,7 @@ import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
 import com.huangder.lumibooks.ui.theme.LocalAppTheme
 import com.huangder.lumibooks.domain.model.HighlightPalette
 import com.huangder.lumibooks.domain.model.AppIconStyle
-import com.huangder.lumibooks.domain.model.BookOpenTransition
+import com.huangder.lumibooks.domain.model.AppUiIconStyle
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
 import com.huangder.lumibooks.domain.model.appAccentHex
 import com.huangder.lumibooks.domain.model.normalizeAppAccentHex
@@ -187,6 +190,11 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+import com.huangder.lumibooks.ui.components.AppDropdownMenu
+import com.huangder.lumibooks.ui.components.GroupedCard
+import com.huangder.lumibooks.ui.components.GroupedRowDivider
+import com.huangder.lumibooks.ui.components.GroupedSectionTitle
+import com.huangder.lumibooks.ui.components.DisclosureChevron
 
 // ─── 详情页通用框架 ──────────────────────────────────────────
 
@@ -209,6 +217,7 @@ internal fun detailTitleCollapseFraction(
 fun DetailPage(
     title: String,
     onBack: () -> Unit,
+    targetSection: String? = null,
     content: @Composable () -> Unit
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
@@ -243,12 +252,14 @@ fun DetailPage(
                 // Page overlays sample the completed pageBackdrop. Inline controls use the
                 // background-only source so they never capture surfaces drawing that same source.
                 ProvideLiquidGlassBackdrop(activeControlsBackdrop) {
-                    CollapsingSettingsScaffold(
-                        title = title,
-                        onBack = onBack,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        content()
+                    CompositionLocalProvider(LocalSettingsTargetSection provides targetSection) {
+                        CollapsingSettingsScaffold(
+                            title = title,
+                            onBack = onBack,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            content()
+                        }
                     }
                 }
             }
@@ -274,6 +285,65 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
         LongPressSelectionRange.CHARACTER to stringResource(R.string.selection_range_character),
         LongPressSelectionRange.WORD to stringResource(R.string.selection_range_word)
     )
+    val readerThemeOptions = if (uiState.eInkModeEnabled) {
+        listOf("day" to stringResource(R.string.theme_day))
+    } else {
+        listOf(
+            "day" to stringResource(R.string.theme_day),
+            "night" to stringResource(R.string.theme_night),
+            "sepia" to stringResource(R.string.theme_sepia),
+            "green" to stringResource(R.string.theme_green)
+        )
+    }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_reader_layout), "reading_layout")
+    DetailCard {
+        DropdownSettingRow(
+            label = stringResource(R.string.label_reader_theme),
+            options = readerThemeOptions,
+            selected = if (uiState.eInkModeEnabled) "day" else uiState.readerTheme,
+            onSelect = viewModel::saveReaderTheme
+        )
+        SettingsDivider()
+        SettingsSwitchRow(
+            label = stringResource(R.string.label_two_page_spread),
+            supportingText = stringResource(R.string.two_page_spread_description),
+            checked = uiState.twoPageSpreadEnabled,
+            onCheckedChange = viewModel::saveTwoPageSpreadEnabled
+        )
+        SettingsDivider()
+        SettingsSwitchRow(
+            label = stringResource(R.string.apply_to_body_only),
+            supportingText = stringResource(R.string.apply_to_body_only_desc),
+            checked = uiState.applyToBodyOnly,
+            onCheckedChange = viewModel::saveApplyToBodyOnly
+        )
+    }
+
+    Spacer(Modifier.height(8.dp))
+    DetailCard {
+        SettingsNavigationRow(
+            label = stringResource(R.string.reader_theme_suite_settings_title),
+            supportingText = stringResource(R.string.reader_theme_suite_settings_description)
+        ) {
+            context.startActivity(
+                Intent(context, ReaderSettingsPreviewActivity::class.java)
+                    .putExtra(ReaderSettingsPreviewActivity.EXTRA_MODE, ReaderSettingsPreviewActivity.MODE_THEMES)
+            )
+        }
+        SettingsDivider()
+        SettingsNavigationRow(
+            label = stringResource(R.string.reader_page_animation_settings_title),
+            supportingText = stringResource(R.string.reader_page_animation_settings_description)
+        ) {
+            context.startActivity(
+                Intent(context, ReaderSettingsPreviewActivity::class.java)
+                    .putExtra(ReaderSettingsPreviewActivity.EXTRA_MODE, ReaderSettingsPreviewActivity.MODE_ANIMATIONS)
+            )
+        }
+    }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_reader_selection), "reading_selection")
     DetailCard {
         DropdownSettingRow(
             label = stringResource(R.string.default_selection_range),
@@ -281,26 +351,29 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
             selected = uiState.longPressSelectionRange.storageKey,
             onSelect = { viewModel.saveLongPressSelectionRange(LongPressSelectionRange.fromKey(it)) }
         )
-        Text(stringResource(R.string.default_selection_range_description),
-            fontSize = AppType.Caption, color = AppColors.TextSecondary,
-            modifier = Modifier.padding(start = AppSpace.md, end = AppSpace.md, bottom = AppSpace.sm))
+        Text(
+            stringResource(R.string.default_selection_range_description),
+            fontSize = AppType.Caption,
+            color = AppColors.TextSecondary,
+            modifier = Modifier.padding(start = AppSpace.md, end = AppSpace.md, bottom = AppSpace.sm)
+        )
         SettingsDivider()
-        Row(
-            Modifier.fillMaxWidth().clickable {
-                context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "selection_menu"))
-            }.padding(AppSpace.md),
-            verticalAlignment = Alignment.CenterVertically
+        SettingsNavigationRow(
+            label = stringResource(R.string.selection_menu_settings),
+            supportingText = stringResource(R.string.selection_menu_settings_description),
+            icon = AppIcons.List
         ) {
-            Icon(AppIcons.List, null, tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(AppSpace.md))
-            Column(Modifier.weight(1f)) {
-                Text(stringResource(R.string.selection_menu_settings), fontSize = AppType.Body, color = AppColors.TextPrimary)
-                Text(stringResource(R.string.selection_menu_settings_description), fontSize = AppType.Caption, color = AppColors.TextSecondary)
-            }
-            Icon(AppIcons.CaretRight, null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "selection_menu"))
+        }
+        SettingsDivider()
+        SettingsNavigationRow(
+            stringResource(R.string.highlight_color_palette),
+            stringResource(R.string.highlight_color_palette_desc)
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "highlight_color"))
         }
     }
-    Spacer(Modifier.height(12.dp))
+
     val aiConfigured = uiState.externalTtsSettings.enabled &&
         uiState.externalTtsHasToken &&
         uiState.externalTtsSettings.hasRequiredFields &&
@@ -314,122 +387,40 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
             ?: stringResource(R.string.tts_engine_unavailable)
     }
     var showEngineDialog by remember { mutableStateOf(false) }
-    var showTtsStartDialog by remember { mutableStateOf(false) }
-    var showListeningResumeDialog by remember { mutableStateOf(false) }
-    val ttsStartOptions = listOf(
-        null to stringResource(R.string.tts_start_ask_each_time),
-        TtsStartChoice.CURRENT_PAGE to stringResource(R.string.tts_start_current_page),
-        TtsStartChoice.SAVED_POSITION to stringResource(R.string.tts_start_saved_position)
-    )
-    val listeningResumeOptions = listOf(
-        null to stringResource(R.string.tts_listening_resume_show_prompt),
-        TtsReaderResumeChoice.KEEP_READING to stringResource(R.string.tts_listening_resume_keep),
-        TtsReaderResumeChoice.LISTENING_POSITION to stringResource(R.string.tts_listening_resume_jump),
-        TtsReaderResumeChoice.FURTHEST_PROGRESS to stringResource(R.string.tts_listening_resume_furthest)
-    )
 
+    SettingsSectionTitle(stringResource(R.string.settings_section_listening), "reading_listening")
     DetailCard {
-        TxtTocRulesManagerRow(viewModel)
+        SettingsNavigationRow(stringResource(R.string.tts_engine_selection), selectedEngineLabel) { showEngineDialog = true }
         SettingsDivider()
         SettingsNavigationRow(
-            label = stringResource(R.string.reader_theme_suite_settings_title),
-            supportingText = stringResource(R.string.reader_theme_suite_settings_description)
+            stringResource(R.string.title_floating_subtitle_settings),
+            stringResource(R.string.floating_subtitle_settings_entry_desc)
         ) {
-            context.startActivity(Intent(context, ReaderSettingsPreviewActivity::class.java)
-                .putExtra(ReaderSettingsPreviewActivity.EXTRA_MODE, ReaderSettingsPreviewActivity.MODE_THEMES))
-        }
-        SettingsDivider()
-        SettingsNavigationRow(
-            label = stringResource(R.string.reader_page_animation_settings_title),
-            supportingText = if (uiState.eInkModeEnabled) stringResource(R.string.reader_page_animation_eink_unavailable)
-                else stringResource(R.string.reader_page_animation_settings_description)
-        ) {
-            if (!uiState.eInkModeEnabled) {
-                context.startActivity(Intent(context, ReaderSettingsPreviewActivity::class.java)
-                    .putExtra(ReaderSettingsPreviewActivity.EXTRA_MODE, ReaderSettingsPreviewActivity.MODE_ANIMATIONS))
-            }
-        }
-        SettingsDivider()
-        SettingsNavigationRow(stringResource(R.string.highlight_color_palette), stringResource(R.string.highlight_color_palette_desc)) {
-            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "highlight_color"))
-        }
-        SettingsDivider()
-        SettingsNavigationRow(stringResource(R.string.title_floating_subtitle_settings), stringResource(R.string.floating_subtitle_settings_entry_desc)) {
             context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "floating_subtitle"))
         }
         SettingsDivider()
-        SettingsNavigationRow(stringResource(R.string.tts_engine_selection), selectedEngineLabel) { showEngineDialog = true }
-        SettingsDivider()
-        SettingsNavigationRow(stringResource(R.string.tts_start_setting),
-            ttsStartOptions.first { it.first == uiState.ttsStartChoice }.second) { showTtsStartDialog = true }
-        SettingsDivider()
-        SettingsNavigationRow(stringResource(R.string.tts_listening_resume_setting),
-            listeningResumeOptions.first { it.first == uiState.ttsReaderResumeChoice }.second) {
-            showListeningResumeDialog = true
+        SettingsNavigationRow(
+            stringResource(R.string.settings_listening_preferences),
+            listOf(
+                stringResource(when (uiState.ttsStartChoice) {
+                    TtsStartChoice.CURRENT_PAGE -> R.string.tts_start_current_page
+                    TtsStartChoice.SAVED_POSITION -> R.string.tts_start_saved_position
+                    null -> R.string.tts_start_ask_each_time
+                }),
+                stringResource(when (uiState.ttsContinueOnReaderExit) {
+                    true -> R.string.tts_exit_continue
+                    false -> R.string.tts_exit_stop
+                    null -> R.string.tts_start_ask_each_time
+                })
+            ).joinToString(" · ")
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "listening_preferences"))
         }
     }
 
-    Spacer(Modifier.height(12.dp))
+    SettingsSectionTitle(stringResource(R.string.settings_section_reader_toc), "reading_toc")
     DetailCard {
-        SettingsSwitchRow(
-            label = stringResource(R.string.body_font_weight),
-            supportingText = stringResource(R.string.body_font_weight_desc),
-            checked = uiState.bodyFontWeight >= 600,
-            onCheckedChange = { viewModel.saveBodyFontWeight(if (it) 700 else 400) }
-        )
-        SettingsDivider()
-        SettingsSwitchRow(
-            label = stringResource(R.string.apply_to_body_only),
-            supportingText = stringResource(R.string.apply_to_body_only_desc),
-            checked = uiState.applyToBodyOnly,
-            onCheckedChange = viewModel::saveApplyToBodyOnly
-        )
-    }
-
-    if (showTtsStartDialog) {
-        LiquidGlassAlertDialog(
-            onDismissRequest = { showTtsStartDialog = false },
-            title = { Text(stringResource(R.string.tts_start_setting), color = AppColors.TextPrimary) },
-            text = {
-                Column {
-                    ttsStartOptions.forEach { (choice, label) ->
-                        TtsProviderOptionRow(title = label, selected = uiState.ttsStartChoice == choice,
-                            onClick = {
-                                viewModel.saveTtsStartChoice(choice)
-                                showTtsStartDialog = false
-                            })
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                LiquidGlassTextButton(text = stringResource(R.string.cancel),
-                    onClick = { showTtsStartDialog = false })
-            }
-        )
-    }
-
-    if (showListeningResumeDialog) {
-        LiquidGlassAlertDialog(
-            onDismissRequest = { showListeningResumeDialog = false },
-            title = { Text(stringResource(R.string.tts_listening_resume_setting), color = AppColors.TextPrimary) },
-            text = {
-                Column {
-                    listeningResumeOptions.forEach { (choice, label) ->
-                        TtsProviderOptionRow(title = label, selected = uiState.ttsReaderResumeChoice == choice,
-                            onClick = {
-                                viewModel.saveTtsReaderResumeChoice(choice)
-                                showListeningResumeDialog = false
-                            })
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                LiquidGlassTextButton(text = stringResource(R.string.cancel),
-                    onClick = { showListeningResumeDialog = false })
-            }
-        )
+        TxtTocRulesManagerRow(viewModel)
     }
 
     if (showEngineDialog) {
@@ -439,14 +430,7 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
             uiState.installedTtsEngines.none { it.packageName == selectedPackage }
         LiquidGlassAlertDialog(
             onDismissRequest = { showEngineDialog = false },
-            title = {
-                Text(
-                    text = stringResource(R.string.tts_engine_select_dialog_title),
-                    fontSize = AppType.Section,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-            },
+            titleText = stringResource(R.string.tts_engine_select_dialog_title),
             text = {
                 Column(
                     modifier = Modifier
@@ -502,14 +486,13 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
                     }
                 }
             },
-            confirmButton = {},
-            dismissButton = {
-                LiquidGlassTextButton(
+            actions = listOf(
+                AppDialogAction(
                     text = stringResource(R.string.cancel),
-                    onClick = { showEngineDialog = false }
+                    onClick = { showEngineDialog = false },
+                    role = AppDialogActionRole.Cancel
                 )
-            }
-        )
+            ))
     }
 
     Spacer(Modifier.height(12.dp))
@@ -583,6 +566,11 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
             )
         }
     }
+    MovedSettingsLink(
+        modifier = Modifier.padding(vertical = AppSpace.lg),
+        text = stringResource(R.string.settings_find_listening_preferences),
+        category = "listening_preferences"
+    )
 }
 
 @Composable
@@ -592,9 +580,9 @@ private fun ReadingSettingsBasicDetail(viewModel: SettingsViewModel) {
     DetailCard {
         SettingsSliderItem(label = stringResource(R.string.label_font_size), value = uiState.fontSize, range = 12f..28f, valueText = "${uiState.fontSize.toInt()} sp", step = 1f) { viewModel.saveFontSize(it) }
         SettingsDivider()
-        SettingsSliderItem(label = stringResource(R.string.label_line_height), value = uiState.lineHeight, range = 1.0f..2.5f, valueText = String.format("%.1f", uiState.lineHeight)) { viewModel.saveLineHeight(it) }
+        SettingsSliderItem(label = stringResource(R.string.label_line_height), value = uiState.lineHeight, range = ReaderThemeSettings.LINE_HEIGHT_RANGE, valueText = String.format("%.1fx", uiState.lineHeight)) { viewModel.saveLineHeight(it) }
         SettingsDivider()
-        SettingsSliderItem(label = stringResource(R.string.label_letter_spacing), value = uiState.letterSpacing, range = 0f..0.1f, valueText = String.format("%.2f em", uiState.letterSpacing), step = 0.01f) { viewModel.saveLetterSpacing(it) }
+        SettingsSliderItem(label = stringResource(R.string.label_letter_spacing), value = uiState.letterSpacing, range = ReaderThemeSettings.LETTER_SPACING_RANGE, valueText = String.format("%.1f sp", uiState.letterSpacing), step = 0.5f) { viewModel.saveLetterSpacing(it) }
         SettingsDivider()
         FontTypeRow(uiState.fontType) { viewModel.saveFontType(it) }
         SettingsDivider()
@@ -675,7 +663,7 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
                 if (enabled && !hasOverlayPermission) showPermissionDialog = true
             }
         )
-        if (!hasOverlayPermission) {
+        com.huangder.lumibooks.ui.components.LumiReveal(!hasOverlayPermission) {
             SettingsDivider()
             Row(
                 modifier = Modifier.fillMaxWidth().clickable { openOverlayPermissionSettings() }.padding(AppSpace.md),
@@ -687,7 +675,7 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
                     Text(stringResource(R.string.floating_subtitle_permission_missing), fontSize = AppType.Body, color = AppColors.TextPrimary)
                     Text(stringResource(R.string.floating_subtitle_permission_missing_desc), fontSize = AppType.Caption, color = AppColors.TextSecondary)
                 }
-                Icon(AppIcons.CaretRight, null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
+                DisclosureChevron()
             }
         }
     }
@@ -747,7 +735,7 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
                     .border(1.dp, AppColors.Divider, AppRoundedCornerShape(6.dp))
             )
             Spacer(Modifier.width(AppSpace.sm))
-            Icon(AppIcons.CaretRight, null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
+            DisclosureChevron()
         }
         SettingsDivider()
         SettingsSliderItem(
@@ -974,7 +962,7 @@ private fun TxtTocRulesManagerRow(viewModel: SettingsViewModel) {
     }
 
     SettingsNavigationRow(
-        label = "TXT目录规则",
+        label = stringResource(R.string.txt_toc_rules_label),
         supportingText = stringResource(R.string.txt_toc_library_summary, rules.size, thirdPartyRules.size),
         onClick = { dialogVisible = true }
     )
@@ -982,19 +970,19 @@ private fun TxtTocRulesManagerRow(viewModel: SettingsViewModel) {
     if (dialogVisible) {
         LiquidGlassAlertDialog(
             onDismissRequest = { dialogVisible = false },
-            title = { Text("TXT目录规则库", color = AppColors.TextPrimary, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) },
+            titleText = stringResource(R.string.txt_toc_rules_label),
             text = {
                 Column(Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
-                    if (rules.isEmpty()) Text("暂无自定义规则", color = AppColors.TextSecondary)
+                    if (rules.isEmpty()) Text(stringResource(R.string.txt_toc_rules_empty), color = AppColors.TextSecondary)
                     rules.forEach { rule ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(rule.name, color = AppColors.TextPrimary)
-                                Text(rule.chapterRegex, color = AppColors.TextSecondary, fontSize = 11.sp, maxLines = 2)
+                                Text(rule.chapterRegex, color = AppColors.TextSecondary, fontSize = AppType.Caption2, maxLines = 2)
                             }
                             IconButton(onClick = {
                                 viewModel.saveTxtTocCustomRules(rules.filterNot { it.id == rule.id })
-                            }) { Icon(AppIcons.TrashSimple, "删除", tint = AppColors.TextSecondary) }
+                            }) { ControlIcon(AppIcons.TrashSimple, stringResource(R.string.delete), tint = AppColors.TextSecondary) }
                         }
                     }
                     Spacer(Modifier.height(AppSpace.sm))
@@ -1006,7 +994,7 @@ private fun TxtTocRulesManagerRow(viewModel: SettingsViewModel) {
                     Text(
                         stringResource(R.string.txt_toc_compat_description),
                         color = AppColors.TextSecondary,
-                        fontSize = 11.sp
+                        fontSize = AppType.Caption2
                     )
                     if (thirdPartyRules.isEmpty()) {
                         Text(
@@ -1025,13 +1013,13 @@ private fun TxtTocRulesManagerRow(viewModel: SettingsViewModel) {
                                         ""
                                     },
                                     color = AppColors.TextSecondary,
-                                    fontSize = 11.sp,
+                                    fontSize = AppType.Caption2,
                                     maxLines = 2
                                 )
                             }
                             IconButton(onClick = {
                                 viewModel.saveTxtTocThirdPartyRules(thirdPartyRules.filterNot { it.id == rule.id })
-                            }) { Icon(AppIcons.TrashSimple, "删除", tint = AppColors.TextSecondary) }
+                            }) { ControlIcon(AppIcons.TrashSimple, stringResource(R.string.delete), tint = AppColors.TextSecondary) }
                         }
                     }
                     FlowRow {
@@ -1060,49 +1048,54 @@ private fun TxtTocRulesManagerRow(viewModel: SettingsViewModel) {
                     }
                 }
             },
-            confirmButton = {
-                FlowRow {
-                    TextButton(onClick = { importLauncher.launch(arrayOf("application/json", "text/*")) }) { Text("导入", maxLines = 1, softWrap = false) }
-                    TextButton(onClick = {
+            actions = listOf(
+                AppDialogAction(
+                    stringResource(R.string.txt_toc_rules_import),
+                    { importLauncher.launch(arrayOf("application/json", "text/*")) },
+                    AppDialogActionRole.Secondary
+                ),
+                AppDialogAction(
+                    stringResource(R.string.txt_toc_rules_export),
+                    {
                         viewModel.exportTxtTocRules { payload ->
                             pendingExport = payload
                             exportLauncher.launch("lumi-txt-toc-rules.json")
                         }
-                    }) { Text("导出", maxLines = 1, softWrap = false) }
-                    TextButton(onClick = { dialogVisible = false }) { Text("完成", maxLines = 1, softWrap = false) }
-                }
-            }
-        )
+                    },
+                    AppDialogActionRole.Secondary
+                ),
+                AppDialogAction(
+                    stringResource(R.string.done),
+                    { dialogVisible = false }
+                )
+            ))
     }
 
     if (compatNoticeVisible && !noticeAcknowledged) {
         LiquidGlassAlertDialog(
             onDismissRequest = { compatNoticeVisible = false },
-            title = {
-                Text(
-                    stringResource(R.string.txt_toc_compat_notice_title),
-                    color = AppColors.TextPrimary,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                )
-            },
+            titleText = stringResource(R.string.txt_toc_compat_notice_title),
             text = {
                 Text(
                     stringResource(R.string.txt_toc_compat_notice_body),
                     color = AppColors.TextSecondary
                 )
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    compatNoticeVisible = false
-                    viewModel.acknowledgeTxtTocCompatNotice()
-                }) { Text(stringResource(R.string.txt_toc_compat_notice_confirm)) }
-            },
-            dismissButton = {
-                TextButton(onClick = { compatNoticeVisible = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
-        )
+            actions = listOf(
+                AppDialogAction(
+                    text = stringResource(R.string.txt_toc_compat_notice_confirm),
+                    onClick = {
+                        compatNoticeVisible = false
+                        viewModel.acknowledgeTxtTocCompatNotice()
+                    },
+                    role = AppDialogActionRole.Primary
+                ),
+                AppDialogAction(
+                    text = stringResource(R.string.cancel),
+                    onClick = { compatNoticeVisible = false },
+                    role = AppDialogActionRole.Cancel
+                )
+            ))
     }
 }
 
@@ -1138,14 +1131,7 @@ private fun FloatingSubtitleValueInputDialog(
 
     LiquidGlassAlertDialog(
         onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = editor.title,
-                fontSize = AppType.Body,
-                fontWeight = FontWeight.Bold,
-                color = AppColors.TextPrimary
-            )
-        },
+        titleText = editor.title,
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -1153,7 +1139,7 @@ private fun FloatingSubtitleValueInputDialog(
                     fontSize = AppType.Caption,
                     color = AppColors.TextSecondary
                 )
-                OutlinedTextField(
+                com.huangder.lumibooks.ui.components.LumiTextField(
                     value = input,
                     onValueChange = { candidate ->
                         if (candidate.count { it == '.' } <= 1 && candidate.all { it.isDigit() || it == '.' }) {
@@ -1171,32 +1157,25 @@ private fun FloatingSubtitleValueInputDialog(
                 )
             }
         },
-        confirmButton = {
-            LiquidGlassTextButton(
+        actions = listOf(
+            AppDialogAction(
                 text = stringResource(R.string.confirm),
+                onClick = { parsed?.let(onConfirm) },
+                role = AppDialogActionRole.Primary,
                 enabled = parsed != null,
-                tintedColor = AppColors.Accent,
-                onClick = { parsed?.let(onConfirm) }
-            )
-        },
-        dismissButton = {
-            LiquidGlassTextButton(
+                tintedColor = AppColors.Accent
+            ),
+            AppDialogAction(
                 text = stringResource(R.string.cancel),
-                onClick = onDismiss
+                onClick = onDismiss,
+                role = AppDialogActionRole.Cancel
             )
-        }
-    )
+        ))
 }
 
 @Composable
 private fun FloatingSubtitleSectionTitle(text: String) {
-    Text(
-        text = text,
-        modifier = Modifier.padding(start = AppSpace.lg, end = AppSpace.lg, top = 22.dp, bottom = 8.dp),
-        fontSize = AppType.BodySmall,
-        fontWeight = FontWeight.Medium,
-        color = AppColors.TextSecondary
-    )
+    GroupedSectionTitle(text)
 }
 
 // ─── 显示与外观 ──────────────────────────────────────────────
@@ -1229,16 +1208,6 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
             "dark" to stringResource(R.string.dark_mode_dark)
         )
     }
-    val themeOptions = if (uiState.eInkModeEnabled) {
-        listOf("day" to stringResource(R.string.theme_day))
-    } else {
-        listOf(
-            "day" to stringResource(R.string.theme_day),
-            "night" to stringResource(R.string.theme_night),
-            "sepia" to stringResource(R.string.theme_sepia),
-            "green" to stringResource(R.string.theme_green)
-        )
-    }
     val startupScreenOptions = listOf(
         DataStoreManager.STARTUP_SCREEN_HOME to stringResource(R.string.startup_screen_home),
         DataStoreManager.STARTUP_SCREEN_BOOKSHELF to stringResource(R.string.startup_screen_bookshelf),
@@ -1249,15 +1218,8 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
         DataStoreManager.HOME_SCREEN_MODE_CARD_FLOW to stringResource(R.string.home_screen_mode_card_flow)
     )
 
+    SettingsSectionTitle(stringResource(R.string.settings_section_app_appearance), "display_appearance")
     DetailCard {
-        DropdownSettingRow(
-            icon = AppIcons.House.regular,
-            label = stringResource(R.string.label_startup_screen),
-            options = startupScreenOptions,
-            selected = DataStoreManager.normalizeStartupScreen(uiState.startupScreen),
-            onSelect = viewModel::saveStartupScreen
-        )
-        SettingsDivider()
         DropdownSettingRow(
             icon = Icons.Outlined.ViewCarousel,
             label = stringResource(R.string.label_home_screen_mode),
@@ -1274,8 +1236,45 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
             ThemeColorSettingRow(colorHex = uiState.appAccentColor, onClick = { showAccentColorDialog = true })
         }
         SettingsDivider()
-        DropdownSettingRow(label = stringResource(R.string.label_global_font), options = globalFontOptions,
-            selected = uiState.globalFontMode, onSelect = viewModel::saveGlobalFontMode)
+        DropdownSettingRow(
+            label = stringResource(R.string.label_dark_mode),
+            options = darkModeOptions,
+            selected = if (uiState.eInkModeEnabled) "light" else uiState.darkMode,
+            onSelect = viewModel::saveDarkMode
+        )
+        SettingsDivider()
+        SettingsNavigationRow(
+            label = stringResource(R.string.icon_style_title),
+            supportingText = when (uiState.appIconStyle) {
+                AppIconStyle.LUMI_CHAN.storedValue -> stringResource(R.string.icon_style_lumi_chan)
+                AppIconStyle.CLASSIC.storedValue -> stringResource(R.string.icon_style_classic)
+                else -> stringResource(R.string.icon_style_lumi2)
+            }
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "icon_style"))
+        }
+        SettingsDivider()
+        DropdownSettingRow(
+            label = stringResource(R.string.app_ui_icon_style_title),
+            options = listOf(
+                AppUiIconStyle.FILLED_COLORFUL.storedValue to stringResource(R.string.app_ui_icon_style_filled_colorful),
+                AppUiIconStyle.OUTLINE_COLORFUL.storedValue to stringResource(R.string.app_ui_icon_style_outline_colorful),
+                AppUiIconStyle.FILLED_MONOCHROME.storedValue to stringResource(R.string.app_ui_icon_style_filled_monochrome),
+                AppUiIconStyle.OUTLINE_MONOCHROME.storedValue to stringResource(R.string.app_ui_icon_style_outline_monochrome)
+            ),
+            selected = AppUiIconStyle.normalize(uiState.appUiIconStyle),
+            onSelect = viewModel::saveAppUiIconStyle
+        )
+    }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_app_fonts), "display_fonts")
+    DetailCard {
+        DropdownSettingRow(
+            label = stringResource(R.string.label_global_font),
+            options = globalFontOptions,
+            selected = uiState.globalFontMode,
+            onSelect = viewModel::saveGlobalFontMode
+        )
         SettingsDivider()
         DropdownSettingRow(
             label = stringResource(R.string.label_app_font_size),
@@ -1375,106 +1374,84 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
 
     }
 
-
-    AnimatedVisibility(
-        visible = uiState.appTheme == "liquid_glass" && !uiState.eInkModeEnabled && liquidGlassSupported,
-        enter = expandVertically(animationSpec = tween(260)) +
-            slideInVertically(animationSpec = tween(260)) { it / 3 } +
-            fadeIn(animationSpec = tween(180)),
-        exit = shrinkVertically(animationSpec = tween(180)) +
-            slideOutVertically(animationSpec = tween(180)) { it / 4 } +
-            fadeOut(animationSpec = tween(130))
-    ) {
-        Column {
-            Spacer(Modifier.height(12.dp))
-            DetailCard {
-                Column(Modifier.padding(vertical = 5.dp)) {
-                    LiquidGlassStyleSettingRow(
-                        selected = uiState.liquidGlassStyle,
-                        onSelect = viewModel::saveLiquidGlassStyle
-                    )
-                    SettingsDivider()
-                    SettingsSliderItem(
-                        label = stringResource(R.string.liquid_glass_transparency),
-                        value = uiState.liquidGlassTransparency,
-                        range = 0f..1f,
-                        valueText = "${(uiState.liquidGlassTransparency * 100).toInt()}%",
-                        step = 0.05f,
-                        onDragChange = viewModel::previewLiquidGlassTransparency,
-                        onChange = viewModel::saveLiquidGlassTransparency
-                    )
-                    if (liquidGlassCapability.hdrSupported) {
-                        SettingsDivider()
-                        SettingsSwitchRow(
-                            label = stringResource(R.string.liquid_glass_hdr_highlight),
-                            checked = uiState.liquidGlassHdrHighlightEnabled,
-                            onCheckedChange = viewModel::saveLiquidGlassHdrHighlightEnabled
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    Spacer(Modifier.height(12.dp))
-
+    SettingsSectionTitle(stringResource(R.string.settings_section_startup_bookshelf), "display_startup")
     DetailCard {
-        DropdownSettingRow(label = stringResource(R.string.label_dark_mode), options = darkModeOptions,
-            selected = if (uiState.eInkModeEnabled) "light" else uiState.darkMode, onSelect = viewModel::saveDarkMode)
-        SettingsDivider()
-        SettingsSwitchRow(stringResource(R.string.label_e_ink_mode), stringResource(R.string.e_ink_mode_description), uiState.eInkModeEnabled, viewModel::saveEInkModeEnabled)
-        SettingsDivider()
-        SettingsSwitchRow(stringResource(R.string.label_two_page_spread), stringResource(R.string.two_page_spread_description), uiState.twoPageSpreadEnabled, viewModel::saveTwoPageSpreadEnabled)
-        SettingsDivider()
-        SettingsSwitchRow(stringResource(R.string.label_predictive_back), checked = uiState.predictiveBackEnabled, onCheckedChange = viewModel::savePredictiveBackEnabled)
+        DropdownSettingRow(
+            label = stringResource(R.string.label_startup_screen),
+            options = startupScreenOptions,
+            selected = DataStoreManager.normalizeStartupScreen(uiState.startupScreen),
+            onSelect = viewModel::saveStartupScreen
+        )
         SettingsDivider()
         SettingsSwitchRow(
-            label = stringResource(R.string.reduce_transparency_label),
-            supportingText = stringResource(R.string.reduce_transparency_description),
-            checked = uiState.reduceTransparencyEnabled,
-            onCheckedChange = viewModel::saveReduceTransparencyEnabled
+            label = stringResource(R.string.cover_reading_progress_enabled),
+            checked = uiState.coverReadingProgressEnabled,
+            onCheckedChange = viewModel::saveCoverReadingProgressEnabled
         )
-        SettingsDivider()
-        DropdownSettingRow(label = stringResource(R.string.motion_preference_label),
-            options = listOf(
-                "standard" to stringResource(R.string.motion_preference_standard),
-                "fast" to stringResource(R.string.motion_preference_fast),
-                "reduced" to stringResource(R.string.motion_preference_reduced)
-            ),
-            selected = uiState.motionPreference, onSelect = viewModel::saveMotionPreference)
-        SettingsDivider()
-        DropdownSettingRow(label = stringResource(R.string.menu_animation_style_label),
-            options = listOf(
-                "normal" to stringResource(R.string.menu_animation_style_normal),
-                "liquid" to stringResource(R.string.menu_animation_style_liquid)
-            ),
-            selected = uiState.menuAnimationStyle, onSelect = viewModel::saveMenuAnimationStyle)
-        Text(
-            stringResource(R.string.menu_animation_style_hint),
-            fontSize = AppType.Caption,
-            color = AppColors.TextSecondary,
-            modifier = Modifier.padding(start = AppSpace.md, end = AppSpace.md, bottom = AppSpace.md)
-        )
-        SettingsDivider()
-        DropdownSettingRow(label = stringResource(R.string.book_open_transition_label),
-            options = listOf(
-                BookOpenTransition.HERO.storedValue to stringResource(R.string.book_open_transition_hero),
-                BookOpenTransition.LOADING_PAGE.storedValue to
-                    stringResource(R.string.book_open_transition_loading_page)
-            ),
-            selected = uiState.bookOpenTransition, onSelect = viewModel::saveBookOpenTransition)
-        SettingsDivider()
-        SettingsSwitchRow(stringResource(R.string.cover_reading_progress_enabled), checked = uiState.coverReadingProgressEnabled, onCheckedChange = viewModel::saveCoverReadingProgressEnabled)
         SettingsDivider()
         SettingsSwitchRow(
             stringResource(R.string.label_splash_screen),
             checked = uiState.splashEnabled,
             onCheckedChange = viewModel::saveSplashEnabled
         )
-        SettingsDivider()
-        DropdownSettingRow(label = stringResource(R.string.label_reader_theme),
-            options = themeOptions,
-            selected = if (uiState.eInkModeEnabled) "day" else uiState.readerTheme, onSelect = viewModel::saveReaderTheme)
+    }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_display_adaptation), "display_adaptation")
+    DetailCard {
+        SettingsSwitchRow(
+            label = stringResource(R.string.label_e_ink_mode),
+            supportingText = stringResource(R.string.e_ink_mode_description),
+            checked = uiState.eInkModeEnabled,
+            onCheckedChange = viewModel::saveEInkModeEnabled
+        )
+    }
+
+    SettingsSectionTitle(stringResource(R.string.settings_section_more_visual), "display_visual")
+    DetailCard {
+        SettingsNavigationRow(
+            label = stringResource(R.string.settings_visual_motion),
+            supportingText = listOf(
+                stringResource(when {
+                    uiState.eInkModeEnabled || uiState.motionPreference == "reduced" -> R.string.motion_preference_reduced
+                    uiState.motionPreference == "fast" -> R.string.motion_preference_fast
+                    else -> R.string.motion_preference_standard
+                }),
+                if (uiState.appTheme == "liquid_glass" && !uiState.eInkModeEnabled && liquidGlassSupported) {
+                    stringResource(R.string.app_theme_liquid_glass) + " ${(uiState.liquidGlassTransparency * 100).toInt()}%"
+                } else {
+                    stringResource(when (uiState.menuAnimationStyle) {
+                        "normal" -> R.string.menu_animation_style_normal
+                        else -> R.string.menu_animation_style_liquid
+                    })
+                }
+            ).joinToString(" · ")
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "visual_motion"))
+        }
+    }
+
+    Spacer(Modifier.height(AppSpace.lg))
+    Column(Modifier.padding(bottom = AppSpace.lg), verticalArrangement = Arrangement.spacedBy(AppSpace.md)) {
+        MovedSettingsLink(
+            text = stringResource(R.string.settings_find_reader_layout),
+            category = "reading",
+            targetSection = "reading_layout"
+        )
+        MovedSettingsLink(
+            text = stringResource(
+                if (uiState.appTheme == "liquid_glass" && !uiState.eInkModeEnabled && liquidGlassSupported) {
+                    R.string.settings_find_visual_glass
+                } else {
+                    R.string.settings_find_visual_motion
+                }
+            ),
+            category = "visual_motion",
+            targetSection = if (uiState.appTheme == "liquid_glass" && !uiState.eInkModeEnabled && liquidGlassSupported) {
+                "visual_glass"
+            } else {
+                "visual_accessibility"
+            }
+        )
     }
 
     if (showAccentColorDialog) {
@@ -1490,34 +1467,19 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
 }
 
 @Composable
-private fun TtsProviderOptionRow(
+internal fun TtsProviderOptionRow(
     title: String,
     selected: Boolean,
     onClick: () -> Unit,
     supportingText: String? = null
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RadioButton(selected = selected, onClick = onClick)
-        Spacer(Modifier.width(AppSpace.sm))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, fontSize = AppType.Body, color = AppColors.TextPrimary)
-            supportingText?.let {
-                Text(
-                    text = it,
-                    fontSize = AppType.Caption,
-                    color = AppColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
+    // Dialog choice list: iOS checkmark selection instead of a Material radio button.
+    com.huangder.lumibooks.ui.components.LumiCheckRow(
+        title = title,
+        selected = selected,
+        onClick = onClick,
+        subtitle = supportingText
+    )
 }
 
 @Composable
@@ -1549,12 +1511,7 @@ private fun ThemeColorSettingRow(
         Spacer(Modifier.width(AppSpace.sm))
         Text(normalized, fontSize = AppType.BodySmall, color = AppColors.TextSecondary)
         Spacer(Modifier.width(AppSpace.xs))
-        Icon(
-            AppIcons.CaretRight,
-            contentDescription = null,
-            tint = AppColors.TextSecondary,
-            modifier = Modifier.size(20.dp)
-        )
+        DisclosureChevron()
     }
 }
 
@@ -1661,7 +1618,7 @@ internal fun ThemeColorDialog(
                 }
             )
             Spacer(Modifier.height(AppSpace.sm))
-            OutlinedTextField(
+            com.huangder.lumibooks.ui.components.LumiTextField(
                 value = hexInput,
                 onValueChange = { value ->
                     hexInput = value.take(7)
@@ -1770,7 +1727,8 @@ private val EInkSegmentGrays = listOf(
     Color(0xFF666666),
     Color(0xFF888888),
     Color(0xFFABABAB),
-    Color(0xFFC8C8C8)
+    Color(0xFFC8C8C8),
+    Color(0xFFDDDDDD)
 )
 
 /** 格式标签颜色 */
@@ -1784,17 +1742,9 @@ private val FormatColors = mapOf(
 /** 等宽数字排版（苹果细节：数值列位数对齐、不跳动） */
 private val TabularFigures = TextStyle(fontFeatureSettings = "tnum")
 
-/** 苹果式 iOS 警示红（M3 动态色回退 error、墨水屏回退黑色） */
+/** Destructive tint: the shared theme token (handles Material3 and e-ink fallbacks). */
 private val DestructiveRed: Color
-    @Composable get() = if (LocalEInkMode.current) {
-        Color.Black
-    } else if (LocalUseMaterial3Theme.current) {
-        MaterialTheme.colorScheme.error.copy(alpha = 0.84f)
-    } else if (LocalIsDarkTheme.current) {
-        Color(0xFFE07871)
-    } else {
-        Color(0xFFD45F58)
-    }
+    @Composable get() = AppColors.Destructive
 
 @Composable
 fun StorageDetail(viewModel: SettingsViewModel, onOpenBooks: () -> Unit) {
@@ -1803,13 +1753,15 @@ fun StorageDetail(viewModel: SettingsViewModel, onOpenBooks: () -> Unit) {
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearExternalTtsCacheDialog by remember { mutableStateOf(false) }
 
+    // 「其他」 holds hidden books; it is always listed so its presence reveals nothing.
     val categoryLabels = listOf(
         stringResource(R.string.storage_app),
         stringResource(R.string.storage_cache),
         stringResource(R.string.storage_tts_short),
         stringResource(R.string.storage_books),
         stringResource(R.string.storage_covers),
-        stringResource(R.string.dictionary_title)
+        stringResource(R.string.dictionary_title),
+        stringResource(R.string.storage_other)
     )
     val categoryBytes = listOf(
         info.appSizeBytes,
@@ -1817,7 +1769,8 @@ fun StorageDetail(viewModel: SettingsViewModel, onOpenBooks: () -> Unit) {
         info.externalTtsCacheSizeBytes,
         info.booksSizeBytes,
         info.coversSizeBytes,
-        info.dictionarySizeBytes
+        info.dictionarySizeBytes,
+        info.otherSizeBytes
     )
     val displayColors = if (LocalEInkMode.current) {
         EInkSegmentGrays
@@ -1828,7 +1781,8 @@ fun StorageDetail(viewModel: SettingsViewModel, onOpenBooks: () -> Unit) {
             Color(0xFF3B91E8),
             Color(0xFF31C58B),
             Color(0xFFFFB23F),
-            Color(0xFF9B76C8)
+            Color(0xFF9B76C8),
+            Color(0xFF5FB8C6)
         )
     }
 
@@ -1921,46 +1875,44 @@ fun StorageDetail(viewModel: SettingsViewModel, onOpenBooks: () -> Unit) {
     if (showClearExternalTtsCacheDialog) {
         LiquidGlassAlertDialog(
             onDismissRequest = { showClearExternalTtsCacheDialog = false },
-            title = { Text(stringResource(R.string.clear_external_tts_cache)) },
+            titleText = stringResource(R.string.clear_external_tts_cache),
             text = { Text(stringResource(R.string.clear_external_tts_cache_confirm)) },
-            confirmButton = {
-                LiquidGlassTextButton(
+            actions = listOf(
+                AppDialogAction(
                     text = stringResource(R.string.clear),
                     onClick = {
                         viewModel.clearExternalTtsAudioCache()
                         showClearExternalTtsCacheDialog = false
                     },
+                    role = AppDialogActionRole.Destructive,
                     tintedColor = DestructiveRed
-                )
-            },
-            dismissButton = {
-                LiquidGlassTextButton(
+                ),
+                AppDialogAction(
                     text = stringResource(R.string.cancel),
-                    onClick = { showClearExternalTtsCacheDialog = false }
+                    onClick = { showClearExternalTtsCacheDialog = false },
+                    role = AppDialogActionRole.Cancel
                 )
-            }
-        )
+            ))
     }
 
     if (showClearDialog) {
         LiquidGlassAlertDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { Text(stringResource(R.string.clear_all_data)) },
+            titleText = stringResource(R.string.clear_all_data),
             text = { Text(stringResource(R.string.clear_all_confirm)) },
-            confirmButton = {
-                LiquidGlassTextButton(
+            actions = listOf(
+                AppDialogAction(
                     text = stringResource(R.string.clear),
                     onClick = { viewModel.clearAllData(); showClearDialog = false },
+                    role = AppDialogActionRole.Destructive,
                     tintedColor = DestructiveRed
-                )
-            },
-            dismissButton = {
-                LiquidGlassTextButton(
+                ),
+                AppDialogAction(
                     text = stringResource(R.string.cancel),
-                    onClick = { showClearDialog = false }
+                    onClick = { showClearDialog = false },
+                    role = AppDialogActionRole.Cancel
                 )
-            }
-        )
+            ))
     }
 }
 
@@ -1969,22 +1921,14 @@ fun StorageBooksDetail(viewModel: SettingsViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val info = uiState.storageInfo
 
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.md)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.page)) {
         if (info.isCalculating && info.bookDetails.isEmpty()) {
-            Text(
-                text = stringResource(R.string.calculating),
-                modifier = Modifier.fillMaxWidth().padding(vertical = AppSpace.xl),
-                color = AppColors.TextSecondary,
-                fontSize = AppType.BodySmall,
-                textAlign = TextAlign.Center
-            )
+            com.huangder.lumibooks.ui.components.LumiLoading(caption = stringResource(R.string.calculating))
         } else if (info.bookDetails.isEmpty()) {
-            Text(
-                text = stringResource(R.string.storage_books_empty),
-                modifier = Modifier.fillMaxWidth().padding(vertical = AppSpace.xl),
-                color = AppColors.TextSecondary,
-                fontSize = AppType.BodySmall,
-                textAlign = TextAlign.Center
+            com.huangder.lumibooks.ui.components.EmptyState(
+                message = stringResource(R.string.storage_books_empty),
+                icon = AppIcons.Books,
+                modifier = Modifier.fillMaxWidth().padding(vertical = AppSpace.xl)
             )
         } else {
             Text(
@@ -2015,28 +1959,13 @@ fun StorageBooksDetail(viewModel: SettingsViewModel) {
 /** HyperOS 分组小标题（miuix SmallTitle 复刻：28dp 缩进 + 次要色） */
 @Composable
 private fun StorageGroupTitle(text: String) {
-    Text(
-        text,
-        modifier = Modifier.padding(start = 28.dp, top = 12.dp, bottom = 6.dp),
-        fontSize = AppType.BodySmall,
-        fontWeight = FontWeight.Medium,
-        color = AppColors.TextSecondary
-    )
+    GroupedSectionTitle(text)
 }
 
 /** HyperOS 分组卡片（miuix Card 复刻：16dp 圆角） */
 @Composable
 private fun StorageCard(content: @Composable () -> Unit) {
-    val shape = AppRoundedCornerShape(16.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = AppSpace.md)
-            .shadow(8.dp, shape, ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
-            .cardOutline(shape)
-            .clip(shape)
-            .lumiCardSurface(shape = shape)
-    ) { content() }
+    GroupedCard { content() }
 }
 
 @Composable
@@ -2676,7 +2605,7 @@ fun BackupRestoreDetail(viewModel: SettingsViewModel) {
                     androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = AppColors.Accent)
                     Spacer(Modifier.width(AppSpace.md))
                 }
-                Text(uiState.backupStatus, fontSize = AppType.BodySmall, color = if (uiState.backupFailed) Color.Red else AppColors.TextSecondary)
+                Text(uiState.backupStatus, fontSize = AppType.BodySmall, color = if (uiState.backupFailed) AppColors.Destructive else AppColors.TextSecondary)
             }
         }
     }
@@ -2713,12 +2642,11 @@ fun BackupRestoreDetail(viewModel: SettingsViewModel) {
     if (showRestoreConfirmation) {
         LiquidGlassAlertDialog(
             onDismissRequest = { showRestoreConfirmation = false },
-            title = { Text(stringResource(R.string.restore_replace_title)) },
+            titleText = stringResource(R.string.restore_replace_title),
             text = { Text(stringResource(R.string.restore_replace_message)) },
-            confirmButton = {
-                LiquidGlassTextButton(
+            actions = listOf(
+                AppDialogAction(
                     text = stringResource(R.string.restore_confirm_action),
-                    tintedColor = DestructiveRed,
                     onClick = {
                         showRestoreConfirmation = false
                         runCatching {
@@ -2726,47 +2654,24 @@ fun BackupRestoreDetail(viewModel: SettingsViewModel) {
                         }.onFailure {
                             Toast.makeText(context, restorePickerFailureText, Toast.LENGTH_LONG).show()
                         }
-                    }
-                )
-            },
-            dismissButton = {
-                LiquidGlassTextButton(
+                    },
+                    role = AppDialogActionRole.Primary,
+                    tintedColor = DestructiveRed
+                ),
+                AppDialogAction(
                     text = stringResource(R.string.cancel),
-                    onClick = { showRestoreConfirmation = false }
+                    onClick = { showRestoreConfirmation = false },
+                    role = AppDialogActionRole.Cancel
                 )
-            }
-        )
+            ))
     }
 
     Spacer(Modifier.height(AppSpace.lg))
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = AppSpace.lg),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
+    SettingsSearchHint(
+        linkText = stringResource(R.string.backup_webdav_link),
+        modifier = Modifier.padding(bottom = AppSpace.lg)
     ) {
-        Text(
-            text = stringResource(R.string.backup_webdav_prompt),
-            fontSize = AppType.Caption,
-            color = AppColors.TextSecondary
-        )
-        Spacer(Modifier.width(AppSpace.xs))
-        Text(
-            text = stringResource(R.string.backup_webdav_link),
-            fontSize = AppType.Caption,
-            fontWeight = FontWeight.SemiBold,
-            color = AppColors.Accent,
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
-                context.startActivity(
-                    Intent(context, DetailActivity::class.java)
-                        .putExtra("category", "webdav")
-                )
-            }
-        )
+        context.startActivity(DetailActivity.createIntent(context, "webdav"))
     }
 }
 
@@ -2777,7 +2682,7 @@ fun AboutDetail(viewModel: SettingsViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val update = uiState.updateCheck
-    val sectionHorizontalPadding = AppSpace.md
+    val sectionHorizontalPadding = AppSpace.page
 
     fun openDoc(title: String, file: String) {
         context.startActivity(
@@ -2830,17 +2735,9 @@ fun AboutDetail(viewModel: SettingsViewModel) {
         )
     }
 
-    val currentVersion = remember(context) {
-        try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.1.00"
-        } catch (_: Exception) {
-            "1.1.00"
-        }
-    }
-
     LumiAboutHeader(
         unlocked = uiState.lumiEasterEggUnlocked,
-        currentVersion = currentVersion,
+        currentVersion = "Filmy",
         isCheckingUpdate = update.isChecking,
         onCheckUpdate = { viewModel.checkUpdate(isAutoCheck = false) },
         onUnlock = viewModel::unlockLumiEasterEgg
@@ -2921,10 +2818,16 @@ fun ChangelogDetail() {
         }
     }
 
+    if (entries.isEmpty()) {
+        com.huangder.lumibooks.ui.components.EmptyState(stringResource(R.string.no_content),
+            Modifier.fillMaxWidth().padding(vertical = 64.dp), icon = AppIcons.FileText)
+        return
+    }
+    // Cards carry the page margin themselves; the column only spaces them vertically.
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpace.md, vertical = AppSpace.sm)
+            .padding(vertical = AppSpace.sm)
     ) {
         entries.forEachIndexed { index, entry ->
             val isLatest = index == 0
@@ -2946,7 +2849,7 @@ fun ChangelogDetail() {
                                     .background(AppColors.Accent)
                                     .padding(horizontal = AppSpace.sm, vertical = 2.dp)
                             ) {
-                                Text(stringResource(R.string.latest_label), fontSize = AppType.Caption, color = Color.White)
+                                Text(stringResource(R.string.latest_label), fontSize = AppType.Caption, color = AppColors.OnAccent)
                             }
                         }
                     }
@@ -2970,14 +2873,6 @@ fun ChangelogDetail() {
 }
 
 // ─── 高亮颜色色卡管理 ─────────────────────────────────────────
-
-private val presetColorOptions = listOf(
-    "#D6C58D", "#CFA09A", "#A7B59D", "#9DAFC1", "#B2A198", "#AFB0AC",
-    "#FFD700", "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
-    "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9", "#F8C471",
-    "#82E0AA", "#F1948A", "#AED6F1", "#D7BDE2", "#A3E4D7", "#FAD7A0",
-    "#E59866", "#ABEBC6", "#D5F5E3", "#FADBD8", "#D6EAF8", "#E8DAEF"
-)
 
 @Composable
 fun HighlightColorDetail(viewModel: SettingsViewModel) {
@@ -3035,7 +2930,7 @@ fun HighlightColorDetail(viewModel: SettingsViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = AppSpace.md)
+                .padding(horizontal = AppSpace.page)
                 .animateContentSize(animationSpec = tween(360))
                 .lumiCardSurface(shape = g2CardShape)
         ) {
@@ -3089,7 +2984,7 @@ fun HighlightColorDetail(viewModel: SettingsViewModel) {
                     prominentShadow = true,
                     contentColor = AppColors.OnAccent
                 ) {
-                    Icon(
+                    ControlIcon(
                         AppIcons.Plus,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
@@ -3142,9 +3037,14 @@ fun HighlightColorDetail(viewModel: SettingsViewModel) {
     }
 
     colorTarget?.let { (paletteIndex, slotIndex) ->
-        HighlightPaletteColorDialog(
+        ThemeColorDialog(
+            initialColorHex = palettes.getOrNull(paletteIndex)?.normalizedColors?.getOrNull(slotIndex)
+                ?: defaultHighlightColors[slotIndex],
+            dialogTitle = stringResource(R.string.highlight_palette_set_color),
+            resetText = stringResource(R.string.highlight_reset_default),
+            resetColorHex = defaultHighlightColors[slotIndex],
             onDismiss = { colorTarget = null },
-            onColorSelected = { hex ->
+            onConfirm = { hex ->
                 updateSlot(paletteIndex, slotIndex, hex)
                 colorTarget = null
             }
@@ -3220,7 +3120,7 @@ private fun HighlightPaletteRow(
                 contentAlignment = Alignment.Center
             ) {
                 IconButton(onClick = onDelete, modifier = Modifier.fillMaxSize()) {
-                    Icon(
+                    ControlIcon(
                         AppIcons.TrashSimple,
                         contentDescription = stringResource(R.string.highlight_palette_delete),
                         tint = AppColors.OnAccent,
@@ -3331,117 +3231,12 @@ private fun HighlightPaletteSlot(
         contentAlignment = Alignment.Center
     ) {
         if (color == null) {
-            Icon(
+            ControlIcon(
                 AppIcons.Plus,
                 contentDescription = stringResource(R.string.highlight_palette_set_color),
                 tint = AppColors.TextSecondary.copy(alpha = 0.66f),
                 modifier = Modifier.size(16.dp)
             )
-        }
-    }
-}
-
-@Composable
-private fun HighlightPaletteColorDialog(
-    onDismiss: () -> Unit,
-    onColorSelected: (String) -> Unit
-) {
-    var customHex by remember { mutableStateOf("") }
-    var customError by remember { mutableStateOf(false) }
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val shape = if (LocalAppTheme.current == "material3") {
-        remember(density) { G2ContinuousCornerShape(with(density) { 30.dp.toPx() }) }
-    } else AppRoundedCornerShape(30.dp)
-
-    LiquidGlassDialog(
-        onDismissRequest = onDismiss,
-        backgroundScrimColor = Color.Black.copy(alpha = 0.20f),
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        LiquidGlassSurface(
-            shape = shape,
-            fallbackColor = AppColors.CardBg,
-            contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
-            modifier = Modifier
-                .fillMaxWidth()
-                .widthIn(max = 360.dp)
-        ) {
-            Column(Modifier.padding(AppSpace.lg)) {
-                Text(
-                    stringResource(R.string.highlight_palette_set_color),
-                    fontSize = AppType.Section,
-                    fontWeight = FontWeight.Bold,
-                    color = AppColors.TextPrimary
-                )
-                Spacer(Modifier.height(AppSpace.md))
-                Text(
-                    stringResource(R.string.highlight_pick_preset),
-                    fontSize = AppType.BodySmall,
-                    color = AppColors.TextSecondary
-                )
-                Spacer(Modifier.height(AppSpace.sm))
-                presetColorOptions.chunked(6).forEach { row ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        row.forEach { hex ->
-                            val color = runCatching {
-                                Color(android.graphics.Color.parseColor(hex))
-                            }.getOrDefault(Color.Gray)
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                                    .border(1.dp, AppColors.Divider, CircleShape)
-                                    .clickable(
-                                        indication = null,
-                                        interactionSource = remember { MutableInteractionSource() }
-                                    ) { onColorSelected(hex) }
-                            )
-                        }
-                        repeat(6 - row.size) { Spacer(Modifier.size(36.dp)) }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-                Spacer(Modifier.height(AppSpace.sm))
-                OutlinedTextField(
-                    value = customHex,
-                    onValueChange = {
-                        customHex = it
-                        customError = false
-                    },
-                    label = { Text(stringResource(R.string.highlight_color_hex), fontSize = AppType.Caption) },
-                    isError = customError,
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = TextStyle(fontSize = AppType.BodySmall)
-                )
-                Spacer(Modifier.height(AppSpace.sm))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text(stringResource(R.string.cancel), fontSize = AppType.BodySmall)
-                    }
-                    Spacer(Modifier.width(AppSpace.xs))
-                    LiquidGlassTextButton(
-                        text = stringResource(R.string.confirm),
-                        onClick = {
-                            val value = customHex.trim()
-                            if (value.matches(Regex("^#?[0-9A-Fa-f]{6}$"))) {
-                                onColorSelected(if (value.startsWith("#")) value else "#$value")
-                            } else {
-                                customError = true
-                            }
-                        },
-                        tintedColor = AppColors.Accent,
-                        contentColor = AppColors.OnAccent
-                    )
-                }
-            }
         }
     }
 }
@@ -3484,25 +3279,16 @@ private fun parseChangelog(text: String): List<ChangelogEntry> {
 // ─── 通用组件 ────────────────────────────────────────────────
 
 @Composable
-private fun DetailCard(
-    horizontalPadding: Dp = AppSpace.md,
+internal fun DetailCard(
+    horizontalPadding: Dp = AppSpace.page,
     content: @Composable () -> Unit
 ) {
-    val shape = AppRoundedCornerShape(AppRadius.lg)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = horizontalPadding)
-            .shadow(8.dp, shape, ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
-            .cardOutline(shape)
-            .clip(shape)
-            .lumiCardSurface(shape = shape)
-    ) { content() }
+    GroupedCard(horizontalPadding = horizontalPadding) { content() }
 }
 
 @Composable
-private fun SettingsDivider() {
-    Box(Modifier.fillMaxWidth().padding(horizontal = AppSpace.md).height(0.5.dp).background(AppColors.Divider))
+internal fun SettingsDivider() {
+    GroupedRowDivider()
 }
 
 @Composable
@@ -3511,32 +3297,9 @@ internal fun SettingsSwitchRow(
     supportingText: String? = null,
     checked: Boolean,
     onCheckedChange: ((Boolean) -> Unit)?
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (onCheckedChange != null) {
-                    Modifier.clickable { onCheckedChange(!checked) }
-                } else {
-                    Modifier
-                }
-            )
-            .padding(AppSpace.md),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(label, fontSize = AppType.Body, color = AppColors.TextPrimary)
-            supportingText?.let {
-                Spacer(Modifier.height(2.dp))
-                Text(it, fontSize = AppType.Caption, color = AppColors.TextSecondary)
-            }
-        }
-        Spacer(Modifier.width(AppSpace.sm))
-        LiquidGlassSwitch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
+) = com.huangder.lumibooks.ui.components.LumiSwitchRow(label, checked, onCheckedChange, subtitle = supportingText)
 
+/** Navigation row; [value] shows the current choice before the chevron (iOS Settings). */
 @Composable
 private fun WidgetPinActionRow(
     title: String,
@@ -3644,22 +3407,10 @@ private fun pinAppWidget(context: Context, providerClass: Class<*>) {
 internal fun SettingsNavigationRow(
     label: String,
     supportingText: String? = null,
+    icon: ImageVector? = null,
+    value: String? = null,
     onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(AppSpace.md),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(label, fontSize = AppType.Body, color = AppColors.TextPrimary)
-            supportingText?.let {
-                Spacer(Modifier.height(2.dp))
-                Text(it, fontSize = AppType.Caption, color = AppColors.TextSecondary)
-            }
-        }
-        Icon(AppIcons.CaretRight, null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
-    }
-}
+) = com.huangder.lumibooks.ui.components.LumiNavigationRow(label, onClick, subtitle = supportingText, value = value, icon = icon)
 
 @Composable
 internal fun SettingsSliderItem(
@@ -3714,18 +3465,14 @@ private fun FontTypeRow(selected: String, onSelect: (String) -> Unit) {
         "serif" to stringResource(R.string.font_serif),
         "monospace" to stringResource(R.string.font_monospace)
     )
-    Row(Modifier.fillMaxWidth().padding(horizontal = AppSpace.md, vertical = AppSpace.md), verticalAlignment = Alignment.CenterVertically) {
-        Text(stringResource(R.string.font_label), fontSize = AppType.Body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
-        Row(horizontalArrangement = Arrangement.spacedBy(AppSpace.xs)) {
-            options.forEach { (key, label) ->
-                val sel = key == selected
-                Box(
-                    Modifier.clip(AppRoundedCornerShape(AppRadius.sm)).background(if (sel) AppColors.Accent else AppColors.BgGray)
-                        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onSelect(key) }
-                        .padding(horizontal = AppSpace.sm, vertical = AppSpace.xs)
-                ) { Text(label, fontSize = AppType.Caption, color = if (sel) Color.White else AppColors.TextSecondary, fontWeight = if (sel) FontWeight.Medium else FontWeight.Normal) }
-            }
-        }
+    Column(Modifier.fillMaxWidth().padding(horizontal = AppSpace.md, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(stringResource(R.string.font_label), fontSize = AppType.Body, color = AppColors.TextPrimary)
+        com.huangder.lumibooks.ui.components.LumiSegmentedControl(
+            labels = options.map { it.second },
+            selectedIndex = options.indexOfFirst { it.first == selected }.coerceAtLeast(0),
+            onSelect = { onSelect(options[it].first) }
+        )
     }
 }
 @Composable
@@ -3759,38 +3506,39 @@ private fun AppThemeGridSettingRow(
     selected: String,
     onSelect: (String) -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(AppSpace.md),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(AppSpace.md)
     ) {
-        Text(label, fontSize = AppType.Body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
+        Text(label, fontSize = AppType.Body, color = AppColors.TextPrimary)
+        Spacer(Modifier.height(AppSpace.sm))
         Column(
-            modifier = Modifier.width(176.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             options.chunked(2).forEach { rowOptions ->
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     rowOptions.forEach { (key, display) ->
                         val isSelected = key == selected
+                        val tileShape = AppRoundedCornerShape(AppRadius.md)
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .heightIn(min = 36.dp)
-                                .clip(AppRoundedCornerShape(AppRadius.sm))
-                                .background(if (isSelected) AppColors.Accent else AppColors.WindowBg)
-                                .border(1.dp, if (isSelected) AppColors.Accent else AppColors.Divider, AppRoundedCornerShape(AppRadius.sm))
-                                .clickable { onSelect(key) }
+                                .heightIn(min = 48.dp)
+                                .clip(tileShape)
+                                .background(if (isSelected) AppColors.Accent.copy(alpha = .12f) else AppColors.BgGray)
+                                .border(if (isSelected) 1.5.dp else 0.dp, if (isSelected) AppColors.Accent else Color.Transparent, tileShape)
+                                .lumiRowClickable(role = androidx.compose.ui.semantics.Role.RadioButton) { onSelect(key) }
                                 .padding(horizontal = 6.dp, vertical = 8.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = display,
                                 fontSize = AppType.Caption,
-                                color = if (isSelected) Color.White else AppColors.TextSecondary,
+                                color = if (isSelected) AppColors.Accent else AppColors.TextPrimary,
                                 fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.Center
                             )
@@ -3916,7 +3664,7 @@ private fun SettingsDropdownControl(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.weight(1f)
             )
-            Icon(
+            ControlIcon(
                 AppIcons.CaretDown,
                 contentDescription = null,
                 tint = AppColors.TextSecondary,
@@ -3924,15 +3672,10 @@ private fun SettingsDropdownControl(
             )
         }
 
-        DropdownMenu(
+        AppDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.width(selectorWidth),
-            shape = AppRoundedCornerShape(16.dp),
-            containerColor = AppColors.WindowBg,
-            border = BorderStroke(1.dp, AppColors.Divider),
-            shadowElevation = 0.dp,
-            tonalElevation = 0.dp
+            modifier = Modifier.width(selectorWidth)
         ) {
             options.forEach { (key, display) ->
                 DropdownMenuItem(
@@ -3960,19 +3703,10 @@ private fun SettingsDropdownControl(
 }
 
 @Composable
-internal fun ActionRow(icon: ImageVector? = null, label: String, labelColor: Color = AppColors.TextPrimary, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(AppSpace.md),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (icon != null) {
-            Icon(icon, null, tint = if (labelColor == Color.Red) Color.Red else AppColors.TextSecondary, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(AppSpace.md))
-        }
-        Text(label, fontSize = AppType.Body, color = labelColor, modifier = Modifier.weight(1f))
-        Icon(AppIcons.CaretRight, null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
-    }
-}
+internal fun ActionRow(icon: ImageVector? = null, label: String, labelColor: Color = AppColors.TextPrimary,
+    external: Boolean = false, onClick: () -> Unit) =
+    com.huangder.lumibooks.ui.components.LumiRow(label, icon = icon, titleColor = labelColor,
+        showChevron = !external && labelColor != AppColors.Destructive, onClick = onClick)
 
 // ─── 语言设置 ────────────────────────────────────────────────
 
@@ -3990,34 +3724,16 @@ fun LanguageDetailScreen(viewModel: SettingsViewModel) {
     DetailCard {
         languageOptions.forEachIndexed { index, (key, displayName) ->
             val isSelected = key == uiState.appLanguage
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-                        if (!isSelected) {
-                            pendingLanguage = key
-                            showRestartDialog = true
-                        }
+            com.huangder.lumibooks.ui.components.LumiCheckRow(
+                title = displayName,
+                selected = isSelected,
+                onClick = {
+                    if (!isSelected) {
+                        pendingLanguage = key
+                        showRestartDialog = true
                     }
-                    .padding(horizontal = AppSpace.md, vertical = AppSpace.md),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    displayName,
-                    fontSize = AppType.Body,
-                    color = if (isSelected) AppColors.Accent else AppColors.TextPrimary,
-                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
-                    modifier = Modifier.weight(1f)
-                )
-                if (isSelected) {
-                    Icon(
-                        AppIcons.Check,
-                        contentDescription = null,
-                        tint = AppColors.Accent,
-                        modifier = Modifier.size(20.dp)
-                    )
                 }
-            }
+            )
             if (index < languageOptions.size - 1) {
                 SettingsDivider()
             }
@@ -4028,29 +3744,29 @@ fun LanguageDetailScreen(viewModel: SettingsViewModel) {
     if (showRestartDialog) {
         LiquidGlassAlertDialog(
             onDismissRequest = { showRestartDialog = false },
-            title = { Text(stringResource(R.string.switch_language)) },
+            titleText = stringResource(R.string.switch_language),
             text = { Text(stringResource(R.string.restart_prompt)) },
-            confirmButton = {
-                LiquidGlassTextButton(
+            actions = listOf(
+                AppDialogAction(
                     text = stringResource(R.string.restart),
-                    tintedColor = AppColors.Accent,
                     onClick = {
-                    viewModel.saveAppLanguage(pendingLanguage)
-                    showRestartDialog = false
-                    // 重启应用
-                    val intent = android.content.Intent(context, com.huangder.lumibooks.MainActivity::class.java).apply {
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                    }
-                    context.startActivity(intent)
-                    (context as? android.app.Activity)?.finishAffinity()
-                })
-            },
-            dismissButton = {
-                LiquidGlassTextButton(
+                        viewModel.saveAppLanguage(pendingLanguage)
+                        showRestartDialog = false
+                        // 重启应用
+                        val intent = android.content.Intent(context, com.huangder.lumibooks.MainActivity::class.java).apply {
+                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                        }
+                        context.startActivity(intent)
+                        (context as? android.app.Activity)?.finishAffinity()
+                    },
+                    role = AppDialogActionRole.Primary,
+                    tintedColor = AppColors.Accent
+                ),
+                AppDialogAction(
                     text = stringResource(R.string.later),
-                    onClick = { showRestartDialog = false }
+                    onClick = { showRestartDialog = false },
+                    role = AppDialogActionRole.Cancel
                 )
-            }
-        )
+            ))
     }
 }

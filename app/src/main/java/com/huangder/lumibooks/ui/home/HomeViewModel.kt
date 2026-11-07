@@ -15,6 +15,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.data.local.DataStoreManager
+import com.huangder.lumibooks.ui.reader.resolveOpeningPaperColor
 import com.huangder.lumibooks.data.sync.BookDownloadState
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookDeleteMode
@@ -34,6 +35,7 @@ import com.huangder.lumibooks.ui.discover.OnlineBookRepository
 import com.huangder.lumibooks.domain.repository.TagRepository
 import com.huangder.lumibooks.util.FileUtils
 import com.huangder.lumibooks.util.TimeUtils
+import com.huangder.lumibooks.util.localDateChanges
 import com.huangder.lumibooks.util.AuthorizedFolderDocumentSnapshot
 import com.huangder.lumibooks.util.AuthorizedFolderSnapshot
 import com.huangder.lumibooks.util.AuthorizedFolderSnapshotStore
@@ -111,7 +113,11 @@ data class AuthorizedFolderFolder(
 )
 
 data class HomeUiState(
+    /** Visible books only; everything that lists books reads this. */
     val books: List<Book> = emptyList(),
+    /** Books of the hidden library, shown only behind the passcode. */
+    val hiddenBooks: List<Book> = emptyList(),
+    val archivedBooks: List<Book> = emptyList(),
     val todayReadingTime: Long = 0,
     val dailyGoal: Int = 30, // 分钟
     val avatarUri: String? = null,
@@ -174,8 +180,31 @@ class HomeViewModel @Inject constructor(
     private val authorizedStorageManager: AuthorizedStorageManager,
     private val authorizedFolderSnapshotStore: AuthorizedFolderSnapshotStore,
     private val database: AppDatabase,
-    private val importPipeline: BookImportPipeline
+    private val importPipeline: BookImportPipeline,
+    private val openingSnapshotStore: com.huangder.lumibooks.ui.reader.ReaderOpeningSnapshotStore
 ) : ViewModel() {
+
+    /**
+     * Paper color plus the key of the page this book was closed on, from one preferences read.
+     * Hidden books never get a stored page.
+     */
+    internal suspend fun openingAppearance(
+        book: Book,
+        appIsDark: Boolean,
+        display: com.huangder.lumibooks.ui.reader.ReaderOpeningDisplay?
+    ): Pair<Int, String?> = withContext(Dispatchers.Default) {
+        val preferences = dataStoreManager.readerPreferences(book.id).first()
+        val paperColor = preferences.resolveOpeningPaperColor(book, appIsDark)
+        val pageKey = display?.takeUnless { book.isHidden || book.isArchived }
+            ?.let { openingSnapshotStore.keyFor(book, preferences, it) }
+        paperColor to pageKey
+    }
+
+    fun cachedOpeningPage(bookId: String, key: String): android.graphics.Bitmap? =
+        openingSnapshotStore.cached(bookId, key)
+
+    suspend fun loadOpeningPage(bookId: String, key: String): android.graphics.Bitmap? =
+        openingSnapshotStore.load(bookId, key)
 
     private companion object {
         const val READING_HISTORY_START_DATE = "1970-01-01"
@@ -309,7 +338,7 @@ class HomeViewModel @Inject constructor(
 
                     val missingCovers = withContext(Dispatchers.IO) {
                         books.filter { book ->
-                            book.format == BookFormat.EPUB && !book.isMissing &&
+                            book.format.supportsEpubFeatures && !book.isMissing &&
                                 !FileUtils.isCustomCover(book.coverPath) &&
                                 (book.coverPath.isNullOrBlank() || !File(book.coverPath).isFile ||
                                     BitmapFactory.Options().apply { inJustDecodeBounds = true }.let { options ->
@@ -334,9 +363,12 @@ class HomeViewModel @Inject constructor(
                             }
                         }
                     }
-                    val sortedBooks = sortBooks(books, _uiState.value.sortBy)
+                    val (hiddenBooks, visibleBooks) = sortBooks(books, _uiState.value.sortBy).partition { it.isHidden }
+                    val sortedBooks = visibleBooks.filterNot { it.isArchived }
                     _uiState.value = _uiState.value.copy(
                         books = sortedBooks,
+                        hiddenBooks = hiddenBooks,
+                        archivedBooks = visibleBooks.filter { it.isArchived },
                         syncedBookIds = books.asSequence()
                             .filter { it.remoteFileName != null }
                             .mapTo(mutableSetOf()) { it.id },
@@ -419,11 +451,10 @@ class HomeViewModel @Inject constructor(
 
     private fun loadTodayReadingTime() {
         viewModelScope.launch {
-            val today = TimeUtils.getCurrentDate()
-            readingRepository.getTotalDurationByDate(today).collectLatest { duration ->
-                _uiState.value = _uiState.value.copy(
-                    todayReadingTime = duration ?: 0
-                )
+            localDateChanges().collectLatest { today ->
+                readingRepository.getTotalDurationByDate(today.toString()).collectLatest { duration ->
+                    _uiState.value = _uiState.value.copy(todayReadingTime = duration ?: 0L)
+                }
             }
         }
     }
@@ -464,37 +495,38 @@ class HomeViewModel @Inject constructor(
 
     private fun loadWeeklyData() {
         viewModelScope.launch {
-            // 日历周：从本周日开始，到本周六结束
-            val startOfWeek = Calendar.getInstance().apply {
-                firstDayOfWeek = Calendar.SUNDAY
-                set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY)
-                set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0)
-            }
-            val today = LocalDate.now()
-            combine(
-                dataStoreManager.dailyGoal,
-                readingRepository.getDailyTotalsBetween(READING_HISTORY_START_DATE, today.toString())
-            ) { goal, dailyTotals ->
-                goal to dailyTotals
-            }.collectLatest { (goal, dailyTotals) ->
-                val durationMap = dailyTotals.associate { it.date to it.totalDuration }
-                val weeklyData = (0..6).map { i ->
-                    val cal = (startOfWeek.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, i) }
-                    val date = dateFormat.format(cal.time)
-                    val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK) - 1 // 0=Sunday
-                    DailyReading(date, durationMap[date] ?: 0L, dayLabels[dayOfWeek])
+            localDateChanges().collectLatest { today ->
+                // 日历周：从本周日开始，到本周六结束
+                val startOfWeek = Calendar.getInstance().apply {
+                    firstDayOfWeek = Calendar.SUNDAY
+                    set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY)
+                    set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0)
                 }
-                val streak = ReadingStreakCalculator.calculate(
-                    dailyDurations = durationMap,
-                    today = today,
-                    goalDurationMs = goal * 60 * 1000L
-                )
+                combine(
+                    dataStoreManager.dailyGoal,
+                    readingRepository.getDailyTotalsBetween(READING_HISTORY_START_DATE, today.toString())
+                ) { goal, dailyTotals ->
+                    goal to dailyTotals
+                }.collectLatest { (goal, dailyTotals) ->
+                    val durationMap = dailyTotals.associate { it.date to it.totalDuration }
+                    val weeklyData = (0..6).map { i ->
+                        val cal = (startOfWeek.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, i) }
+                        val date = dateFormat.format(cal.time)
+                        val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK) - 1 // 0=Sunday
+                        DailyReading(date, durationMap[date] ?: 0L, dayLabels[dayOfWeek])
+                    }
+                    val streak = ReadingStreakCalculator.calculate(
+                        dailyDurations = durationMap,
+                        today = today,
+                        goalDurationMs = goal * 60 * 1000L
+                    )
 
-                _uiState.value = _uiState.value.copy(
-                    dailyGoal = goal,
-                    weeklyData = weeklyData,
-                    streakDays = streak
-                )
+                    _uiState.value = _uiState.value.copy(
+                        dailyGoal = goal,
+                        weeklyData = weeklyData,
+                        streakDays = streak
+                    )
+                }
             }
         }
     }
@@ -612,7 +644,8 @@ class HomeViewModel @Inject constructor(
                 val sort = runCatching { SortBy.valueOf(stored) }.getOrDefault(SortBy.DATE_ADDED)
                 _uiState.value = _uiState.value.copy(
                     sortBy = sort,
-                    books = sortBooks(_uiState.value.books, sort)
+                    books = sortBooks(_uiState.value.books, sort),
+                    hiddenBooks = sortBooks(_uiState.value.hiddenBooks, sort)
                 )
             }
         }
@@ -651,7 +684,7 @@ class HomeViewModel @Inject constructor(
         } else {
             viewModelScope.launch {
                 bookRepository.searchBooks(query).collectLatest { books ->
-                    val sortedBooks = sortBooks(books, _uiState.value.sortBy)
+                    val sortedBooks = sortBooks(books.filterNot { it.isHidden || it.isArchived }, _uiState.value.sortBy)
                     _uiState.value = _uiState.value.copy(
                         books = sortedBooks,
                         isSearchActive = true
@@ -672,7 +705,10 @@ class HomeViewModel @Inject constructor(
     fun setSortBy(sortBy: SortBy) {
         _uiState.value = _uiState.value.copy(sortBy = sortBy)
         val sortedBooks = sortBooks(_uiState.value.books, sortBy)
-        _uiState.value = _uiState.value.copy(books = sortedBooks)
+        _uiState.value = _uiState.value.copy(
+            books = sortedBooks,
+            hiddenBooks = sortBooks(_uiState.value.hiddenBooks, sortBy)
+        )
         scheduleFolderPreviewInitialization(
             books = sortedBooks,
             folders = _uiState.value.folders,
@@ -2085,6 +2121,7 @@ class HomeViewModel @Inject constructor(
     ) {
         val booksToDelete = books.distinctBy { it.id }
         if (booksToDelete.isEmpty()) return
+        openingSnapshotStore.delete(booksToDelete.map { it.id })
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isBookDeleteInProgress = true)
             var remoteFailure: String? = null
@@ -2136,7 +2173,8 @@ class HomeViewModel @Inject constructor(
         books: List<Book>,
         mode: BookDeleteMode
     ): List<String> {
-        val librarySnapshot = _uiState.value.books
+        // Hidden books still own their files and covers; never delete what they share.
+        val librarySnapshot = _uiState.value.books + _uiState.value.hiddenBooks + _uiState.value.archivedBooks
         val requestedIds = books.mapTo(mutableSetOf()) { it.id }
         val pathsUsedByRemainingBooks = librarySnapshot.asSequence()
             .filterNot { it.id in requestedIds }
@@ -2223,6 +2261,57 @@ class HomeViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Moves books into or out of the hidden library and reports the result as a snackbar.
+     * [onDone] runs after the book lists reflect the change, or after a failure.
+     */
+    fun setBooksHidden(bookIds: Set<String>, hidden: Boolean, onDone: () -> Unit = {}) {
+        if (bookIds.isEmpty()) return
+        if (hidden) openingSnapshotStore.delete(bookIds)
+        viewModelScope.launch {
+            runCatching { bookRepository.setBooksHidden(bookIds, hidden) }
+                .onSuccess {
+                    val message = application.resources.getQuantityString(
+                        if (hidden) R.plurals.hidden_library_hidden_message else R.plurals.hidden_library_unhidden_message,
+                        bookIds.size,
+                        bookIds.size
+                    )
+                    _uiState.value = _uiState.value.copy(importMessage = message)
+                    // Room emits the new lists shortly after the write; wait so callers can
+                    // drop their exit animation without the books reappearing in between.
+                    kotlinx.coroutines.withTimeoutOrNull(1_000L) {
+                        uiState.first { state ->
+                            val stillOnOtherSide = if (hidden) state.books else state.hiddenBooks
+                            stillOnOtherSide.none { it.id in bookIds }
+                        }
+                    }
+                }
+                .onFailure { _uiState.value = _uiState.value.copy(error = it.message) }
+            onDone()
+        }
+    }
+
+    fun archiveBook(bookId: String) {
+        openingSnapshotStore.delete(setOf(bookId))
+        viewModelScope.launch {
+            try {
+                bookRepository.setBooksArchived(listOf(bookId), true)
+                _uiState.value = _uiState.value.copy(importMessage = application.getString(R.string.archive_book_success))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled
+            } catch (_: Exception) {
+                _uiState.value = _uiState.value.copy(error = application.getString(R.string.archive_book_failed))
+            }
+        }
+    }
+
+    suspend fun latestBook(bookId: String): Book? = bookRepository.getBookById(bookId)
+
+    /** Looks a book up across shelf, hidden and archived libraries. */
+    fun findBook(bookId: String): Book? =
+        _uiState.value.books.firstOrNull { it.id == bookId }
+            ?: _uiState.value.hiddenBooks.firstOrNull { it.id == bookId }
+            ?: _uiState.value.archivedBooks.firstOrNull { it.id == bookId }
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)

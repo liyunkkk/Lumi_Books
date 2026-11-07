@@ -3,6 +3,9 @@ package com.huangder.lumibooks.util.epub
 import android.net.Uri
 import android.webkit.WebResourceResponse
 import androidx.webkit.WebViewAssetLoader
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
+import org.jsoup.parser.Parser
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileInputStream
@@ -38,8 +41,18 @@ class EpubRenderSession private constructor(
     private val readerBackgroundKeysByPath = mutableMapOf<String, String>()
     private val cssIndexByChapterPath = mutableMapOf<String, EpubCssIndex>()
     private val mediaOnlyByChapter = java.util.concurrent.ConcurrentHashMap<Int, Boolean>()
+    private val presentationByChapter = mutableMapOf<Int, EpubPagePresentation>()
+    private data class CoverReference(val path: String, val fragment: String?)
+    private data class CoverMetadata(
+        val documents: Set<CoverReference>,
+        val images: Set<String>
+    )
+    private val coverMetadata by lazy { readCoverMetadata() }
     private val missingResourceLog = mutableSetOf<String>()
     private val documentCache = EpubDocumentCache()
+    // Images, fonts and styles are requested again by every WebView that loads a chapter;
+    // keep their inflated bytes so a repeat request skips the ZIP and the session lock.
+    private val resourceCache = EpubDocumentCache(maximumBytes = 24 * 1024 * 1024)
     private val documentPreparationLock = Any()
     @Volatile private var closed = false
 
@@ -47,22 +60,27 @@ class EpubRenderSession private constructor(
         .setDomain(ASSET_DOMAIN)
         .addPathHandler("/epub/$sessionToken/", WebViewAssetLoader.PathHandler { requestedPath ->
             val resource = logicalChapterIndex(requestedPath)?.let(::readLogicalChapter)
-                ?: read(requestedPath)
+                ?: readSubresource(requestedPath)
                 ?: run {
                     logMissingResource(requestedPath)
                     return@PathHandler null
                 }
-            val isTransformedDocument = resource.bytes.containsReaderScript()
+            // Only (X)HTML can carry the reader script; never decode image or font bytes as text.
+            val isTransformedDocument = resource.mediaType.contains("html", ignoreCase = true) &&
+                resource.bytes.containsReaderScript()
             WebResourceResponse(
                 resource.mediaType,
                 if (isTransformedDocument) "UTF-8" else null,
                 ByteArrayInputStream(resource.bytes)
             ).apply {
-                responseHeaders = mapOf(
-                    "Content-Security-Policy" to CONTENT_SECURITY_POLICY,
-                    "X-Content-Type-Options" to "nosniff",
-                    "Referrer-Policy" to "no-referrer"
-                )
+                responseHeaders = buildMap {
+                    put("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+                    put("X-Content-Type-Options", "nosniff")
+                    put("Referrer-Policy", "no-referrer")
+                    // URLs carry this session's token and the book cannot change underneath
+                    // it, so WebView may reuse subresources instead of requesting them again.
+                    if (!isTransformedDocument) put("Cache-Control", "private, max-age=86400, immutable")
+                }
             }
         })
         .addPathHandler("/reader-font/$sessionToken/", WebViewAssetLoader.PathHandler { requestedPath ->
@@ -156,6 +174,107 @@ class EpubRenderSession private constructor(
             ?.let { epubPackage.spine.getOrNull(it)?.renditionLayout }
             ?: EpubRenditionLayout.REFLOWABLE
 
+    /** ZIP reads and cache publication share the session lock, including callers on IO threads. */
+    @Synchronized
+    override fun pagePresentation(chapterIndex: Int): EpubPagePresentation {
+        presentationByChapter[chapterIndex]?.let { return it }
+        val chapter = logicalChapters.getOrNull(chapterIndex) ?: return EpubPagePresentation()
+        val spineItem = epubPackage.spine[chapter.spineIndex]
+        if (closed) return EpubPagePresentation(renditionLayout = spineItem.renditionLayout)
+        val resource = readRawChapter(chapter.path)
+        val source = resource?.bytes?.toString(Charsets.UTF_8).orEmpty()
+        val document = Jsoup.parse(source, "", Parser.xmlParser())
+        val viewport = EpubPresentationMetadata.viewport(document)
+        val properties = spineItem.properties + spineItem.manifestItem.properties
+        val spread = properties.asSequence()
+            .filter { it.startsWith("rendition:spread-") }
+            .mapNotNull { EpubRenditionSpread.fromMetadata(it.removePrefix("rendition:spread-")) }
+            .firstOrNull()
+            ?: EpubRenditionSpread.fromMetadata(epubPackage.renditionSpread)
+            ?: EpubRenditionSpread.AUTO
+        val side = when {
+            "rendition:page-spread-center" in properties || "page-spread-center" in properties -> EpubPageSide.CENTER
+            "page-spread-left" in properties || "rendition:page-spread-left" in properties -> EpubPageSide.LEFT
+            "page-spread-right" in properties || "rendition:page-spread-right" in properties -> EpubPageSide.RIGHT
+            else -> null
+        }
+        return EpubPagePresentation(
+            renditionLayout = spineItem.renditionLayout,
+            preferredSide = side,
+            renditionSpread = spread,
+            isCover = isDeclaredCover(chapterIndex, chapter, source, document),
+            viewportWidth = viewport?.first,
+            viewportHeight = viewport?.second
+        ).also { presentationByChapter[chapterIndex] = it }
+    }
+
+    private fun readCoverMetadata(): CoverMetadata {
+        val documents = linkedSetOf<CoverReference>()
+        val images = linkedSetOf<String>()
+        fun addItem(item: EpubManifestItem?) {
+            if (item == null) return
+            if (item.mediaType.startsWith("image/", ignoreCase = true)) images += item.fullPath.lowercase()
+            else documents += CoverReference(item.fullPath.lowercase(), null)
+        }
+        fun reference(basePath: String, href: String) {
+            if (href.isBlank()) return
+            val resolved = EpubPathResolver.resolve(basePath, href) ?: return
+            val root = EpubPathResolver.normalize(href.substringBefore('#'))
+            val item = epubPackage.manifest.values.firstOrNull { it.fullPath.equals(resolved, true) }
+                ?: epubPackage.manifest.values.firstOrNull { it.fullPath.equals(root, true) }
+            val path = item?.fullPath ?: resolved
+            if (item?.mediaType?.startsWith("image/", ignoreCase = true) == true) images += path.lowercase()
+            else documents += CoverReference(path.lowercase(), EpubPathResolver.fragment(href))
+        }
+        epubPackage.manifest.values.filter { "cover-image" in it.properties }.forEach(::addItem)
+        readRawChapter(epubPackage.opfPath)?.let { resource ->
+            val opf = Jsoup.parse(resource.bytes.toString(Charsets.UTF_8), "", Parser.xmlParser())
+            opf.select("metadata meta").filter { it.attr("name").equals("cover", true) }
+                .forEach { addItem(epubPackage.manifest[it.attr("content")]) }
+            opf.select("guide reference").filter { EpubPresentationMetadata.hasToken(it.attr("type"), "cover") }
+                .forEach { reference(epubPackage.opfPath, it.attr("href")) }
+        }
+        epubPackage.manifest.values.filter { "nav" in it.properties }.forEach { item ->
+            val bytes = readRawChapter(item.fullPath)?.bytes ?: return@forEach
+            val nav = Jsoup.parse(bytes.toString(Charsets.UTF_8), "", Parser.xmlParser())
+            nav.select("a[href]").filter {
+                EpubPresentationMetadata.hasToken(it.attr("epub:type"), "cover") ||
+                    EpubPresentationMetadata.hasToken(it.attr("type"), "cover") ||
+                    EpubPresentationMetadata.hasToken(it.attr("role"), "doc-cover")
+            }.forEach { reference(item.fullPath, it.attr("href")) }
+        }
+        return CoverMetadata(documents, images)
+    }
+
+    private fun isDeclaredCover(
+        chapterIndex: Int,
+        chapter: LogicalChapter,
+        source: String,
+        physicalDocument: Document
+    ): Boolean {
+        val metadata = coverMetadata
+        if (chapter.path.lowercase() in metadata.images) return true
+        val document = if (chapter.startAnchor == null) physicalDocument else
+            Jsoup.parse(sliceEpubLogicalChapter(source, chapter.startAnchor, chapter.endAnchor), "", Parser.xmlParser())
+        if (metadata.documents.any { reference ->
+                reference.path == chapter.path.lowercase() && when {
+                    reference.fragment != null -> document.getElementById(reference.fragment) != null
+                    else -> logicalChapterIndicesByPath[reference.path]?.firstOrNull() == chapterIndex
+                }
+            }) return true
+        if (document.getAllElements().any {
+                it.normalName() !in setOf("a", "link", "nav") &&
+                    (EpubPresentationMetadata.hasToken(it.attr("epub:type"), "cover") ||
+                        EpubPresentationMetadata.hasToken(it.attr("role"), "doc-cover"))
+            }) return true
+        return metadata.images.isNotEmpty() && document.select("img[src], image[href], image[xlink:href], object[data]")
+            .any { element ->
+                val reference = element.attr("src").ifBlank { element.attr("href") }
+                    .ifBlank { element.attr("xlink:href") }.ifBlank { element.attr("data") }
+                EpubPathResolver.resolve(chapter.path, reference)?.lowercase() in metadata.images
+            }
+    }
+
     override fun isMediaOnlyPage(chapterIndex: Int): Boolean =
         mediaOnlyByChapter.getOrPut(chapterIndex) {
             readLogicalSource(chapterIndex)?.let(EpubDocumentTransformer::isMediaOnlyPage) == true
@@ -168,6 +287,9 @@ class EpubRenderSession private constructor(
         val resource = readLogicalSource(chapterIndex) ?: return ""
         return EpubDocumentTransformer.extractSearchText(resource)
     }
+
+    override fun imageTextOffsets(chapterIndex: Int): List<Int> =
+        readLogicalSource(chapterIndex)?.let(EpubDocumentTransformer::imageTextOffsets).orEmpty()
 
     override fun chapterIndexForUrl(url: String): Int? {
         val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return null
@@ -263,6 +385,15 @@ class EpubRenderSession private constructor(
         val normalized = EpubPathResolver.normalize(path) ?: return null
         if (logicalChapterIndex(normalized) != null) return null
         return readPhysical(normalized)
+    }
+
+    /** [read] with an in-memory copy of non-document resources; hits skip the session lock. */
+    private fun readSubresource(path: String): EpubResource? {
+        val key = EpubPathResolver.normalize(path) ?: return null
+        resourceCache[key]?.let { return it }
+        val resource = read(path) ?: return null
+        if (closed || resource.mediaType.contains("html", ignoreCase = true)) return resource
+        return resourceCache.put(key, resource)
     }
 
     /** 书籍里引用了但压缩包中没有的资源记一条日志，方便区分「书本身缺图」和「没画出来」。 */
@@ -512,7 +643,9 @@ class EpubRenderSession private constructor(
         if (closed) return
         closed = true
         documentCache.clear()
+        resourceCache.clear()
         mediaOnlyByChapter.clear()
+        presentationByChapter.clear()
         missingResourceLog.clear()
         cssIndexByChapterPath.clear()
         readerBackgroundFiles.clear()
@@ -541,6 +674,53 @@ class EpubRenderSession private constructor(
             return EpubRenderSession(epubPackage, ZipFile(filePath))
         }
     }
+}
+
+internal object EpubPresentationMetadata {
+    fun hasToken(value: String, token: String): Boolean =
+        value.split(Regex("\\s+")).any { it.equals(token, ignoreCase = true) }
+
+    fun viewport(document: Document): Pair<Float, Float>? {
+        document.select("meta[name]").filter { it.attr("name").equals("viewport", true) }
+            .forEach { meta ->
+                val values = VIEWPORT_DIMENSION.findAll(meta.attr("content")).associate { match ->
+                    match.groupValues[1].lowercase() to positiveDimension(match.groupValues[2])
+                }
+                val width = values["width"]
+                val height = values["height"]
+                if (width != null && height != null) return width to height
+            }
+        // Only a standalone SVG or the chapter body's sole SVG describes the page.
+        // An icon embedded in a text chapter is not a design viewport.
+        val body = document.selectFirst("body")
+        val svg = if (body == null) document.children().firstOrNull { it.normalName() == "svg" }
+            else body.select("svg").singleOrNull()?.takeIf {
+                body.clone().also { copy -> copy.select("svg").remove() }.text().isBlank() &&
+                    body.select("img, video, audio, object, iframe, canvas").isEmpty()
+            }
+        if (svg != null) {
+            val viewBox = svg.attributes().asList().firstOrNull { it.key.equals("viewBox", true) }?.value
+                ?.trim()?.split(Regex("[\\s,]+"))?.map { it.toFloatOrNull() }
+            if (viewBox?.size == 4 && viewBox.all { it != null && it.isFinite() }) {
+                val width = viewBox[2]?.takeIf { it > 0f }
+                val height = viewBox[3]?.takeIf { it > 0f }
+                if (width != null && height != null) return width to height
+            }
+            val width = positiveDimension(svg.attr("width"))
+            val height = positiveDimension(svg.attr("height"))
+            if (width != null && height != null) return width to height
+        }
+        return null
+    }
+
+    private fun positiveDimension(value: String): Float? = value.trim()
+        .let { if (it.endsWith("px", ignoreCase = true)) it.dropLast(2) else it }
+        .toFloatOrNull()?.takeIf { it.isFinite() && it > 0f }
+
+    private val VIEWPORT_DIMENSION = Regex(
+        """(?:^|[,;\s])(width|height)\s*=\s*([+]?(?:\d+(?:\.\d*)?|\.\d+)(?:px)?)(?=\s*(?:[,;]|$|(?:width|height)\s*=))""",
+        RegexOption.IGNORE_CASE
+    )
 }
 
 private fun java.io.InputStream.readBytes(limit: Int): ByteArray {

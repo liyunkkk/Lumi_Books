@@ -1,4 +1,7 @@
 package com.huangder.lumibooks.ui.settings
+
+import com.huangder.lumibooks.ui.icons.ControlIcon
+import com.huangder.lumibooks.ui.components.lumiGroupedSurface
 import androidx.compose.foundation.layout.heightIn
 import com.huangder.lumibooks.ui.icons.AppIcons
 
@@ -79,7 +82,7 @@ fun WebdavSettingsDetail(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpace.md, vertical = AppSpace.sm),
+            .padding(horizontal = AppSpace.page, vertical = AppSpace.sm),
         verticalArrangement = Arrangement.spacedBy(AppSpace.md)
     ) {
         // Status card
@@ -97,13 +100,13 @@ fun WebdavSettingsDetail(
             )
         }
 
-        if (isEnabled && hasToken) {
+        com.huangder.lumibooks.ui.components.LumiReveal(isEnabled && hasToken) {
             WebdavSectionCard {
                 WebdavSyncModeSelector(
                     selectedMode = config.syncMode,
                     onModeChange = { viewModel.saveWebdavSyncMode(it) }
                 )
-                Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
+                com.huangder.lumibooks.ui.components.GroupedRowDivider(startInset = 0.dp)
                 WebdavSyncContentSelector(
                     config = config,
                     onContentChange = viewModel::setWebdavSyncContent
@@ -111,7 +114,7 @@ fun WebdavSettingsDetail(
             }
         }
 
-        if (isEnabled) {
+        com.huangder.lumibooks.ui.components.LumiReveal(isEnabled) {
             WebdavSectionCard {
                 if (hasToken) {
                     WebdavSecondaryButton(
@@ -241,12 +244,12 @@ fun WebdavConfigurationDetail(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpace.md, vertical = AppSpace.sm),
+            .padding(horizontal = AppSpace.page, vertical = AppSpace.sm),
         verticalArrangement = Arrangement.spacedBy(AppSpace.md)
     ) {
         WebdavSectionCard {
         // Server URL
-        OutlinedTextField(
+        com.huangder.lumibooks.ui.components.LumiTextField(
             value = draftServerUrl,
             onValueChange = { draftServerUrl = it; serverUrlError = false },
             label = { Text(stringResource(R.string.webdav_server_url_label)) },
@@ -259,7 +262,7 @@ fun WebdavConfigurationDetail(
         )
 
         // Username
-        OutlinedTextField(
+        com.huangder.lumibooks.ui.components.LumiTextField(
             value = draftUsername,
             onValueChange = { draftUsername = it; usernameError = false },
             label = { Text(stringResource(R.string.webdav_username_label)) },
@@ -270,7 +273,7 @@ fun WebdavConfigurationDetail(
         )
 
         // Password
-        OutlinedTextField(
+        com.huangder.lumibooks.ui.components.LumiTextField(
             value = password,
             onValueChange = { password = it },
             label = { Text(stringResource(R.string.webdav_password_label)) },
@@ -279,7 +282,7 @@ fun WebdavConfigurationDetail(
                 else PasswordVisualTransformation(),
             trailingIcon = {
                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                    Icon(
+                    ControlIcon(
                         imageVector = if (passwordVisible) AppIcons.EyeSlash
                             else AppIcons.Eye,
                         contentDescription = if (passwordVisible)
@@ -297,7 +300,7 @@ fun WebdavConfigurationDetail(
         )
 
         // Sync path (optional)
-        OutlinedTextField(
+        com.huangder.lumibooks.ui.components.LumiTextField(
             value = draftSyncPath,
             onValueChange = { draftSyncPath = it },
             label = { Text(stringResource(R.string.webdav_sync_path_hint)) },
@@ -331,8 +334,7 @@ private fun WebdavSectionCard(content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(AppRoundedCornerShape(AppRadius.md))
-            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
+            .lumiGroupedSurface()
             .padding(AppSpace.md),
         verticalArrangement = Arrangement.spacedBy(AppSpace.sm),
         content = content
@@ -349,8 +351,7 @@ private fun WebdavStatusCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(AppRoundedCornerShape(AppRadius.md))
-            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
+            .lumiGroupedSurface()
             .padding(AppSpace.md)
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -451,7 +452,7 @@ private fun WebdavSecondaryButton(
             .padding(horizontal = AppSpace.md, vertical = AppSpace.md + 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
+        ControlIcon(
             imageVector = icon,
             contentDescription = null,
             tint = if (destructive) MaterialTheme.colorScheme.error else AppColors.TextSecondary,
@@ -512,23 +513,13 @@ private fun WebdavSyncModeSelector(
             color = AppColors.TextSecondary
         )
         Spacer(Modifier.height(AppSpace.sm))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(AppSpace.sm)
-        ) {
-            WebdavModePill(
-                label = stringResource(R.string.webdav_sync_mode_auto),
-                selected = selectedMode == "auto",
-                onClick = { onModeChange("auto") },
-                modifier = Modifier.weight(1f)
-            )
-            WebdavModePill(
-                label = stringResource(R.string.webdav_sync_mode_manual),
-                selected = selectedMode == "manual",
-                onClick = { onModeChange("manual") },
-                modifier = Modifier.weight(1f)
-            )
-        }
+        // Two-way mode choice uses the app-wide segmented control.
+        val modes = listOf("auto", "manual")
+        com.huangder.lumibooks.ui.components.LumiSegmentedControl(
+            labels = listOf(stringResource(R.string.webdav_sync_mode_auto), stringResource(R.string.webdav_sync_mode_manual)),
+            selectedIndex = modes.indexOf(selectedMode).coerceAtLeast(0),
+            onSelect = { onModeChange(modes[it]) }
+        )
     }
 }
 

@@ -31,7 +31,7 @@ class HighlightRuleMaterializer @Inject constructor(
 ) {
     suspend fun scanBook(bookId: String, onProgress: suspend (current: Int, total: Int) -> Unit): Int {
         val book = bookRepository.getBookById(bookId) ?: return 0
-        if (book.format != BookFormat.TXT && book.format != BookFormat.EPUB) return 0
+        if (book.format != BookFormat.TXT && !book.format.supportsEpubFeatures) return 0
         val settings = database.highlightRuleDao().getSettings(bookId) ?: return 0
         if (!settings.materializeNotes) return 0
         val rules = ruleRepository.getRulesForBook(bookId).filter(HighlightRule::enabled)
@@ -68,7 +68,7 @@ class HighlightRuleMaterializer @Inject constructor(
         chapterIndex: Int,
         text: String
     ): Int {
-        if (format != BookFormat.TXT && format != BookFormat.EPUB) return 0
+        if (format != BookFormat.TXT && !format.supportsEpubFeatures) return 0
         val settings = database.highlightRuleDao().getSettings(bookId) ?: return 0
         if (!settings.materializeNotes) return 0
         val desired = desiredNotesForChapter(
@@ -94,7 +94,7 @@ class HighlightRuleMaterializer @Inject constructor(
         val now = System.currentTimeMillis()
         return HighlightRuleMatcher.match(text, chapterIndex, rules).mapNotNull { match ->
             if ("${match.ruleId}\u0000${match.matchKey}" in exclusionKeys) return@mapNotNull null
-            val locators = if (format == BookFormat.EPUB) {
+            val locators = if (format.supportsEpubFeatures) {
                 createHighlightLocatorPair(text, match.start, match.end, match.text)
             } else null to null
             NoteEntity(
@@ -106,7 +106,7 @@ class HighlightRuleMaterializer @Inject constructor(
                 endLocatorJson = locators.second,
                 selectedText = match.text,
                 note = "",
-                color = match.style.textColor?.let { String.format("#%08X", it) } ?: "#FFF2C94C",
+                color = match.style.highlightColor?.let { String.format("#%08X", it) } ?: "#FFF2C94C",
                 createdAt = now,
                 type = if (match.style.underlineMode == HighlightRule.UNDERLINE_NONE) "highlight" else "underline",
                 syncId = deterministicSyncId(bookId, match.ruleId, match.matchKey),

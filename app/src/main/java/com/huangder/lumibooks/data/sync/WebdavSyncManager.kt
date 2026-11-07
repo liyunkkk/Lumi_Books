@@ -979,7 +979,9 @@ class WebdavSyncManager @Inject constructor(
         createdAt = createdAt,
         isFavorite = isFavorite,
         updatedAt = metadataUpdatedAt,
-        isPinned = isPinned
+        isPinned = isPinned,
+        isHidden = isHidden,
+        isArchived = isArchived
     )
 
     private fun mergeRemoteBook(
@@ -1013,6 +1015,8 @@ class WebdavSyncManager @Inject constructor(
             createdAt = metadata?.createdAt ?: remoteEntry.lastModified,
             isFavorite = metadata?.isFavorite ?: false,
             isPinned = metadata?.isPinned ?: false,
+            isHidden = metadata?.isHidden ?: false,
+            isArchived = metadata?.isArchived ?: false,
             isCloudOnly = true,
             metadataUpdatedAt = metadata?.updatedAt ?: 0L
         )
@@ -1028,6 +1032,8 @@ class WebdavSyncManager @Inject constructor(
             createdAt = if (remoteMetadataWins) metadata?.createdAt ?: base.createdAt else base.createdAt,
             isFavorite = if (remoteMetadataWins) metadata?.isFavorite ?: base.isFavorite else base.isFavorite,
             isPinned = if (remoteMetadataWins) metadata?.isPinned ?: base.isPinned else base.isPinned,
+            isHidden = if (remoteMetadataWins) metadata?.isHidden ?: base.isHidden else base.isHidden,
+            isArchived = if (remoteMetadataWins) metadata?.isArchived ?: base.isArchived else base.isArchived,
             metadataUpdatedAt = if (remoteMetadataWins) metadata?.updatedAt ?: base.metadataUpdatedAt else base.metadataUpdatedAt,
             remoteLibraryKey = libraryKey,
             remoteFileName = remoteEntry.fileName,
@@ -1049,6 +1055,8 @@ class WebdavSyncManager @Inject constructor(
         "epub" -> BookFormat.EPUB
         "pdf" -> BookFormat.PDF
         "mobi" -> BookFormat.MOBI
+        "azw" -> BookFormat.AZW
+        "azw3" -> BookFormat.AZW3
         "cbz" -> BookFormat.CBZ
         "md", "markdown", "mdpack" -> BookFormat.MARKDOWN
         else -> BookFormat.TXT
@@ -1260,6 +1268,8 @@ class WebdavSyncManager @Inject constructor(
             com.huangder.lumibooks.domain.model.BookFormat.EPUB -> ".epub"
             com.huangder.lumibooks.domain.model.BookFormat.PDF -> ".pdf"
             com.huangder.lumibooks.domain.model.BookFormat.MOBI -> ".mobi"
+            BookFormat.AZW -> ".azw"
+            BookFormat.AZW3 -> ".azw3"
             com.huangder.lumibooks.domain.model.BookFormat.CBZ -> ".cbz"
             com.huangder.lumibooks.domain.model.BookFormat.MARKDOWN -> ".mdpack"
             else -> ".txt"
@@ -1279,6 +1289,8 @@ class WebdavSyncManager @Inject constructor(
             com.huangder.lumibooks.domain.model.BookFormat.EPUB -> "epub"
             com.huangder.lumibooks.domain.model.BookFormat.PDF -> "pdf"
             com.huangder.lumibooks.domain.model.BookFormat.MOBI -> "mobi"
+            BookFormat.AZW -> "azw"
+            BookFormat.AZW3 -> "azw3"
             com.huangder.lumibooks.domain.model.BookFormat.CBZ -> "cbz"
             else -> "txt"
         }
@@ -1484,6 +1496,7 @@ class WebdavSyncManager @Inject constructor(
             }
             if (config.syncReadingRecords && book != null) {
                 put("readingProgress", book.readingProgress.toDouble())
+                put("isManuallyMarkedRead", book.isManuallyMarkedRead)
                 if (book.locatorJson != null) put("locatorJson", book.locatorJson) else remove("locatorJson")
                 put("lastReadTime", book.lastReadTime)
             }
@@ -1565,6 +1578,8 @@ class WebdavSyncManager @Inject constructor(
                     createdAt = appliedMetadata.createdAt.takeIf { it > 0L } ?: localBook.createdAt,
                     isFavorite = appliedMetadata.isFavorite,
                     isPinned = appliedMetadata.isPinned,
+                    isHidden = appliedMetadata.isHidden ?: localBook.isHidden,
+                    isArchived = appliedMetadata.isArchived ?: localBook.isArchived,
                     metadataUpdatedAt = appliedMetadata.updatedAt
                 )
                 bookRepository.updateBook(updatedBook)
@@ -1576,6 +1591,13 @@ class WebdavSyncManager @Inject constructor(
             val locator = root.optString("locatorJson", null)
             val lastReadTime = root.optLong("lastReadTime", book.lastReadTime)
             bookRepository.updateReadingProgress(bookId, progress, locator)
+            if (root.has("isManuallyMarkedRead")) {
+                bookRepository.getBookById(bookId)?.let { latestBook ->
+                    bookRepository.updateBook(
+                        latestBook.copy(isManuallyMarkedRead = root.optBoolean("isManuallyMarkedRead"))
+                    )
+                }
+            }
             if (lastReadTime > book.lastReadTime) {
                 bookRepository.updateLastReadTime(bookId, lastReadTime)
             }
@@ -1768,7 +1790,7 @@ class WebdavSyncManager @Inject constructor(
         } catch (_: Exception) { null }
 
         // EPUB/MOBI carry OPF metadata, CBZ may carry ComicInfo.xml.
-        val (title, author) = if (format == BookFormat.EPUB || format == BookFormat.MOBI ||
+        val (title, author) = if (format == BookFormat.EPUB || format.isKindle ||
             format == BookFormat.CBZ || format == BookFormat.MARKDOWN
         ) {
             try {

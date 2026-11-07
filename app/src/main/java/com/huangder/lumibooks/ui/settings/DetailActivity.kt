@@ -1,6 +1,7 @@
 package com.huangder.lumibooks.ui.settings
 
 import android.content.Intent
+import android.content.Context
 import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -18,6 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.data.local.DataStoreManager
+import com.huangder.lumibooks.domain.model.AppUiIconStyle
 import com.huangder.lumibooks.data.sync.LocalNetworkAccessManager
 import com.huangder.lumibooks.data.sync.WebdavAutoSyncScheduler
 import com.huangder.lumibooks.ui.components.rememberLocalNetworkPermissionGate
@@ -39,6 +41,12 @@ import javax.inject.Inject
  */
 @AndroidEntryPoint
 class DetailActivity : ComponentActivity() {
+    companion object {
+        internal fun createIntent(context: Context, category: String, targetSection: String? = null): Intent =
+            Intent(context, DetailActivity::class.java)
+                .putExtra("category", category)
+                .apply { targetSection?.let { putExtra("target_section", it) } }
+    }
 
     private var systemDarkMode by mutableStateOf(false)
 
@@ -61,6 +69,7 @@ class DetailActivity : ComponentActivity() {
         systemDarkMode = resources.configuration.isNightModeEnabled()
 
         val category = intent.getStringExtra("category") ?: "about"
+        val targetSection = intent.getStringExtra("target_section")
         val launchTheme = LaunchThemeController.themeSnapshot(this)
 
         setContent {
@@ -87,16 +96,20 @@ class DetailActivity : ComponentActivity() {
             val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
             val liquidGlassStyle by dataStoreManager.liquidGlassStyle
                 .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val liquidGlassSamplingQuality by dataStoreManager.liquidGlassSamplingQuality
+                .collectAsState(initial = launchTheme.liquidGlassSamplingQuality)
             val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
                 .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
                 liquidGlassStyle = liquidGlassStyle,
+                liquidGlassSamplingQuality = liquidGlassSamplingQuality,
                 reduceTransparencyEnabled = reduceTransparencyEnabled,
                 menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
                 eInkMode = eInkMode,
                 darkTheme = isDark,
                 dynamicColor = effectiveAppTheme == "material3",
                 appTheme = appTheme,
+                appUiIconStyle = AppUiIconStyle.fromStoredValue(uiState.appUiIconStyle),
                 lumiBackgroundScene = com.huangder.lumibooks.ui.theme.LumiBackgroundScene.SECONDARY,
                 appAccentColor = appAccentColor,
                 liquidGlassTransparency = liquidGlassTransparency,
@@ -117,17 +130,38 @@ class DetailActivity : ComponentActivity() {
                     val onBack = { finish() }
 
                     when (category) {
-                        "reading" -> DetailPage(stringResource(R.string.title_reading_settings), onBack) { ReadingSettingsDetail(viewModel) }
+                        "reading" -> DetailPage(
+                            stringResource(R.string.title_reading_settings),
+                            onBack,
+                            targetSection = targetSection
+                        ) { ReadingSettingsDetail(viewModel) }
+                        "listening_preferences" -> DetailPage(
+                            stringResource(R.string.settings_listening_preferences),
+                            onBack
+                        ) { ListeningPreferencesDetail(viewModel) }
                         "selection_menu" -> SelectionMenuSettingsScreen(
-                            uiState.selectionMenuItems, viewModel::saveSelectionMenuItems, onBack
+                            settings = uiState.selectionMenuItems,
+                            onChange = viewModel::saveSelectionMenuItems,
+                            onBack = onBack
                         )
                         "floating_subtitle" -> DetailPage(stringResource(R.string.title_floating_subtitle_settings), onBack) {
                             FloatingSubtitleSettingsDetail(viewModel)
                         }
-                        "display" -> DetailPage(stringResource(R.string.title_display), onBack) { DisplayDetail(viewModel) }
+                        "display" -> DetailPage(
+                            stringResource(R.string.title_display),
+                            onBack,
+                            targetSection = targetSection
+                        ) { DisplayDetail(viewModel) }
+                        "visual_motion" -> DetailPage(
+                            stringResource(R.string.settings_visual_motion),
+                            onBack,
+                            targetSection = targetSection
+                        ) { VisualMotionDetail(viewModel) }
                         "icon_style" -> DetailPage(stringResource(R.string.icon_style_title), onBack) { AppIconStyleDetail(viewModel) }
                         "language" -> DetailPage(stringResource(R.string.title_language), onBack) { LanguageDetailScreen(viewModel) }
                         "goal" -> DetailPage(stringResource(R.string.title_reading_goal), onBack) { ReadingGoalDetail(viewModel) }
+                        "privacy" -> PrivacySettingsRoute(onBack = onBack)
+                        "archived_books" -> com.huangder.lumibooks.ui.privacy.ArchivedBooksRoute(onBack = onBack)
                         "storage" -> DetailPage(
                             title = stringResource(R.string.title_storage),
                             onBack = onBack

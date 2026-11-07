@@ -15,6 +15,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -51,6 +53,7 @@ import com.huangder.lumibooks.ui.animation.MainTabItemMotion
 import com.huangder.lumibooks.ui.animation.MainTabMotion
 import com.huangder.lumibooks.ui.animation.MAIN_TAB_SETTLE_LIMIT_MS
 import com.huangder.lumibooks.ui.theme.LocalMotionEnabled
+import com.huangder.lumibooks.ui.theme.LocalPageVisible
 
 // fork 在 Home / Bookshelf 之后插入了「发现」tab，Statistics 顺延为第 4 个 tab。
 internal val mainTabRoutes = listOf(
@@ -168,7 +171,9 @@ internal fun MainTabsPager(
             key(mainTabRoutes[page]) {
                 MainTabPage(
                     state, page, isLtr,
-                    motion.takeIf { motionEnabled && selection?.running != true }, selection, content
+                    // Selection resets the motion above. Keep the item modifier layers
+                    // attached through the fade so retained pages keep their display lists.
+                    motion.takeIf { motionEnabled }, selection, content
                 )
             }
         }
@@ -190,14 +195,16 @@ private fun MainTabPage(
         motion?.let { MainTabItemMotion(it, page, if (isLtr) 1f else -1f) }
     }
     val active = state.settledPage == page
-    DisposableEffect(parent, owner, active) {
+    val visible by remember(state, page, selection) {
+        derivedStateOf {
+            if (selection?.running == true) page == selection.fromPage || page == selection.toPage
+            else abs(page - state.currentPage - state.currentPageOffsetFraction) < 1f
+        }
+    }
+    DisposableEffect(parent, owner, active, visible) {
         fun updateLifecycle() {
             val parentState = parent.lifecycle.currentState
-            owner.registry.currentState = if (active || parentState < Lifecycle.State.CREATED) {
-                parentState
-            } else {
-                Lifecycle.State.CREATED
-            }
+            owner.registry.currentState = mainTabLifecycleState(parentState, active, visible)
         }
         val observer = LifecycleEventObserver { _, _ -> updateLifecycle() }
         parent.lifecycle.addObserver(observer)
@@ -210,6 +217,7 @@ private fun MainTabPage(
     // Retained neighbours must not intercept Back or resume work for the visible tab.
     CompositionLocalProvider(
         LocalLifecycleOwner provides owner,
+        LocalPageVisible provides visible,
         LocalMainTabItemMotion provides itemMotion
     ) {
         Box(
@@ -244,3 +252,10 @@ private class MainTabLifecycleOwner : LifecycleOwner {
     val registry = LifecycleRegistry(this)
     override val lifecycle: Lifecycle get() = registry
 }
+
+internal fun mainTabLifecycleState(parent: Lifecycle.State, active: Boolean, visible: Boolean): Lifecycle.State =
+    minOf(parent, when {
+        !visible -> Lifecycle.State.CREATED
+        active -> Lifecycle.State.RESUMED
+        else -> Lifecycle.State.STARTED
+    })

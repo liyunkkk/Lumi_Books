@@ -15,6 +15,46 @@ import org.junit.Test
 import org.json.JSONObject
 
 class PortableSnapshotTest {
+    @Test fun kindleFormatsAndOriginalAssetsRoundTrip() {
+        for (format in listOf("AZW", "AZW3")) {
+            val book = PortableBook("kindle", "Title", "Author", format, 0L, 0.25f, null,
+                1L, false, false, 1L, "body", null, "library", "book.${format.lowercase()}", 42L, "sha")
+            val asset = PortableAsset("body", "book", "kindle", "sha.${format.lowercase()}", "sha", 42L)
+            val original = snapshot("device-a").copy(books = listOf(book), assets = listOf(asset))
+            val restored = PortableSnapshot.fromJson(original.toJson())
+            assertEquals(book, restored.books.single())
+            assertEquals(asset, restored.assets.single())
+        }
+    }
+
+    @Test fun listeningTimeRoundTripsAndOldBackupsKeepReadingTime() {
+        val original = snapshot("device-a", records = listOf(record("device-a", 30_000).copy(listeningDuration = 90_000)))
+        val restored = PortableSnapshot.fromJson(original.toJson())
+        assertEquals(90_000L, restored.readingRecords.single().listeningDuration)
+        assertEquals(30_000L, restored.readingRecords.single().duration)
+        val legacy = JSONObject(original.toJson()).apply {
+            getJSONArray("readingRecords").getJSONObject(0).remove("listeningDuration")
+        }
+        val old = PortableSnapshot.fromJson(legacy.toString()).readingRecords.single()
+        assertEquals(0L, old.listeningDuration)
+        assertEquals(30_000L, old.duration)
+    }
+
+    @Test fun repeatedSyncMergesReadingAndListeningIndependentlyAndKeepsOtherDevices() {
+        val local = snapshot("device-a", records = listOf(record("device-a", 30_000).copy(listeningDuration = 90_000)))
+        val remote = snapshot("device-b", records = listOf(record("device-a", 45_000).copy(listeningDuration = 60_000),
+            record("device-b", 5_000).copy(listeningDuration = 10_000)))
+        val merged = PortableSnapshotMerger.merge(local, remote)
+        val again = PortableSnapshotMerger.merge(merged, remote)
+        assertEquals(merged.readingRecords, again.readingRecords)
+        assertEquals(2, merged.readingRecords.size)
+        assertEquals(50_000L, merged.readingRecords.sumOf { it.duration })
+        assertEquals(100_000L, merged.readingRecords.sumOf { it.listeningDuration })
+        // A payload from an older client cannot erase previously known listening time.
+        val legacy = snapshot("device-a", records = listOf(record("device-a", 45_000)))
+        assertEquals(100_000L, PortableSnapshotMerger.merge(merged, legacy).readingRecords.sumOf { it.listeningDuration })
+    }
+
     @Test
     fun staleAnnotationsRoundTripAndOlderBackupsDefaultToActive() {
         val original = snapshot(deviceId = "device-a",
@@ -68,6 +108,19 @@ class PortableSnapshotTest {
         )
 
         assertEquals(snapshot, PortableSnapshot.fromJson(snapshot.toJson()))
+    }
+
+    @Test
+    fun manualReadMarkRoundTripsAndLegacyFinishedBooksKeepTheirStatus() {
+        val original = snapshot(deviceId = "device-a")
+        val marked = original.copy(books = original.books.map { it.copy(isManuallyMarkedRead = true) })
+        assertTrue(PortableSnapshot.fromJson(marked.toJson()).books.single().isManuallyMarkedRead)
+
+        val legacyFinished = marked.copy(books = marked.books.map { it.copy(readingProgress = 1f) })
+        val legacyJson = JSONObject(legacyFinished.toJson()).apply {
+            getJSONArray("books").getJSONObject(0).remove("isManuallyMarkedRead")
+        }
+        assertTrue(PortableSnapshot.fromJson(legacyJson.toString()).books.single().isManuallyMarkedRead)
     }
 
     @Test
