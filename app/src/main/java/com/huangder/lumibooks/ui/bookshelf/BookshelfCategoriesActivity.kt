@@ -1058,7 +1058,6 @@ private fun CategoryBooksPage(
                             },
                             com.huangder.lumibooks.ui.components.SelectionAction(AppIcons.Trash, stringResource(R.string.delete), destructive = true) {
                                 pendingDeleteBooks = books.filter { it.id in selectedBookIds }
-                                showDeleteConfirm = true
                             }
                         )
                     )
@@ -1096,7 +1095,6 @@ private fun CategoryBooksPage(
                     onMoveToFolder = { book -> moveTargetBook = book },
                     onDelete = {
                         pendingDeleteBooks = listOf(it)
-                        showDeleteConfirm = true
                     },
                     onFavorite = { viewModel.updateBook(it.copy(isFavorite = !it.isFavorite)) },
                     onCustomCover = { coverSourceBook = it },

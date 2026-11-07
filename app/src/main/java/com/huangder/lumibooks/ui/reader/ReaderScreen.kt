@@ -242,7 +242,6 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.json.JSONObject
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.activity.compose.rememberLauncherForActivityResult
 import android.app.Activity
 import com.huangder.lumibooks.ui.navigation.Screen
 import androidx.core.graphics.ColorUtils
@@ -358,7 +357,6 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import coil.load
 import android.text.Spanned
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.foundation.shape.RoundedCornerShape
 import com.huangder.lumibooks.ui.components.AppSheetHeader
 import com.huangder.lumibooks.ui.theme.AppPresentation
 
@@ -4852,7 +4850,10 @@ private fun ReaderScreenContent(
                 currentAnchor = uiState.currentTocAnchor,
                 bookmarks = bookmarks,
                 chapterTitles = uiState.chapterTitles,
-                onRefreshChapters = if (isOnlineBook) {
+                onRefreshChapters = if (uiState.book?.filePath?.startsWith(
+                        com.huangder.lumibooks.util.parser.OnlineBookParser.SCHEME
+                    ) == true
+                ) {
                     { viewModel.refreshCurrentOnlineBook() }
                 } else {
                     null
@@ -6646,7 +6647,6 @@ private fun ChangeSourceDialog(
         backdrop = backdrop,
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.88f),
         backgroundScrimColor = Color.Black.copy(alpha = 0.15f),
-        backgroundBlurRadius = 0.dp,
         transparencyOverride = 0.24f,
         title = {
             Row(

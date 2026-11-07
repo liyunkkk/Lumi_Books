@@ -303,12 +303,18 @@ fun MainNavGraph(
     bookOpenUsesHeroTransition: Boolean = true,
     predictiveBackEnabled: Boolean = true,
     requestedOpenBookId: String? = null,
+    requestedReloadBookId: String? = null,
+    readingPositionReloadToken: Long = 0L,
     requestedOpenBookDirect: Boolean = false,
     requestedOpenBookshelf: Boolean = false,
+    requestedOpenStatistics: Boolean = false,
     requestedOpenFolderId: String? = null,
+    requestedOpenHiddenLibrary: Boolean = false,
     onBeforeOpenDifferentBook: () -> Unit = {},
     onOpenBookRequestConsumed: () -> Unit = {},
-    onOpenBookshelfRequestConsumed: () -> Unit = {}
+    onOpenBookshelfRequestConsumed: () -> Unit = {},
+    onOpenStatisticsRequestConsumed: () -> Unit = {},
+    onOpenHiddenLibraryRequestConsumed: () -> Unit = {}
 ) {
     val mainStartDestination = when (startDestination) {
         Screen.Bookshelf.route -> Screen.Bookshelf.route
@@ -1219,13 +1225,7 @@ fun MainNavGraph(
             if (useMaterial3Navigation) {
                 Material3BottomNavigationBar(
                     selectedIndex = selectedTab,
-                    onTabSelected = selectTab,
-                    avatarUri = homeUiState.avatarUri,
-                    onOpenSettings = {
-                        context.startActivity(
-                            android.content.Intent(context, com.huangder.lumibooks.ui.settings.SettingsActivity::class.java)
-                        )
-                    }
+                    onTabSelected = selectTab
                 )
             } else {
                 Box(
