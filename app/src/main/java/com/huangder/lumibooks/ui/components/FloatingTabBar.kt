@@ -81,8 +81,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
@@ -251,6 +249,11 @@ fun FloatingTabBar(
         maxOf(LiquidTabBarHeight, with(density) { labelHeightPx.toDp() } + 50.dp)
     } else 56.dp
     val accent = AppColors.Accent
+    val fallbackBorderBrush = if (isDark) {
+        SolidColor(Color.White.copy(alpha = 0.22f))
+    } else {
+        SolidColor(Color.White.copy(alpha = 0.58f))
+    }
     // Automatic backdrop sampling is intentionally disabled. PixelCopy and draw
     // observation both add work to every animated frame on affected devices.
     val adaptiveBackgroundIsDark = isDark

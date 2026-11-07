@@ -134,6 +134,7 @@ import com.huangder.lumibooks.ui.animation.bookCoverTransitionAnchor
 import com.huangder.lumibooks.ui.layout.currentAdaptiveWindowInfo
 import com.huangder.lumibooks.util.TimeUtils
 import com.huangder.lumibooks.util.ReaderBackgroundBlurTransformation
+import com.huangder.lumibooks.ui.components.FinishedReadingIndicator
 
 @Composable
 fun HomeScreen(
@@ -194,7 +195,6 @@ fun HomeScreen(
         activeReadingBooks.sortedByDescending { it.lastReadTime }
     }
     val lastReadBook = booksByLastRead.firstOrNull()
-    val recentBooks = booksByLastRead.take(6)
 
     // 顶部下拉「松手继续阅读」：只读取下拉位移，判定与回弹都由 OverscrollBounce 维持原样。
     val bounceState = remember { OverscrollBounceState() }
@@ -864,14 +864,9 @@ private fun ContinueReadingCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(40.dp)
-                        .clip(AppRoundedCornerShape(AppRadius.lg))
-                        .clickable {
-                        menuExpanded = false
-                        showDeleteConfirm = true
-                    },
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                        .height(3.5.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color(0xFFEEEEEE))
                 ) {
                     Box(
                         modifier = Modifier

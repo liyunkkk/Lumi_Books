@@ -111,6 +111,7 @@ import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
 import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
 import com.huangder.lumibooks.util.FileUtils
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 @Composable
 internal fun BookshelfSearchLauncher(

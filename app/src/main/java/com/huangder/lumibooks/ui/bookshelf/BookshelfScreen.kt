@@ -532,7 +532,6 @@ fun BookshelfScreen(
     val currentLevelBooks = remember(uiState.books, uiState.bookFolderLinks, renderedFolderId) {
         booksAtFolderLevel(uiState.books, uiState.bookFolderLinks, renderedFolderId)
     }
-    }
     val layoutBooks = remember(
         uiState.books,
         uiState.bookFolderLinks,
@@ -1614,6 +1613,7 @@ fun BookshelfScreen(
                 onDismiss = { changeSourceTargetBook = null }
             )
         }
+    }
     }
     }
 }
