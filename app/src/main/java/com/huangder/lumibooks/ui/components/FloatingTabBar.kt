@@ -1087,59 +1087,7 @@ fun LiquidGlassSettingsButton(
     )
 }
 
-@Composable
-fun LiquidGlassImportButton(
-    onClick: () -> Unit,
-    liquidGlassBackdrop: Backdrop,
-    modifier: Modifier = Modifier
-) {
-    val isDark = LocalIsDarkTheme.current
-    val transparency = LocalLiquidGlassTransparency.current
-    val baseSurfaceAlpha = if (isDark) {
-        0.34f - transparency * 0.16f
-    } else {
-        0.38f - transparency * 0.20f
-    }
-    val maskAlpha = if (isDark) 0.24f else 0.30f
-    val combinedSurfaceAlpha = 1f - (1f - baseSurfaceAlpha) * (1f - maskAlpha)
-    val surfaceColor = if (isDark) {
-        Color.Black.copy(alpha = combinedSurfaceAlpha)
-    } else {
-        Color.White.copy(alpha = combinedSurfaceAlpha)
-    }
-    val contentColor = if (isDark) Color.White.copy(alpha = 0.92f) else Color(0xFF17171A)
 
-    LiquidGlassSurface(
-        controlEdge = true,
-        shape = CircleShape,
-        fallbackColor = if (isDark) Color(0xFF121214) else Color.White,
-        backdrop = liquidGlassBackdrop,
-        contentScrimColor = surfaceColor,
-        // Match the action button to the tab bar's 64dp glass space and optical rim.
-        modifier = modifier.size(LiquidTabBarHeight),
-        onClick = onClick,
-        contentAlignment = Alignment.Center
-    ) {
-        ControlIcon(
-            imageVector = AppIcons.Plus,
-            contentDescription = stringResource(R.string.import_books),
-            tint = contentColor,
-            modifier = Modifier.size(LiquidImportIconSize)
-        )
-    }
-}
-
-@Composable
-private fun FixedTabItems(
-    currentIndex: Int,
-    contentPadding: androidx.compose.ui.unit.Dp,
-    contentColor: Color,
-    selectedContentColor: Color,
-    onTabSelected: (Int) -> Unit,
-    liquidGlass: Boolean = true,
-    interactive: Boolean = true,
-    vertical: Boolean = false,
-    itemScale: () -> Float = { 1f },
     modifier: Modifier = Modifier
 ) {
     val item: @Composable (index: Int, tab: TabItem, itemModifier: Modifier) -> Unit = { index, tab, itemModifier ->
@@ -1179,16 +1127,6 @@ private fun FixedTabItems(
     }
 }
 
-@Composable
-private fun TabItemView(
-    tab: TabItem,
-    isSelected: Boolean,
-    liquidGlass: Boolean,
-    contentColor: Color,
-    selectedContentColor: Color,
-    interactive: Boolean = true,
-    vertical: Boolean = false,
-    itemScale: () -> Float = { 1f },
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {

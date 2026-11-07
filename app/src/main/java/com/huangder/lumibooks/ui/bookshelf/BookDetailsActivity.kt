@@ -365,7 +365,7 @@ fun BookDetailsScreen(
             }
         }
         FloatingDetailTag(
-            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp),
+            modifier = Modifier.navigationBarsPadding().padding(bottom = 12.dp),
             onDelete = {
                 val mode = if (book.remoteFileName != null) BookDeleteMode.LOCAL_AND_CLOUD else BookDeleteMode.LOCAL_ONLY
                 homeViewModel.deleteBook(book, mode)

@@ -1216,6 +1216,10 @@ fun BookshelfScreen(
             state = contextMenuState,
             isNowReadingHidden = isBookNowReadingHidden,
             isHidden = isBookHidden,
+            onToggleHidden = onToggleHidden,
+            onToggleReadStatus = onToggleReadStatus ?: {},
+            onArchive = onArchive,
+            hiddenLibrary = hiddenLibrary,
             onToggleHideNowReading = { book ->
                 viewModel.toggleHideBookFromNowReading(book.id)
                 val willBeHidden = book.id !in uiState.hiddenFromNowReadingBookIds
@@ -1660,6 +1664,10 @@ internal fun BookshelfCollection(
     coverFlowStateKey: String = "root",
     coverFlowEnabled: Boolean = true,
     onCoverFlowMenuVisibleChange: (Boolean) -> Unit = {},
+    onToggleHidden: ((Book) -> Unit)? = null,
+    onToggleReadStatus: ((Book) -> Unit)? = null,
+    onArchive: ((Book) -> Unit)? = null,
+    hiddenLibrary: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val targetMode = BookshelfLayout.normalize(layoutMode)
