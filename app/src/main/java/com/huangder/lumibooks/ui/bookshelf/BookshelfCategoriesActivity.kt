@@ -1,4 +1,6 @@
 package com.huangder.lumibooks.ui.bookshelf
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 
@@ -13,7 +15,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -34,7 +37,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -65,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -118,15 +123,17 @@ class BookshelfCategoriesActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         systemDarkMode = resources.configuration.isNightModeEnabled()
 
+        val launchTheme = com.huangder.lumibooks.util.LaunchThemeController.themeSnapshot(this)
         setContent {
-            val appTheme by dataStoreManager.appTheme.collectAsState(initial = "lumi")
-            val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = DEFAULT_APP_ACCENT_HEX)
-            val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = "system")
-            val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = 0.55f)
-            val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = false)
-            val darkMode by dataStoreManager.darkMode.collectAsState(initial = "system")
-            val eInkMode by dataStoreManager.eInkModeEnabled.collectAsState(initial = false)
-            val predictiveBackEnabled by dataStoreManager.predictiveBackEnabled.collectAsState(initial = true)
+            val appTheme by dataStoreManager.appTheme.collectAsState(initial = launchTheme.appTheme)
+            val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = launchTheme.appAccentColor)
+            val appFontSize by dataStoreManager.appFontSize.collectAsState(initial = launchTheme.appFontSize)
+            val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = launchTheme.globalFontMode)
+            val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = launchTheme.liquidGlassTransparency)
+            val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = launchTheme.liquidGlassHdrHighlightEnabled)
+            val darkMode by dataStoreManager.darkMode.collectAsState(initial = launchTheme.darkMode)
+            val eInkMode by dataStoreManager.eInkModeEnabled.collectAsState(initial = launchTheme.eInkModeEnabled)
+            val predictiveBackEnabled by dataStoreManager.predictiveBackEnabled.collectAsState(initial = launchTheme.predictiveBackEnabled)
             val isDark = if (eInkMode) false else when (darkMode) {
                 "dark" -> true
                 "light" -> false
@@ -134,21 +141,33 @@ class BookshelfCategoriesActivity : ComponentActivity() {
             }
             val capability = rememberLiquidGlassCapability(eInkMode, LocalView.current)
             val effectiveTheme = effectiveAppTheme(appTheme, capability)
+            val motion by dataStoreManager.motionPreference.collectAsState(initial = launchTheme.motionPreference)
+            val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
+            val liquidGlassStyle by dataStoreManager.liquidGlassStyle
+                .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
+                .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
+                liquidGlassStyle = liquidGlassStyle,
+                reduceTransparencyEnabled = reduceTransparencyEnabled,
+                menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
+                motionPreference = com.huangder.lumibooks.ui.theme.MotionPreference.fromStoredValue(motion),
                 darkTheme = isDark,
                 dynamicColor = effectiveTheme == "material3",
-                appTheme = effectiveTheme,
+                appTheme = appTheme,
+                lumiBackgroundScene = com.huangder.lumibooks.ui.theme.LumiBackgroundScene.SECONDARY,
                 appAccentColor = appAccentColor,
                 liquidGlassTransparency = liquidGlassTransparency,
                 liquidGlassHdrHighlightEnabled = liquidGlassHdrHighlightEnabled && !eInkMode,
                 eInkMode = eInkMode,
+                appFontSize = appFontSize,
                 globalFontMode = globalFontMode
             ) {
                 ConfigurableActivityBack(
                     predictiveBackEnabled = predictiveBackEnabled,
                     onBack = { finish() }
                 )
-                Surface(modifier = Modifier.fillMaxSize(), color = AppColors.WindowBg) {
+                Surface(modifier = Modifier.fillMaxSize(), color = AppColors.PageBg) {
                     LiquidGlassDialogHost(modifier = Modifier.fillMaxSize()) {
                         BookshelfCategoriesScreen(
                             onTargetSelected = { target ->
@@ -206,6 +225,7 @@ internal sealed interface BookshelfCategoryTarget {
     data class All(override val title: String) : BookshelfCategoryTarget
     data class EpubMobi(override val title: String) : BookshelfCategoryTarget
     data class Pdf(override val title: String) : BookshelfCategoryTarget
+    data class Markdown(override val title: String) : BookshelfCategoryTarget
     data class Txt(override val title: String) : BookshelfCategoryTarget
     data class Comic(override val title: String) : BookshelfCategoryTarget
     data class Favorites(override val title: String) : BookshelfCategoryTarget
@@ -224,14 +244,16 @@ private fun BookshelfCategoriesScreen(
     onTargetSelected: (BookshelfCategoryTarget) -> Unit,
     onFolderSelected: (LibraryFolder) -> Unit,
     onBack: () -> Unit,
+    compactPanel: Boolean = false,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val uiState by viewModel.uiState.collectAsState()
-    val tagIdsByBook = remember(uiState.bookTagLinks) {
+    val tagsById = remember(uiState.tags) { uiState.tags.associateBy { it.id } }
+    val tagIdsByBook = remember(uiState.bookTagLinks, tagsById) {
         uiState.bookTagLinks.groupBy { it.bookId }
-            .mapValues { (_, links) -> links.mapTo(mutableSetOf()) { it.tagId } }
+            .mapValues { (_, links) -> links.flatMapTo(mutableSetOf()) { it.effectiveTagIds(tagsById) } }
     }
     var managedFolder by remember { mutableStateOf<LibraryFolder?>(null) }
     var renameFolder by remember { mutableStateOf<LibraryFolder?>(null) }
@@ -258,6 +280,7 @@ private fun BookshelfCategoriesScreen(
             )
         )
         add(CategoryRowModel(BookshelfCategoryTarget.Pdf("PDF"), uiState.books.count { it.format == BookFormat.PDF }, AppIcons.FileText))
+        add(CategoryRowModel(BookshelfCategoryTarget.Markdown("Markdown"), uiState.books.count { it.format == BookFormat.MARKDOWN }, AppIcons.FileText))
         add(CategoryRowModel(BookshelfCategoryTarget.Txt("TXT"), uiState.books.count { it.format == BookFormat.TXT }, AppIcons.FileText))
         add(
             CategoryRowModel(
@@ -277,6 +300,7 @@ private fun BookshelfCategoriesScreen(
         onBack = onBack,
         onTargetSelected = onTargetSelected,
         onFolderSelected = onFolderSelected,
+        compactPanel = compactPanel,
         onFolderLongClick = {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             managedFolder = it
@@ -378,6 +402,22 @@ private fun BookshelfCategoriesScreen(
 }
 
 @Composable
+internal fun BookshelfCategoriesMenuContent(
+    viewModel: HomeViewModel,
+    onDismiss: () -> Unit,
+    onTargetSelected: (BookshelfCategoryTarget) -> Unit,
+    onFolderSelected: (LibraryFolder) -> Unit
+) {
+    BookshelfCategoriesScreen(
+        onTargetSelected = onTargetSelected,
+        onFolderSelected = onFolderSelected,
+        onBack = onDismiss,
+        compactPanel = true,
+        viewModel = viewModel
+    )
+}
+
+@Composable
 internal fun BookshelfCategoryBooksRoute(
     selectedTarget: BookshelfCategoryTarget,
     onBack: () -> Unit,
@@ -386,9 +426,10 @@ internal fun BookshelfCategoryBooksRoute(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
-    val tagIdsByBook = remember(uiState.bookTagLinks) {
+    val tagsById = remember(uiState.tags) { uiState.tags.associateBy { it.id } }
+    val tagIdsByBook = remember(uiState.bookTagLinks, tagsById) {
         uiState.bookTagLinks.groupBy { it.bookId }
-            .mapValues { (_, links) -> links.mapTo(mutableSetOf()) { it.tagId } }
+            .mapValues { (_, links) -> links.flatMapTo(mutableSetOf()) { it.effectiveTagIds(tagsById) } }
     }
     val tagNamesByBook = remember(uiState.tags, uiState.bookTagLinks) {
         val names = uiState.tags.associate { it.id to it.name }
@@ -406,6 +447,7 @@ internal fun BookshelfCategoryBooksRoute(
             is BookshelfCategoryTarget.All -> uiState.books
             is BookshelfCategoryTarget.EpubMobi -> uiState.books.filter(Book::isEpubMobi)
             is BookshelfCategoryTarget.Pdf -> uiState.books.filter { it.format == BookFormat.PDF }
+            is BookshelfCategoryTarget.Markdown -> uiState.books.filter { it.format == BookFormat.MARKDOWN }
             is BookshelfCategoryTarget.Txt -> uiState.books.filter { it.format == BookFormat.TXT }
             is BookshelfCategoryTarget.Comic -> uiState.books.filter { it.format == BookFormat.CBZ }
             is BookshelfCategoryTarget.Favorites -> uiState.books.filter { it.isFavorite }
@@ -451,7 +493,8 @@ private fun CategoryListPage(
     onBack: () -> Unit,
     onTargetSelected: (BookshelfCategoryTarget) -> Unit,
     onFolderSelected: (LibraryFolder) -> Unit,
-    onFolderLongClick: (LibraryFolder) -> Unit
+    onFolderLongClick: (LibraryFolder) -> Unit,
+    compactPanel: Boolean = false
 ) {
     var collapsedFolderIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
     val folderRows = remember(folders, collapsedFolderIds) {
@@ -467,18 +510,78 @@ private fun CategoryListPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppColors.WindowBg)
-            .statusBarsPadding()
+            .background(AppColors.PageBg)
+            .then(if (compactPanel) Modifier else Modifier.statusBarsPadding())
     ) {
         CategoriesPageHeader(
             title = stringResource(R.string.bookshelf_categories_title),
-            onBack = onBack
+            onBack = onBack,
+            closeButton = compactPanel,
+            compactPanel = compactPanel
         )
         LazyColumn(
             contentPadding = PaddingValues(horizontal = AppSpace.lg, vertical = AppSpace.md),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize()
         ) {
+            if (compactPanel) {
+                item {
+                    CategoryGroup(stringResource(R.string.bookshelf_builtin_categories)) {
+                        categories.forEachIndexed { index, row ->
+                            if (index > 0) CategoryRowDivider()
+                            CategoryRow(row.target.title, row.count, row.icon, compact = true,
+                                onClick = { onTargetSelected(row.target) })
+                        }
+                    }
+                }
+                item {
+                    CategoryGroup(stringResource(R.string.bookshelf_custom_categories)) {
+                        if (folderRows.isEmpty()) {
+                            Text(stringResource(R.string.no_custom_categories), color = AppColors.TextSecondary,
+                                fontSize = AppType.BodySmall, modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp))
+                        } else folderRows.forEachIndexed { index, row ->
+                            if (index > 0) CategoryRowDivider()
+                            CategoryRow(
+                                title = row.folder.name,
+                                count = folderBookCounts[row.folder.id] ?: 0,
+                                icon = AppIcons.Folder,
+                                linked = row.folder.storageDocumentUri != null,
+                                startIndent = (row.depth * 16).dp,
+                                disclosure = if (row.hasChildren) CategoryDisclosure(
+                                    expanded = row.folder.id !in collapsedFolderIds,
+                                    onToggle = { toggleFolderCollapse(row.folder) }
+                                ) else null,
+                                reserveDisclosureSpace = true,
+                                compact = true,
+                                modifier = Modifier.animateItem(
+                                    fadeInSpec = spring(stiffness = 400f),
+                                    placementSpec = spring(stiffness = 400f, visibilityThreshold = IntOffset(1, 1)),
+                                    fadeOutSpec = spring(stiffness = 400f)
+                                ),
+                                onClick = { onFolderSelected(row.folder) },
+                                onLongClick = { onFolderLongClick(row.folder) }
+                            )
+                        }
+                    }
+                }
+                item {
+                    CategoryGroup(stringResource(R.string.bookshelf_user_tags)) {
+                        if (tags.isEmpty()) {
+                            Text(stringResource(R.string.no_tags), color = AppColors.TextSecondary,
+                                fontSize = AppType.BodySmall, modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp))
+                        } else tags.forEachIndexed { index, tag ->
+                            if (index > 0) CategoryRowDivider()
+                            CategoryRow(
+                                tag.name,
+                                tagIdsByBook.values.count { tag.id in it },
+                                AppIcons.Tag,
+                                compact = true,
+                                onClick = { onTargetSelected(BookshelfCategoryTarget.Tag(tag.id, tag.name)) }
+                            )
+                        }
+                    }
+                }
+            } else {
             item {
                 CategorySectionTitle(stringResource(R.string.bookshelf_builtin_categories))
             }
@@ -522,7 +625,11 @@ private fun CategoryListPage(
                             null
                         },
                         reserveDisclosureSpace = true,
-                        modifier = Modifier.animateItem(),
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = spring(stiffness = 400f),
+                            placementSpec = spring(stiffness = 400f, visibilityThreshold = IntOffset(1, 1)),
+                            fadeOutSpec = spring(stiffness = 400f)
+                        ),
                         onClick = { onFolderSelected(row.folder) },
                         onLongClick = { onFolderLongClick(row.folder) }
                     )
@@ -555,23 +662,32 @@ private fun CategoryListPage(
                     )
                 }
             }
+            }
         }
     }
 }
 
 @Composable
-private fun CategoriesPageHeader(title: String, onBack: () -> Unit) {
+private fun CategoriesPageHeader(
+    title: String,
+    onBack: () -> Unit,
+    closeButton: Boolean = false,
+    compactPanel: Boolean = false
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppSpace.lg, vertical = 12.dp),
+            .padding(
+                horizontal = if (compactPanel) 24.dp else AppSpace.lg,
+                vertical = if (compactPanel) 24.dp else 12.dp
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         LiquidGlassIconButton(
-            imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
-            contentDescription = stringResource(R.string.back),
+            imageVector = if (closeButton) AppIcons.X else directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
+            contentDescription = stringResource(if (closeButton) R.string.close else R.string.back),
             onClick = onBack,
-            settingsBackButton = true
+            settingsBackButton = !compactPanel
         )
         Spacer(Modifier.width(20.dp))
         Text(
@@ -598,6 +714,27 @@ private fun CategorySectionTitle(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun CategoryGroup(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .clip(AppRoundedCornerShape(16.dp))
+            .background(AppColors.CardBg)
+    ) {
+        CategorySectionTitle(title, Modifier.padding(start = 14.dp, end = 14.dp, top = 10.dp))
+        content()
+    }
+}
+
+@Composable
+private fun CategoryRowDivider() {
+    androidx.compose.material3.HorizontalDivider(
+        modifier = Modifier.padding(start = 48.dp, end = 12.dp),
+        thickness = 0.5.dp,
+        color = AppColors.TextSecondary.copy(alpha = 0.18f)
+    )
+}
+
+@Composable
 private fun CategoryRow(
     title: String,
     count: Int,
@@ -608,34 +745,56 @@ private fun CategoryRow(
     startIndent: Dp = 0.dp,
     disclosure: CategoryDisclosure? = null,
     reserveDisclosureSpace: Boolean = false,
+    compact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        shape = RoundedCornerShape(22.dp),
-        color = AppColors.CardBg,
-        modifier = modifier
-            .padding(start = startIndent)
-            .fillMaxWidth()
-            .height(64.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    val compactRowHeight = maxOf(46f, 42f * androidx.compose.ui.platform.LocalDensity.current.fontScale).dp
+    val rowModifier = modifier
+        .padding(start = startIndent)
+        .fillMaxWidth()
+        .height(if (compact) compactRowHeight else 64.dp)
+        .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    if (compact) {
+        CategoryRowContent(title, count, icon, linked, disclosure, reserveDisclosureSpace, rowModifier, compact)
+    } else com.huangder.lumibooks.ui.components.LiquidGlassSurface(
+        shape = AppRoundedCornerShape(22.dp),
+        fallbackColor = AppColors.CardBg,
+        modifier = rowModifier
     ) {
+        CategoryRowContent(title, count, icon, linked, disclosure, reserveDisclosureSpace, Modifier.fillMaxSize(), compact)
+    }
+}
+
+@Composable
+private fun CategoryRowContent(
+    title: String,
+    count: Int,
+    icon: ImageVector,
+    linked: Boolean,
+    disclosure: CategoryDisclosure?,
+    reserveDisclosureSpace: Boolean,
+    modifier: Modifier,
+    compact: Boolean
+) {
         Row(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = if (compact) 12.dp else 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             when {
                 disclosure != null -> CategoryDisclosureButton(disclosure)
                 reserveDisclosureSpace -> Spacer(Modifier.width(CategoryDisclosureSlot))
             }
-            Icon(icon, null, tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(14.dp))
+            Icon(icon, null, tint = AppColors.TextSecondary, modifier = Modifier.size(if (compact) 18.dp else 22.dp))
+            Spacer(Modifier.width(if (compact) 10.dp else 14.dp))
             Text(
                 text = title,
                 color = AppColors.TextPrimary,
-                fontSize = AppType.Body,
+                fontSize = if (compact) AppType.BodySmall else AppType.Body,
                 fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
             if (linked) {
@@ -650,17 +809,17 @@ private fun CategoryRow(
             Text(
                 text = stringResource(R.string.bookshelf_category_book_count, count),
                 color = AppColors.TextSecondary,
-                fontSize = AppType.Caption
+                fontSize = AppType.Caption,
+                maxLines = 1
             )
             Spacer(Modifier.width(6.dp))
             Icon(
                 directionalIcon(AppIcons.CaretRight, AppIcons.CaretLeft),
                 null,
                 tint = AppColors.TextSecondary,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(if (compact) 17.dp else 20.dp)
             )
         }
-    }
 }
 
 /** 自定义分类里父文件夹的折叠开关状态。 */
@@ -816,7 +975,7 @@ private fun CategoryBooksPage(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AppColors.WindowBg)
+                .background(AppColors.PageBg)
         ) {
             BookshelfCollection(
                 layoutMode = layoutMode,
@@ -890,6 +1049,7 @@ private fun CategoryBooksPage(
                     triggerDeleteCategoryBooks(listOf(it))
                 },
                 onFavorite = { viewModel.updateBook(it.copy(isFavorite = !it.isFavorite)) },
+                onPin = { viewModel.updateBook(it.copy(isPinned = !it.isPinned)) },
                 onCustomCover = { coverSourceBook = it },
                 onRemoveCustomCover = viewModel::removeCustomCover,
                 onBookmarksNotes = {
@@ -900,6 +1060,9 @@ private fun CategoryBooksPage(
                 onTags = { tagTargetBook = it },
                 onEditInfo = { editingBook = it },
                 onBookDetails = { book -> BookDetailsActivity.start(context, book.id) },
+                onToggleReadStatus = { book ->
+                    viewModel.updateBook(book.copy(readingProgress = if (book.isReadingFinished) 0f else 1f))
+                },
                 onMoveToFolder = { book -> moveTargetBook = book }
             )
         }
@@ -1057,14 +1220,17 @@ private fun CategoryBooksHeader(
                 contentColor = AppColors.TextPrimary,
                 prominentShadow = true,
                 modifier = Modifier
-                    .width(88.dp)
-                    .height(46.dp)
+                    .widthIn(min = 88.dp)
+                    .heightIn(min = 46.dp)
             ) {
                 Text(
                     text = stringResource(R.string.done),
                     color = AppColors.TextPrimary,
                     fontSize = AppType.BodySmall,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
             }
             Spacer(Modifier.width(10.dp))
@@ -1128,10 +1294,10 @@ private fun CategoryBooksHeader(
                 onClick = onEditToggle,
                 tintedColor = AppColors.CardBg,
                 modifier = Modifier
-                    .width(78.dp)
-                    .height(48.dp)
+                    .widthIn(min = 78.dp)
+                    .heightIn(min = 48.dp)
             ) {
-                Text(stringResource(R.string.edit), color = AppColors.TextPrimary)
+                Text(stringResource(R.string.edit), color = AppColors.TextPrimary, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
         }
     }

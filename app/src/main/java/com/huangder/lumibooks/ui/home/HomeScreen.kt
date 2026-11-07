@@ -1,5 +1,15 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.huangder.lumibooks.ui.home
 
+import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.windowInsetsPadding
+import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
+import com.huangder.lumibooks.ui.components.LocalLiquidGlassBackdrop
+import com.huangder.lumibooks.ui.components.lumiCardSurface
+import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
 import com.huangder.lumibooks.ui.icons.AppIcons
 
 import androidx.compose.foundation.BorderStroke
@@ -25,11 +35,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,6 +47,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.MoreVert
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassTextButton
 import androidx.compose.material3.DropdownMenu
@@ -98,8 +107,8 @@ import com.huangder.lumibooks.ui.animation.OverscrollBounce
 import com.huangder.lumibooks.ui.animation.OverscrollBounceState
 import com.huangder.lumibooks.ui.animation.cardPressEffect
 import com.huangder.lumibooks.ui.components.StatusGradientOverlay
-import com.huangder.lumibooks.ui.components.BookCoverProgressOverlay
-import com.huangder.lumibooks.ui.components.FinishedReadingIndicator
+import com.huangder.lumibooks.ui.components.BookCoverStatusBadge
+import com.huangder.lumibooks.ui.components.BookProgressStatus
 import com.huangder.lumibooks.ui.components.CloudAwareBookDeleteDialog
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -145,13 +154,14 @@ fun HomeScreen(
     val isMaterial3 = LocalUseMaterial3Theme.current
     val useWideLayout = currentAdaptiveWindowInfo().isMediumWidthOrLarger
     val topBlurBackdrop = rememberLayerBackdrop()
-    val statusBarTopPadding = WindowInsets.statusBars
+    val statusBarTopPadding = WindowInsets.statusBarsIgnoringVisibility
         .asPaddingValues()
         .calculateTopPadding()
-    val navBarBottom = WindowInsets.navigationBars
-        .asPaddingValues()
-        .calculateBottomPadding()
-    val bottomContentPadding = navBarBottom + (if (isMaterial3) 84.dp else 76.dp)
+    val bottomContentPadding = if (isMaterial3) {
+        WindowInsets.navigationBarsIgnoringVisibility.asPaddingValues().calculateBottomPadding() + 96.dp
+    } else {
+        120.dp
+    }
     val context = LocalContext.current
     var localShowGoalSheet by remember { mutableStateOf(false) }
     val showGoalSheet = if (renderReadingGoalSheet) localShowGoalSheet else showReadingGoalSheet
@@ -184,6 +194,7 @@ fun HomeScreen(
         activeReadingBooks.sortedByDescending { it.lastReadTime }
     }
     val lastReadBook = booksByLastRead.firstOrNull()
+    val recentBooks = booksByLastRead.take(6)
 
     // 顶部下拉「松手继续阅读」：只读取下拉位移，判定与回弹都由 OverscrollBounce 维持原样。
     val bounceState = remember { OverscrollBounceState() }
@@ -228,7 +239,7 @@ fun HomeScreen(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppColors.WindowBg)
+            .background(AppColors.PageBg)
             .semantics { testTagsAsResourceId = true }
             .testTag(HOME_SCREEN_TAG)
     ) {
@@ -355,7 +366,7 @@ fun HomeScreen(
                     .then(
                         if (isMaterial3) {
                             Modifier
-                                .navigationBarsPadding()
+                                .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
                                 .padding(end = 24.dp, bottom = 96.dp)
                         } else {
                             Modifier.padding(end = 24.dp, bottom = 100.dp)
@@ -439,7 +450,7 @@ private fun ImportHint(onImportClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg)
-            .clip(RoundedCornerShape(AppRadius.md))
+            .clip(AppRoundedCornerShape(AppRadius.md))
             .background(AppColors.BgGray)
             .clickable(onClick = onImportClick)
             .padding(horizontal = AppSpace.lg, vertical = AppSpace.xl),
@@ -521,15 +532,17 @@ private fun ContinueReadingCard(
     val coverBounds = remember { java.util.concurrent.atomic.AtomicReference(Rect.Zero) }
     val context = LocalContext.current
     val blurRadiusPx = with(LocalDensity.current) { 24.dp.roundToPx() }
-    val useCoverBackground = book.coverPath != null && !LocalEInkMode.current
+    val useCoverBackground = book.coverPath != null && !LocalEInkMode.current &&
+        !LocalReduceTransparency.current &&
+        !com.huangder.lumibooks.ui.theme.LocalLumiBackgroundPresent.current
     val primaryContentColor = if (useCoverBackground) Color.White else AppColors.TextPrimary
     val secondaryContentColor = if (useCoverBackground) {
         Color.White.copy(alpha = 0.78f)
     } else {
         AppColors.TextSecondary
     }
-    val blurredCoverRequest = remember(book.id, book.coverPath, blurRadiusPx) {
-        book.coverPath?.let { coverPath ->
+    val blurredCoverRequest = remember(book.id, book.coverPath, blurRadiusPx, useCoverBackground) {
+        book.coverPath?.takeIf { useCoverBackground }?.let { coverPath ->
             ImageRequest.Builder(context)
                 .data(coverPath)
                 .allowHardware(false)
@@ -544,10 +557,10 @@ private fun ContinueReadingCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(12.dp, RoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
-            .cardOutline(RoundedCornerShape(AppRadius.lg))
-            .clip(RoundedCornerShape(AppRadius.lg))
-            .background(AppColors.CardBg)
+            .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
+            .cardOutline(AppRoundedCornerShape(AppRadius.lg))
+            .clip(AppRoundedCornerShape(AppRadius.lg))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
             .cardPressEffect()
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
                 onClick(coverBounds.get().takeUnless { it == Rect.Zero })
@@ -581,7 +594,8 @@ private fun ContinueReadingCard(
                 .onGloballyPositioned { coverBounds.set(it.boundsInRoot()) }
                 .bookCoverTransitionAnchor(
                     bookId = book.id,
-                    cornerRadiusDp = 10f,
+                    anchorId = "home-continue-${book.id}",
+                    cornerRadiusDp = AppRadius.sm.value,
                     titleStyle = BookCoverTitleStyle(
                         fontSizeSp = AppType.Caption.value,
                         maxLines = 3,
@@ -590,10 +604,9 @@ private fun ContinueReadingCard(
                         useKaiTi = true,
                         textAlignCenter = true
                     ),
-                    showReadingProgress = false
+                    showReadingProgress = com.huangder.lumibooks.ui.theme.LocalCoverReadingProgressEnabled.current
                 )
-                .shadow(6.dp, RoundedCornerShape(10.dp), ambientColor = Color(0x14000000), spotColor = Color(0x14000000))
-                .clip(RoundedCornerShape(10.dp))
+                .clip(AppRoundedCornerShape(AppRadius.sm))
                 .background(AppColors.BgGray)
         ) {
             if (book.coverPath == null) {
@@ -615,12 +628,9 @@ private fun ContinueReadingCard(
                     contentScale = ContentScale.Crop
                 )
             }
-            BookCoverProgressOverlay(
+            BookCoverStatusBadge(
                 book = book,
-                downloadState = downloadState,
-                compact = true,
-                showReadingProgress = false,
-                badgeCornerRadius = AppRadius.sm
+                compact = true
             )
         }
         Spacer(Modifier.width(16.dp))
@@ -759,11 +769,81 @@ private fun ContinueReadingCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Column {
+            Spacer(Modifier.height(AppSpace.xs))
+            BookProgressStatus(
+                book = book,
+                downloadState = downloadState,
+                color = secondaryContentColor,
+                progressColor = secondaryContentColor
+            )
+        }
+        Box {
+            // A button instead of a bare icon, so the anchored menu has a trigger
+            // control of its own to morph out of (matches the bookshelf bar).
+            //
+            // It deliberately runs on the material fallback: the page backdrop
+            // captures this very card, and a surface that samples its own capture
+            // makes the render tree reference itself (native HWUI crash). The
+            // fallback still draws the glass gradient, outline and shadow, and the
+            // pressed stretch/highlight keeps working; only refraction is dropped.
+            CompositionLocalProvider(LocalLiquidGlassBackdrop provides null) {
+                LiquidGlassIconButton(
+                imageVector = AppIcons.DotsThreeVertical,
+                contentDescription = stringResource(R.string.more_options),
+                onClick = {
+                    if (liquidMenuHost != null && menuAnchorBounds != Rect.Zero) {
+                        liquidMenuHost.toggle(
+                            LiquidGlassMenuSpec(
+                                anchorBounds = menuAnchorBounds,
+                                width = 132.dp,
+                                items = listOf(
+                                    LiquidGlassMenuItem(
+                                        label = favoriteMenuLabel,
+                                        icon = AppIcons.Heart.regular,
+                                        onClick = onToggleFavorite
+                                    ),
+                                    LiquidGlassMenuItem(
+                                        label = deleteMenuLabel,
+                                        icon = AppIcons.Trash,
+                                        destructive = true,
+                                        onClick = { showDeleteConfirm = true }
+                                    )
+                                )
+                            )
+                        )
+                    } else {
+                        menuExpanded = true
+                    }
+                },
+                size = 32.dp,
+                iconSize = 18.dp,
+                contentColor = secondaryContentColor,
+                liquidContainerColor = if (useCoverBackground) Color.Black.copy(alpha = 0.18f) else AppColors.CardBg,
+                liquidScrimColor = if (useCoverBackground) Color.Black.copy(alpha = 0.22f) else AppColors.CardBg.copy(alpha = 0.58f),
+                modifier = Modifier.liquidGlassMenuAnchor().onGloballyPositioned { menuAnchorBounds = it.boundsInRoot() }
+            )
+            }
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+                modifier = Modifier.width(116.dp),
+                shape = AppRoundedCornerShape(AppRadius.xl),
+                containerColor = AppColors.WindowBg,
+                border = BorderStroke(1.dp, AppColors.Divider),
+                shadowElevation = 0.dp,
+                tonalElevation = 0.dp
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .clip(AppRoundedCornerShape(AppRadius.lg))
+                        .clickable {
+                        menuExpanded = false
+                        onToggleFavorite()
+                    },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     val progressPercent = (book.readingProgress * 100).toInt().coerceIn(0, 100)
                     Text(
@@ -784,9 +864,14 @@ private fun ContinueReadingCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(3.5.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(Color(0xFFEEEEEE))
+                        .height(40.dp)
+                        .clip(AppRoundedCornerShape(AppRadius.lg))
+                        .clickable {
+                        menuExpanded = false
+                        showDeleteConfirm = true
+                    },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
@@ -865,10 +950,10 @@ private fun RecentBookCard(
     Row(
         modifier = modifier
             .then(if (fixedWidth) Modifier.width(260.dp) else Modifier)
-            .shadow(10.dp, RoundedCornerShape(AppRadius.md), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
-            .cardOutline(RoundedCornerShape(AppRadius.md))
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
+            .shadow(10.dp, AppRoundedCornerShape(AppRadius.md), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
+            .cardOutline(AppRoundedCornerShape(AppRadius.md))
+            .clip(AppRoundedCornerShape(AppRadius.md))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
             .cardPressEffect()
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onClick)
             .padding(AppSpace.sm),
@@ -889,7 +974,7 @@ private fun RecentBookCard(
                         textAlignCenter = true
                     )
                 )
-                .clip(RoundedCornerShape(6.dp))
+                .clip(AppRoundedCornerShape(6.dp))
                 .background(AppColors.BgGray),
             contentAlignment = Alignment.Center
         ) {
@@ -911,6 +996,7 @@ private fun RecentBookCard(
                     contentScale = ContentScale.Crop
                 )
             }
+            BookCoverStatusBadge(book = book, compact = true)
         }
         Spacer(Modifier.width(AppSpace.sm))
         Column(modifier = Modifier.weight(1f)) {
@@ -928,15 +1014,7 @@ private fun RecentBookCard(
                 color = AppColors.TextSecondary,
                 maxLines = 1
             )
-            if (LocalShowFinishedBadge.current && book.isReadingFinished) {
-                FinishedReadingIndicator()
-            } else {
-                Text(
-                    text = "${(book.readingProgress * 100).toInt()}%",
-                    fontSize = AppType.Caption,
-                    color = AppColors.Accent
-                )
-            }
+            BookProgressStatus(book = book)
         }
     }
 }
@@ -961,10 +1039,10 @@ private fun ReadingGoalCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg)
-            .shadow(6.dp, RoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
-            .cardOutline(RoundedCornerShape(AppRadius.lg))
-            .clip(RoundedCornerShape(AppRadius.lg))
-            .background(AppColors.CardBg)
+            .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
+            .cardOutline(AppRoundedCornerShape(AppRadius.lg))
+            .clip(AppRoundedCornerShape(AppRadius.lg))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
             .cardPressEffect()
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onCardClick)
             .padding(horizontal = 20.dp, vertical = 14.dp),
@@ -1027,8 +1105,10 @@ private fun ReadingGoalCard(
                 }
             }
         }
-        Spacer(Modifier.height(14.dp))
-        // 星期打卡（严格对齐设计稿 7 天圆圈布局）
+
+        Spacer(Modifier.height(AppSpace.lg))
+
+        // 星期打卡
         WeeklyCheckIn(weeklyData = weeklyData, dailyGoal = dailyGoal)
     }
 }
@@ -1116,7 +1196,7 @@ private fun BooksReadGrid(
     useWideLayout: Boolean = false,
     onBookClick: (Book, Rect?) -> Unit
 ) {
-    val coverShape = RoundedCornerShape(
+    val coverShape = AppRoundedCornerShape(
         if (LocalAppTheme.current == "liquid_glass") 16.dp else AppRadius.md
     )
     val coverRadiusDp = if (LocalAppTheme.current == "liquid_glass") {
@@ -1125,52 +1205,34 @@ private fun BooksReadGrid(
         AppRadius.md.value
     }
     val bookBounds = remember { mutableMapOf<String, Rect>() }
-    LazyRow(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    RecentBooksRow(
+        itemWidth = if (useWideLayout) 120.dp else 96.dp,
+        modifier = modifier
     ) {
         items(books, key = { it.id }) { book ->
-            val itemWidth = if (useWideLayout) 120.dp else 104.dp
             Column(
                 modifier = Modifier
-                    .width(itemWidth)
-                    .aspectRatio(0.75f)
-                    .bookCoverTransitionAnchor(
-                        bookId = book.id,
-                        cornerRadiusDp = coverRadiusDp,
-                        titleStyle = BookCoverTitleStyle(
-                            fontSizeSp = AppType.BodySmall.value,
-                            maxLines = 3,
-                            paddingDp = AppSpace.sm.value,
-                            color = BookCoverTitleColor.Primary,
-                            useKaiTi = true,
-                            textAlignCenter = true
-                        )
-                    )
-                    .shadow(
-                        elevation = 8.dp,
-                        shape = coverShape,
-                        ambientColor = AppColors.CardShadow,
-                        spotColor = AppColors.CardShadow
-                    )
-                    .clip(coverShape)
-                    .background(AppColors.BgGray)
-                    .border(1.dp, AppColors.Divider, coverShape)
-                    .cardPressEffect()
-                    .onGloballyPositioned { coordinates ->
-                        bookBounds[book.id] = coordinates.boundsInRoot()
-                    }
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() }
-                    ) { onBookClick(book, bookBounds[book.id]) }
+                    .width(if (useWideLayout) 120.dp else 96.dp)
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(0.75f)
+                        .bookCoverTransitionAnchor(
+                            bookId = book.id,
+                            anchorId = "home-recent-${book.id}",
+                            cornerRadiusDp = coverRadiusDp,
+                            titleStyle = BookCoverTitleStyle(
+                                fontSizeSp = AppType.BodySmall.value,
+                                maxLines = 3,
+                                paddingDp = AppSpace.sm.value,
+                                color = BookCoverTitleColor.Primary,
+                                useKaiTi = true,
+                                textAlignCenter = true
+                            )
+                        )
                         .shadow(
-                            elevation = 6.dp,
+                            elevation = 8.dp,
                             shape = coverShape,
                             ambientColor = AppColors.CardShadow,
                             spotColor = AppColors.CardShadow
@@ -1181,7 +1243,11 @@ private fun BooksReadGrid(
                         .cardPressEffect()
                         .onGloballyPositioned { coordinates ->
                             bookBounds[book.id] = coordinates.boundsInRoot()
-                        },
+                        }
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onBookClick(book, bookBounds[book.id]) },
                     contentAlignment = Alignment.Center
                 ) {
                     if (book.coverPath == null) {
@@ -1202,31 +1268,43 @@ private fun BooksReadGrid(
                             contentScale = ContentScale.Crop
                         )
                     }
-                    BookCoverProgressOverlay(
+                    BookCoverStatusBadge(
+                        book = book,
+                        compact = true
+                    )
+                }
+                Spacer(Modifier.height(AppSpace.xs))
+                Text(
+                    text = book.title,
+                    fontSize = AppType.Caption,
+                    fontWeight = FontWeight.SemiBold,
+                    color = AppColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = book.author,
+                    fontSize = 10.sp,
+                    color = AppColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    BookProgressStatus(
                         book = book,
                         downloadState = downloadStates[book.id],
                         compact = true,
-                        badgeCornerRadius = coverRadiusDp.dp
+                        color = AppColors.TextSecondary,
+                        progressColor = AppColors.Accent
                     )
                 }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = book.title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = resolveAppFontFamily(KaiTi),
-                    color = AppColors.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = book.author.ifBlank { "未知作者" },
-                    fontSize = 11.sp,
-                    color = AppColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
         }
     }

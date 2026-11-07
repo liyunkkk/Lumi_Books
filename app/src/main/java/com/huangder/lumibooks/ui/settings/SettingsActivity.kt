@@ -55,6 +55,7 @@ class SettingsActivity : ComponentActivity() {
         setContent {
             val appTheme by dataStoreManager.appTheme.collectAsState(initial = launchTheme.appTheme)
             val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = launchTheme.appAccentColor)
+            val appFontSize by dataStoreManager.appFontSize.collectAsState(initial = launchTheme.appFontSize)
             val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = launchTheme.globalFontMode)
             val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = launchTheme.liquidGlassTransparency)
             val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = launchTheme.liquidGlassHdrHighlightEnabled)
@@ -70,14 +71,26 @@ class SettingsActivity : ComponentActivity() {
                 else -> systemDarkMode
             }
 
+            val eInkMode by dataStoreManager.eInkModeEnabled.collectAsState(initial = launchTheme.eInkModeEnabled)
+            val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
+            val liquidGlassStyle by dataStoreManager.liquidGlassStyle
+                .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
+                .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
+                liquidGlassStyle = liquidGlassStyle,
+                reduceTransparencyEnabled = reduceTransparencyEnabled,
+                menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
+                eInkMode = eInkMode,
                 darkTheme = isDark,
                 dynamicColor = effectiveAppTheme == "material3",
-                appTheme = effectiveAppTheme,
+                appTheme = appTheme,
+                lumiBackgroundScene = com.huangder.lumibooks.ui.theme.LumiBackgroundScene.SECONDARY,
                 appAccentColor = appAccentColor,
                 liquidGlassTransparency = liquidGlassTransparency,
                 liquidGlassHdrHighlightEnabled = liquidGlassHdrHighlightEnabled,
                 cardOutlinesEnabled = cardOutlinesEnabled,
+                appFontSize = appFontSize,
                 globalFontMode = globalFontMode,
                 motionPreference = MotionPreference.fromStoredValue(motionPreferenceValue)
             ) {
@@ -87,7 +100,7 @@ class SettingsActivity : ComponentActivity() {
                     predictiveBackEnabled = predictiveBackEnabled,
                     onBack = { finish() }
                 )
-                Surface(modifier = Modifier.fillMaxSize()) {
+                Surface(modifier = Modifier.fillMaxSize(), color = com.huangder.lumibooks.ui.theme.AppColors.PageBg) {
                     com.huangder.lumibooks.ui.components.LiquidGlassDialogHost(
                         modifier = Modifier.fillMaxSize(),
                         backdrop = settingsBackdrop.takeIf { effectiveAppTheme == "liquid_glass" }
@@ -113,7 +126,7 @@ class SettingsActivity : ComponentActivity() {
                                             Modifier
                                         }
                                     )
-                                    .background(AppColors.WindowBg)
+                                    .background(AppColors.PageBg)
                             )
                             com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop(
                                 settingsControlsBackdrop.takeIf { effectiveAppTheme == "liquid_glass" }

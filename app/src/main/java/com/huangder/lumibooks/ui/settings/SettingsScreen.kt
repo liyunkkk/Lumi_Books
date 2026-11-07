@@ -1,6 +1,7 @@
 package com.huangder.lumibooks.ui.settings
 import com.huangder.lumibooks.ui.icons.AppIcons
 
+import com.huangder.lumibooks.ui.components.lumiCardSurface
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -26,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoStories
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -89,7 +91,7 @@ fun SettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(AppColors.WindowBg)
+            .background(AppColors.PageBg)
     ) {
         CollapsingSettingsScaffold(
             title = stringResource(R.string.settings_title),
@@ -103,9 +105,9 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = AppSpace.md)
-                        .shadow(8.dp, RoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
-                        .clip(RoundedCornerShape(AppRadius.lg))
-                        .background(AppColors.CardBg)
+                        .shadow(8.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
+                        .clip(AppRoundedCornerShape(AppRadius.lg))
+                        .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
                         .padding(AppSpace.md),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -166,6 +168,11 @@ fun SettingsScreen(
             }
 
                 Spacer(Modifier.height(AppSpace.lg))
+
+                CategoryItem(AppIcons.FolderOpen, stringResource(R.string.authorized_folders_title)) {
+                    context.startActivity(Intent(context, AuthorizedFoldersActivity::class.java))
+                }
+                Spacer(Modifier.height(AppSpace.sm))
 
                 // 分类列表：按设置域分组，组内使用细分隔线保持扫描节奏。
                 SettingsCategoryGroup {
@@ -250,28 +257,45 @@ fun ThirdPartyServicesDetail(viewModel: SettingsViewModel) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    CategoryItem(
-        icon = Icons.Outlined.AutoStories,
-        label = "书源管理",
-        supportingText = "导入 Legado 书源 JSON"
-    ) {
-        context.startActivity(Intent(context, com.huangder.lumibooks.ui.sources.BookSourcesActivity::class.java))
-    }
-    Spacer(Modifier.height(AppSpace.sm))
-    CategoryItem(
-        icon = AppIcons.Cloud,
-        label = stringResource(R.string.category_mineru),
-        supportingText = when (uiState.mineruMode) {
-            "agent" -> stringResource(R.string.mineru_mode_agent_short)
-            "precise" -> stringResource(R.string.mineru_mode_precise_short)
-            else -> stringResource(R.string.mineru_not_configured)
-        }
-    ) {
-        context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "mineru"))
-    }
-        Spacer(Modifier.height(AppSpace.sm))
+    SettingsCategoryGroup {
         CategoryItem(
-            icon = AppIcons.Cloud,
+            icon = Icons.Outlined.AutoStories,
+            label = "书源管理",
+            supportingText = "导入 Legado 书源 JSON",
+            grouped = true
+        ) {
+            context.startActivity(Intent(context, com.huangder.lumibooks.ui.sources.BookSourcesActivity::class.java))
+        }
+        SettingsGroupDivider()
+        CategoryItem(
+            label = stringResource(R.string.dictionary_title),
+            supportingText = stringResource(R.string.dictionary_management_intro),
+            grouped = true
+        ) {
+            com.huangder.lumibooks.dictionary.openDictionarySettings(context)
+        }
+        SettingsGroupDivider()
+        CategoryItem(
+            label = stringResource(R.string.translation_title),
+            supportingText = stringResource(R.string.translation_description),
+            grouped = true
+        ) {
+            com.huangder.lumibooks.translation.openTranslationSettings(context)
+        }
+        SettingsGroupDivider()
+        CategoryItem(
+            label = stringResource(R.string.category_mineru),
+            supportingText = when (uiState.mineruMode) {
+                "agent" -> stringResource(R.string.mineru_mode_agent_short)
+                "precise" -> stringResource(R.string.mineru_mode_precise_short)
+                else -> stringResource(R.string.mineru_not_configured)
+            },
+            grouped = true
+        ) {
+            context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "mineru"))
+        }
+        SettingsGroupDivider()
+        CategoryItem(
             label = stringResource(R.string.category_external_tts),
             supportingText = when {
                 uiState.externalTtsSettings.enabled &&
@@ -280,46 +304,72 @@ fun ThirdPartyServicesDetail(viewModel: SettingsViewModel) {
                 uiState.externalTtsSettings.enabled ->
                     stringResource(R.string.external_tts_configured_status)
                 else -> stringResource(R.string.external_tts_not_configured)
-            }
+            },
+            grouped = true
         ) {
             context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "external_tts"))
         }
-        Spacer(Modifier.height(AppSpace.sm))
+        SettingsGroupDivider()
         CategoryItem(
-            icon = AppIcons.ArrowsClockwise,
             label = stringResource(R.string.category_webdav),
             supportingText = when {
                 uiState.webdavConfig.enabled -> stringResource(R.string.webdav_enabled_status)
                 else -> stringResource(R.string.webdav_not_configured)
-            }
+            },
+            grouped = true
         ) {
             context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "webdav"))
         }
+        SettingsGroupDivider()
+        CategoryItem(
+            icon = AppIcons.Globe,
+            label = stringResource(R.string.remote_library_opds_title),
+            supportingText = stringResource(R.string.remote_library_settings_opds_summary),
+            grouped = true
+        ) {
+            context.startActivity(com.huangder.lumibooks.ui.home.remote.RemoteLibraryActivity.createIntent(
+                context, com.huangder.lumibooks.data.remote.RemoteSourceType.OPDS, null
+            ))
+        }
+        SettingsGroupDivider()
+        CategoryItem(
+            icon = AppIcons.Cloud,
+            label = stringResource(R.string.remote_library_webdav_title),
+            supportingText = stringResource(R.string.remote_library_settings_webdav_summary),
+            grouped = true
+        ) {
+            context.startActivity(com.huangder.lumibooks.ui.home.remote.RemoteLibraryActivity.createIntent(
+                context, com.huangder.lumibooks.data.remote.RemoteSourceType.WEBDAV, null
+            ))
+        }
+    }
 }
 
 // ─── 分类条目 ──────────────────────────────────────────────────
 
 @Composable
 private fun CategoryItem(
-    icon: ImageVector,
+    icon: ImageVector? = null,
     label: String,
     supportingText: String? = null,
     grouped: Boolean = false,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(AppRadius.md)
+    val shape = AppRoundedCornerShape(AppRadius.md)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .then(if (grouped) Modifier else Modifier.padding(horizontal = AppSpace.md, vertical = 1.dp))
             .then(if (grouped) Modifier else Modifier.shadow(6.dp, shape, ambientColor = Color(0x04000000), spotColor = Color(0x04000000)))
-            .then(if (grouped) Modifier else Modifier.clip(shape).background(AppColors.CardBg))
+            .then(if (grouped) Modifier else Modifier.clip(shape).lumiCardSurface(shape = shape))
             .clickable(onClick = onClick)
             .padding(horizontal = AppSpace.md, vertical = AppSpace.md + 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, null, tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.width(AppSpace.md))
+        if (icon != null) {
+            Icon(icon, null, tint = AppColors.TextSecondary, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(AppSpace.md))
+        }
         Column(Modifier.weight(1f)) {
             Text(label, fontSize = AppType.Body, color = AppColors.TextPrimary)
             if (supportingText != null) {
@@ -337,8 +387,8 @@ private fun SettingsCategoryGroup(content: @Composable () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.md)
-            .clip(RoundedCornerShape(AppRadius.lg))
-            .background(AppColors.CardBg)
+            .clip(AppRoundedCornerShape(AppRadius.lg))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
     ) {
         content()
     }

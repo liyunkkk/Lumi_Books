@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -120,8 +120,8 @@ fun PolicyUpdateDialog(
                 onClick = onDecline
             )
         },
-        // Keep the source content visible enough for the glass lens to refract it.
-        contentScrimColor = AppColors.CardBg.copy(alpha = 0.22f)
+        // Keep policy text readable over page artwork while retaining the glass lens.
+        contentScrimColor = AppColors.CardBg.copy(alpha = 0.80f)
     )
 }
 
@@ -133,14 +133,14 @@ private fun PolicyUpdateItem(
     iconContent: @Composable () -> Unit,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = AppRoundedCornerShape(18.dp)
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
 
     if (isLiquidGlass) {
         LiquidGlassSurface(
             shape = shape,
             fallbackColor = AppColors.BgGray,
-            contentScrimColor = AppColors.CardBg.copy(alpha = 0.10f),
+            contentScrimColor = AppColors.CardBg.copy(alpha = 0.74f),
             onClick = onClick,
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.CenterStart
@@ -201,7 +201,7 @@ private fun PolicyUpdateItemContent(
                 Text(
                     text = "v$version",
                     modifier = Modifier
-                        .background(AppColors.Accent.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
+                        .background(AppColors.Accent.copy(alpha = 0.12f), AppRoundedCornerShape(8.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,

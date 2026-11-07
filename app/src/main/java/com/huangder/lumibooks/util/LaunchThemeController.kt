@@ -8,19 +8,27 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import com.huangder.lumibooks.MainActivity
+import com.huangder.lumibooks.domain.model.AppFontSize
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
 import com.huangder.lumibooks.domain.model.AppIconStyle
+import com.huangder.lumibooks.domain.model.MenuAnimationStyle
+import com.huangder.lumibooks.domain.model.LiquidGlassStyle
 
 data class LaunchThemeSnapshot(
     val iconStyle: String = AppIconStyle.LUMI_2.storedValue,
+    val easterEggUnlocked: Boolean = false,
     val appTheme: String = "lumi",
     val appAccentColor: String = DEFAULT_APP_ACCENT_HEX,
+    val appFontSize: AppFontSize = AppFontSize.STANDARD,
     val globalFontMode: String = "system",
+    val reduceTransparencyEnabled: Boolean = false,
+    val liquidGlassStyle: LiquidGlassStyle = LiquidGlassStyle.DEFAULT,
     val liquidGlassTransparency: Float = 0.55f,
     val liquidGlassHdrHighlightEnabled: Boolean = false,
     val cardOutlinesEnabled: Boolean = false,
     val darkMode: String = "system",
     val motionPreference: String = "standard",
+    val menuAnimationStyle: String = MenuAnimationStyle.LIQUID.storedValue,
     val eInkModeEnabled: Boolean = false,
     val predictiveBackEnabled: Boolean = true
 )
@@ -40,14 +48,19 @@ object LaunchThemeController {
     private const val PENDING_SPLASH_ENABLED = "pending_splash_enabled"
     private const val SPLASH_ENABLED_SNAPSHOT = "splash_enabled_snapshot"
     private const val APP_ICON_STYLE = "app_icon_style"
+    private const val EASTER_EGG_UNLOCKED = "lumi_easter_egg_unlocked"
     private const val APP_THEME = "app_theme"
     private const val APP_ACCENT_COLOR = "app_accent_color"
+    private const val APP_FONT_SIZE = "app_font_size"
     private const val GLOBAL_FONT_MODE = "global_font_mode"
+    private const val REDUCE_TRANSPARENCY_ENABLED = "reduce_transparency_enabled"
+    private const val LIQUID_GLASS_STYLE = "liquid_glass_style"
     private const val LIQUID_GLASS_TRANSPARENCY = "liquid_glass_transparency"
     private const val LIQUID_GLASS_HDR_HIGHLIGHT_ENABLED = "liquid_glass_hdr_highlight_enabled"
     private const val CARD_OUTLINES_ENABLED = "card_outlines_enabled"
     private const val DARK_MODE = "dark_mode"
     private const val MOTION_PREFERENCE = "motion_preference"
+    private const val MENU_ANIMATION_STYLE = "menu_animation_style"
     private const val E_INK_MODE_ENABLED = "e_ink_mode_enabled"
     private const val PREDICTIVE_BACK_ENABLED = "predictive_back_enabled"
     private const val COMPLETED_WELCOME_INSTALL_TIME = "completed_welcome_install_time"
@@ -66,21 +79,31 @@ object LaunchThemeController {
             .getBoolean(SPLASH_ENABLED_SNAPSHOT, true)
 
     fun iconStyleSnapshot(context: Context): String =
-        AppIconStyle.normalize(
-            context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
-                .getString(APP_ICON_STYLE, AppIconStyle.LUMI_2.storedValue)
-        )
+        context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE).let { preferences ->
+            AppIconStyle.normalize(
+                preferences.getString(APP_ICON_STYLE, AppIconStyle.LUMI_2.storedValue),
+                preferences.getBoolean(EASTER_EGG_UNLOCKED, false)
+            )
+        }
 
     fun themeSnapshot(context: Context): LaunchThemeSnapshot {
         val preferences = context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
         return LaunchThemeSnapshot(
             iconStyle = AppIconStyle.normalize(
-                preferences.getString(APP_ICON_STYLE, AppIconStyle.LUMI_2.storedValue)
+                preferences.getString(APP_ICON_STYLE, AppIconStyle.LUMI_2.storedValue),
+                preferences.getBoolean(EASTER_EGG_UNLOCKED, false)
             ),
-            appTheme = preferences.getString(APP_THEME, "lumi") ?: "lumi",
+            easterEggUnlocked = preferences.getBoolean(EASTER_EGG_UNLOCKED, false),
+            appTheme = com.huangder.lumibooks.domain.model.LumiEasterEgg.normalizeTheme(
+                preferences.getString(APP_THEME, "lumi"),
+                preferences.getBoolean(EASTER_EGG_UNLOCKED, false)
+            ),
             appAccentColor = preferences.getString(APP_ACCENT_COLOR, DEFAULT_APP_ACCENT_HEX)
                 ?: DEFAULT_APP_ACCENT_HEX,
+            appFontSize = AppFontSize.fromStoredValue(preferences.getString(APP_FONT_SIZE, null)),
             globalFontMode = preferences.getString(GLOBAL_FONT_MODE, "system") ?: "system",
+            reduceTransparencyEnabled = preferences.getBoolean(REDUCE_TRANSPARENCY_ENABLED, false),
+            liquidGlassStyle = LiquidGlassStyle.fromStoredValue(preferences.getString(LIQUID_GLASS_STYLE, null)),
             liquidGlassTransparency = preferences.getFloat(LIQUID_GLASS_TRANSPARENCY, 0.55f),
             liquidGlassHdrHighlightEnabled = preferences.getBoolean(
                 LIQUID_GLASS_HDR_HIGHLIGHT_ENABLED,
@@ -89,6 +112,7 @@ object LaunchThemeController {
             cardOutlinesEnabled = preferences.getBoolean(CARD_OUTLINES_ENABLED, false),
             darkMode = preferences.getString(DARK_MODE, "system") ?: "system",
             motionPreference = preferences.getString(MOTION_PREFERENCE, "standard") ?: "standard",
+            menuAnimationStyle = MenuAnimationStyle.normalize(preferences.getString(MENU_ANIMATION_STYLE, null)),
             eInkModeEnabled = preferences.getBoolean(E_INK_MODE_ENABLED, false),
             predictiveBackEnabled = preferences.getBoolean(PREDICTIVE_BACK_ENABLED, true)
         )
@@ -119,13 +143,22 @@ object LaunchThemeController {
             preferences.contains(HAS_COMPLETED_WELCOME_LANGUAGE_SETUP)
     }
 
+    fun updateLiquidGlassStyleSnapshot(context: Context, style: LiquidGlassStyle) {
+        context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
+            .edit().putString(LIQUID_GLASS_STYLE, style.storedValue).apply()
+    }
+
     fun updateThemeSnapshot(context: Context, snapshot: LaunchThemeSnapshot) {
         context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
             .edit()
-            .putString(APP_ICON_STYLE, AppIconStyle.normalize(snapshot.iconStyle))
-            .putString(APP_THEME, snapshot.appTheme)
+            .putString(APP_ICON_STYLE, AppIconStyle.normalize(snapshot.iconStyle, snapshot.easterEggUnlocked))
+            .putBoolean(EASTER_EGG_UNLOCKED, snapshot.easterEggUnlocked)
+            .putString(APP_THEME, com.huangder.lumibooks.domain.model.LumiEasterEgg.normalizeTheme(snapshot.appTheme, snapshot.easterEggUnlocked))
             .putString(APP_ACCENT_COLOR, snapshot.appAccentColor)
+            .putString(APP_FONT_SIZE, snapshot.appFontSize.storedValue)
             .putString(GLOBAL_FONT_MODE, snapshot.globalFontMode)
+            .putBoolean(REDUCE_TRANSPARENCY_ENABLED, snapshot.reduceTransparencyEnabled)
+            .putString(LIQUID_GLASS_STYLE, snapshot.liquidGlassStyle.storedValue)
             .putFloat(LIQUID_GLASS_TRANSPARENCY, snapshot.liquidGlassTransparency)
             .putBoolean(
                 LIQUID_GLASS_HDR_HIGHLIGHT_ENABLED,
@@ -134,15 +167,26 @@ object LaunchThemeController {
             .putBoolean(CARD_OUTLINES_ENABLED, snapshot.cardOutlinesEnabled)
             .putString(DARK_MODE, snapshot.darkMode)
             .putString(MOTION_PREFERENCE, snapshot.motionPreference)
+            .putString(MENU_ANIMATION_STYLE, MenuAnimationStyle.normalize(snapshot.menuAnimationStyle))
             .putBoolean(E_INK_MODE_ENABLED, snapshot.eInkModeEnabled)
             .putBoolean(PREDICTIVE_BACK_ENABLED, snapshot.predictiveBackEnabled)
             .apply()
     }
 
-    fun updateIconStyleSnapshot(context: Context, style: String) {
+    fun updateReduceTransparencySnapshot(context: Context, enabled: Boolean) {
         context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
             .edit()
-            .putString(APP_ICON_STYLE, AppIconStyle.normalize(style))
+            .putBoolean(REDUCE_TRANSPARENCY_ENABLED, enabled)
+            .apply()
+    }
+
+    fun updateIconStyleSnapshot(context: Context, style: String) {
+        val preferences = context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
+        context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(APP_ICON_STYLE, AppIconStyle.normalize(
+                style, preferences.getBoolean(EASTER_EGG_UNLOCKED, false)
+            ))
             .apply()
     }
 
@@ -192,6 +236,13 @@ object LaunchThemeController {
     fun applyIconStyle(context: Context, style: String): Boolean =
         setLauncherComponents(context, style, splashEnabledSnapshot(context))
 
+    fun updateEasterEggSnapshot(context: Context, unlocked: Boolean) {
+        context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(EASTER_EGG_UNLOCKED, unlocked)
+            .apply()
+    }
+
     /** Reconcile persisted launcher preferences after an install, upgrade, or process restart. */
     fun synchronizeLauncherComponents(context: Context): Boolean =
         setLauncherComponents(context, iconStyleSnapshot(context), splashEnabledSnapshot(context))
@@ -203,8 +254,12 @@ object LaunchThemeController {
     ): Boolean = synchronized(launcherSwitchLock) {
         StartupTrace.aliases(context, "before_switch")
         val packageManager = context.packageManager
-        val desired = launcherComponentStates(style, splashEnabled)
+        val unlocked = context.getSharedPreferences(STATE_PREFERENCES, Context.MODE_PRIVATE)
+            .getBoolean(EASTER_EGG_UNLOCKED, false)
+        val desired = launcherComponentStates(style, splashEnabled, unlocked)
         val manifestDefaults = mapOf(
+            LauncherComponentNames.LUMI_CHAN_SPLASH to false,
+            LauncherComponentNames.LUMI_CHAN_DIRECT to false,
             LauncherComponentNames.LUMI_2_SPLASH to true,
             LauncherComponentNames.LUMI_2_DIRECT to false,
             LauncherComponentNames.CLASSIC_SPLASH to false,

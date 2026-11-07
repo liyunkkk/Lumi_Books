@@ -1,6 +1,8 @@
 package com.huangder.lumibooks.ui.settings
+import androidx.compose.foundation.layout.heightIn
 import com.huangder.lumibooks.ui.icons.AppIcons
 
+import com.huangder.lumibooks.ui.components.lumiCardSurface
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,6 +10,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,7 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +48,7 @@ import com.huangder.lumibooks.R
 import com.huangder.lumibooks.domain.model.WebdavConfig
 import com.huangder.lumibooks.domain.model.WebdavSyncContent
 import com.huangder.lumibooks.ui.components.LiquidGlassButton
+import com.huangder.lumibooks.ui.components.RequestLocalNetworkPermission
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppRadius
 import com.huangder.lumibooks.ui.theme.AppSpace
@@ -58,6 +62,7 @@ import java.util.Locale
 @Composable
 fun WebdavSettingsDetail(
     viewModel: SettingsViewModel,
+    requestLocalNetworkPermission: RequestLocalNetworkPermission,
     onConfigure: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -93,62 +98,80 @@ fun WebdavSettingsDetail(
         }
 
         if (isEnabled && hasToken) {
-            // Sync mode pill selector
-            WebdavSyncModeSelector(
-                selectedMode = config.syncMode,
-                onModeChange = { viewModel.saveWebdavSyncMode(it) }
-            )
-
-            WebdavSyncContentSelector(
-                config = config,
-                onContentChange = viewModel::setWebdavSyncContent
-            )
-
-            WebdavSecondaryButton(
-                label = stringResource(
-                    if (uiState.webdavTesting) R.string.webdav_test_running
-                    else R.string.webdav_test_connection
-                ),
-                icon = AppIcons.Pulse,
-                enabled = !uiState.webdavTesting,
-                onClick = viewModel::testWebdavConnection
-            )
-            if (uiState.webdavTestResult.isNotBlank()) {
-                Text(
-                    text = uiState.webdavTestResult,
-                    fontSize = AppType.Caption,
-                    color = if (uiState.webdavTestSucceeded) AppColors.TextSecondary
-                        else MaterialTheme.colorScheme.error,
-                    modifier = Modifier.fillMaxWidth()
+            WebdavSectionCard {
+                WebdavSyncModeSelector(
+                    selectedMode = config.syncMode,
+                    onModeChange = { viewModel.saveWebdavSyncMode(it) }
                 )
-            }
-            WebdavSecondaryButton(
-                label = stringResource(R.string.webdav_sync_now),
-                icon = AppIcons.ArrowsClockwise,
-                onClick = { if (!uiState.isWebdavSyncing) viewModel.syncWebdavNow() }
-            )
-            if (uiState.webdavSyncResult.isNotBlank()) {
-                Text(
-                    text = uiState.webdavSyncResult,
-                    fontSize = AppType.Caption,
-                    color = if (uiState.webdavSyncSucceeded) AppColors.TextSecondary else MaterialTheme.colorScheme.error,
-                    modifier = Modifier.fillMaxWidth()
+                Box(Modifier.fillMaxWidth().height(1.dp).background(AppColors.Divider))
+                WebdavSyncContentSelector(
+                    config = config,
+                    onContentChange = viewModel::setWebdavSyncContent
                 )
             }
         }
 
         if (isEnabled) {
-            WebdavSecondaryButton(
-                label = stringResource(R.string.webdav_disable),
-                icon = AppIcons.CloudSlash,
-                onClick = { viewModel.disableWebdav(clearKey = false) }
-            )
-            WebdavSecondaryButton(
-                label = stringResource(R.string.webdav_clear_config),
-                icon = AppIcons.Trash,
-                destructive = true,
-                onClick = { viewModel.clearWebdavConfig() }
-            )
+            WebdavSectionCard {
+                if (hasToken) {
+                    WebdavSecondaryButton(
+                        label = stringResource(
+                            if (uiState.webdavTesting) R.string.webdav_test_running
+                            else R.string.webdav_test_connection
+                        ),
+                        icon = AppIcons.Pulse,
+                        enabled = !uiState.webdavTesting,
+                        onClick = {
+                            requestLocalNetworkPermission(
+                                config.serverUrl,
+                                viewModel::testWebdavConnection,
+                                viewModel::showWebdavTestLocalNetworkPermissionRequired
+                            )
+                        }
+                    )
+                    if (uiState.webdavTestResult.isNotBlank()) {
+                        Text(
+                            text = uiState.webdavTestResult,
+                            fontSize = AppType.Caption,
+                            color = if (uiState.webdavTestSucceeded) AppColors.TextSecondary
+                                else MaterialTheme.colorScheme.error,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    WebdavSecondaryButton(
+                        label = stringResource(R.string.webdav_sync_now),
+                        icon = AppIcons.ArrowsClockwise,
+                        onClick = {
+                            if (!uiState.isWebdavSyncing) {
+                                requestLocalNetworkPermission(
+                                    config.serverUrl,
+                                    viewModel::syncWebdavNow,
+                                    viewModel::showWebdavSyncLocalNetworkPermissionRequired
+                                )
+                            }
+                        }
+                    )
+                    if (uiState.webdavSyncResult.isNotBlank()) {
+                        Text(
+                            text = uiState.webdavSyncResult,
+                            fontSize = AppType.Caption,
+                            color = if (uiState.webdavSyncSucceeded) AppColors.TextSecondary else MaterialTheme.colorScheme.error,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+                WebdavSecondaryButton(
+                    label = stringResource(R.string.webdav_disable),
+                    icon = AppIcons.CloudSlash,
+                    onClick = { viewModel.disableWebdav(clearKey = false) }
+                )
+                WebdavSecondaryButton(
+                    label = stringResource(R.string.webdav_clear_config),
+                    icon = AppIcons.Trash,
+                    destructive = true,
+                    onClick = { viewModel.clearWebdavConfig() }
+                )
+            }
         }
 
         WebdavDisclosureCard()
@@ -161,6 +184,7 @@ fun WebdavSettingsDetail(
 @Composable
 fun WebdavConfigurationDetail(
     viewModel: SettingsViewModel,
+    requestLocalNetworkPermission: RequestLocalNetworkPermission,
     onSaved: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -207,7 +231,11 @@ fun WebdavConfigurationDetail(
         }
         if (!valid) return
 
-        saveConfiguration()
+        requestLocalNetworkPermission(
+            draftServerUrl,
+            { saveConfiguration() },
+            viewModel::showWebdavLocalNetworkPermissionRequired
+        )
     }
 
     Column(
@@ -216,6 +244,7 @@ fun WebdavConfigurationDetail(
             .padding(horizontal = AppSpace.md, vertical = AppSpace.sm),
         verticalArrangement = Arrangement.spacedBy(AppSpace.md)
     ) {
+        WebdavSectionCard {
         // Server URL
         OutlinedTextField(
             value = draftServerUrl,
@@ -225,7 +254,7 @@ fun WebdavConfigurationDetail(
             supportingText = { Text(stringResource(R.string.webdav_server_url_help)) },
             isError = serverUrlError,
             singleLine = true,
-            shape = RoundedCornerShape(12.dp),
+            shape = AppRoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -236,7 +265,7 @@ fun WebdavConfigurationDetail(
             label = { Text(stringResource(R.string.webdav_username_label)) },
             isError = usernameError,
             singleLine = true,
-            shape = RoundedCornerShape(12.dp),
+            shape = AppRoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -263,7 +292,7 @@ fun WebdavConfigurationDetail(
                 { Text(stringResource(R.string.webdav_token_saved)) }
             } else null,
             singleLine = true,
-            shape = RoundedCornerShape(12.dp),
+            shape = AppRoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -273,7 +302,7 @@ fun WebdavConfigurationDetail(
             onValueChange = { draftSyncPath = it },
             label = { Text(stringResource(R.string.webdav_sync_path_hint)) },
             singleLine = true,
-            shape = RoundedCornerShape(12.dp),
+            shape = AppRoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -283,6 +312,7 @@ fun WebdavConfigurationDetail(
             fontSize = AppType.Caption,
             color = AppColors.TextSecondary
         )
+        }
 
         Spacer(Modifier.height(AppSpace.sm))
 
@@ -297,6 +327,19 @@ fun WebdavConfigurationDetail(
 // ─── Shared components ──────────────────────────────────────────────
 
 @Composable
+private fun WebdavSectionCard(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(AppRoundedCornerShape(AppRadius.md))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
+            .padding(AppSpace.md),
+        verticalArrangement = Arrangement.spacedBy(AppSpace.sm),
+        content = content
+    )
+}
+
+@Composable
 private fun WebdavStatusCard(
     isEnabled: Boolean,
     lastSyncText: String,
@@ -306,8 +349,8 @@ private fun WebdavStatusCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
+            .clip(AppRoundedCornerShape(AppRadius.md))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
             .padding(AppSpace.md)
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -366,16 +409,19 @@ private fun WebdavPrimaryButton(
         onClick = onClick,
         enabled = enabled,
         tintedColor = AppColors.Accent,
-        shape = RoundedCornerShape(25.dp),
+        shape = AppRoundedCornerShape(25.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .height(50.dp)
+            .heightIn(min = 50.dp)
     ) {
         Text(
             label,
             fontSize = AppType.BodySmall,
             fontWeight = FontWeight.SemiBold,
-            color = if (enabled) Color.White else AppColors.TextSecondary
+            color = if (enabled) Color.White else AppColors.TextSecondary,
+            maxLines = 1,
+            softWrap = false,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
         )
     }
 }
@@ -396,8 +442,6 @@ private fun WebdavSecondaryButton(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
             .clickable(
                 enabled = enabled,
                 interactionSource = remember { MutableInteractionSource() },
@@ -427,7 +471,7 @@ private fun WebdavDisclosureCard() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.md))
+            .clip(AppRoundedCornerShape(AppRadius.md))
             .background(AppColors.BgGray)
             .padding(AppSpace.md),
         verticalArrangement = Arrangement.spacedBy(AppSpace.sm)
@@ -460,9 +504,7 @@ private fun WebdavSyncModeSelector(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
-            .padding(AppSpace.md)
+            .padding(vertical = AppSpace.xs)
     ) {
         Text(
             text = stringResource(R.string.webdav_sync_mode_label),
@@ -498,8 +540,6 @@ private fun WebdavSyncContentSelector(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
             .padding(vertical = AppSpace.sm)
     ) {
         Text(
@@ -619,7 +659,7 @@ private fun WebdavModePill(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(25.dp))
+            .clip(AppRoundedCornerShape(25.dp))
             .background(
                 if (selected) AppColors.Accent else AppColors.BgGray
             )

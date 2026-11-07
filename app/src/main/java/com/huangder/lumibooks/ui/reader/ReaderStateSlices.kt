@@ -1,5 +1,7 @@
 package com.huangder.lumibooks.ui.reader
 
+import com.huangder.lumibooks.domain.model.SelectionMenuSettings
+
 import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.CustomFontPreset
@@ -10,6 +12,7 @@ import com.huangder.lumibooks.domain.model.ReaderLayoutTarget
 import com.huangder.lumibooks.domain.model.ReaderPageAnimationSettings
 import com.huangder.lumibooks.domain.model.ReaderPageCorner
 import com.huangder.lumibooks.domain.model.ReaderTextAlignment
+import com.huangder.lumibooks.domain.model.ReaderVolumeKeyAction
 import com.huangder.lumibooks.domain.model.ReaderThemeSuite
 import com.huangder.lumibooks.domain.model.ReaderThemeSuites
 import com.huangder.lumibooks.domain.model.ReaderWritingMode
@@ -35,7 +38,8 @@ data class ReaderDocumentState(
     val optimizeLayout: Boolean = true,
     val useEpubCss: Boolean = false,
     val renderMode: EpubRenderMode = EpubRenderMode.READER_LAYOUT,
-    val contentRevision: Long = 0L
+    val contentRevision: Long = 0L,
+    val epubComicReader: Boolean = false
 )
 
 data class ReaderRenderSettingsState(
@@ -102,7 +106,8 @@ data class ReaderControlsState(
     val showReaderChapterProgress: Boolean = true,
     val showReaderPageNumber: Boolean = true,
     val showReaderBattery: Boolean = true,
-    val volumeKeyPageTurnEnabled: Boolean = false,
+    val volumeKeyUpAction: ReaderVolumeKeyAction = ReaderVolumeKeyAction.SYSTEM_VOLUME,
+    val volumeKeyDownAction: ReaderVolumeKeyAction = ReaderVolumeKeyAction.SYSTEM_VOLUME,
     val comicModeEnabled: Boolean = false,
     val screenSleepTimeoutSeconds: Int = DataStoreManager.DEFAULT_SCREEN_SLEEP_TIMEOUT_SECONDS,
     val readerTopLeftContent: ReaderCornerContent =
@@ -113,7 +118,7 @@ data class ReaderControlsState(
         defaultReaderCornerContent(ReaderPageCorner.BOTTOM_LEFT),
     val readerBottomRightContent: ReaderCornerContent =
         defaultReaderCornerContent(ReaderPageCorner.BOTTOM_RIGHT),
-    val selectionMenuItems: Map<String, Boolean> = emptyMap()
+    val selectionMenuItems: SelectionMenuSettings = SelectionMenuSettings()
 )
 
 internal fun ReaderUiState.toDocumentState() = ReaderDocumentState(
@@ -132,7 +137,8 @@ internal fun ReaderUiState.toDocumentState() = ReaderDocumentState(
     optimizeLayout = optimizeLayout,
     useEpubCss = useEpubCss,
     renderMode = renderMode,
-    contentRevision = contentRevision
+    contentRevision = contentRevision,
+    epubComicReader = epubComicReader
 )
 
 internal fun ReaderUiState.toRenderSettingsState() = ReaderRenderSettingsState(
@@ -198,7 +204,8 @@ internal fun ReaderUiState.toControlsState() = ReaderControlsState(
     showReaderChapterProgress = showReaderChapterProgress,
     showReaderPageNumber = showReaderPageNumber,
     showReaderBattery = showReaderBattery,
-    volumeKeyPageTurnEnabled = volumeKeyPageTurnEnabled,
+    volumeKeyUpAction = volumeKeyUpAction,
+    volumeKeyDownAction = volumeKeyDownAction,
     comicModeEnabled = comicModeEnabled,
     screenSleepTimeoutSeconds = screenSleepTimeoutSeconds,
     readerTopLeftContent = readerTopLeftContent,
@@ -216,7 +223,7 @@ internal fun readerLayoutTargetFor(
     format: String?,
     renderMode: EpubRenderMode
 ): ReaderLayoutTarget =
-    if ((format == "EPUB" || format == "MOBI") && renderMode == EpubRenderMode.BOOK_LAYOUT) {
+    if ((format in setOf("EPUB", "MOBI")) && renderMode == EpubRenderMode.BOOK_LAYOUT) {
         ReaderLayoutTarget.BOOK_LAYOUT
     } else {
         ReaderLayoutTarget.READER_LAYOUT
@@ -245,3 +252,56 @@ internal fun ReaderUiState.activeThemeSuite(): ReaderThemeSuite? =
 internal fun ReaderUiState.keepsPublisherPaint(): Boolean =
     readerLayoutTarget() == ReaderLayoutTarget.BOOK_LAYOUT &&
         activeThemeSuite()?.isBookLayoutOnly == true
+
+internal fun ReaderUiState.activeThemeSettingsForMode(dark: Boolean): com.huangder.lumibooks.domain.model.ReaderThemeSettings {
+    val suite = activeThemeSuite() ?: return currentThemeSettingsFallback()
+    return suite.settingsFor(readerLayoutTarget(), dark)
+}
+
+internal fun ReaderUiState.withActiveThemeSettingsForMode(dark: Boolean): ReaderUiState {
+    val settings = activeThemeSettingsForMode(dark)
+    val customFontPath = settings.fontType.removePrefix("custom:")
+        .takeIf { settings.fontType.startsWith("custom:") }
+        ?.let { id -> customFonts.firstOrNull { it.id == id }?.path }
+    return copy(
+        fontSize = settings.fontSize,
+        lineHeight = settings.lineHeight,
+        letterSpacing = settings.letterSpacing,
+        textAlignment = settings.textAlignment,
+        fontType = settings.fontType,
+        customFontPath = customFontPath ?: this.customFontPath,
+        marginLeftDp = settings.marginLeft,
+        marginRightDp = settings.marginRight,
+        marginTopDp = settings.marginTop,
+        marginBottomDp = settings.marginBottom,
+        paragraphSpacing = settings.paragraphSpacing,
+        firstLineIndent = settings.firstLineIndent,
+        bodyFontWeight = settings.bodyFontWeight,
+        readerTheme = settings.backgroundSelection,
+        readerBackgroundSelection = settings.backgroundSelection,
+        readerBackgroundColorSelection = settings.backgroundColorSelection,
+        readerBackgroundImageOpacity = settings.backgroundImageOpacity,
+        readerBackgroundImageBlurDp = settings.backgroundImageBlurDp,
+        readerTextColor = settings.textColor
+    )
+}
+
+private fun ReaderUiState.currentThemeSettingsFallback() = com.huangder.lumibooks.domain.model.ReaderThemeSettings(
+    backgroundSelection = readerBackgroundSelection,
+    backgroundColorSelection = readerBackgroundColorSelection,
+    backgroundImageOpacity = readerBackgroundImageOpacity,
+    backgroundImageBlurDp = readerBackgroundImageBlurDp,
+    textColor = readerTextColor,
+    fontSize = fontSize,
+    fontType = fontType,
+    bodyFontWeight = bodyFontWeight,
+    lineHeight = lineHeight,
+    letterSpacing = letterSpacing,
+    textAlignment = textAlignment,
+    paragraphSpacing = paragraphSpacing,
+    firstLineIndent = firstLineIndent,
+    marginLeft = marginLeftDp,
+    marginRight = marginRightDp,
+    marginTop = marginTopDp,
+    marginBottom = marginBottomDp
+)

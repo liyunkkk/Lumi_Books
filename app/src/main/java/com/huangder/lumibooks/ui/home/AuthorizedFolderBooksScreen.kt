@@ -1,13 +1,15 @@
 package com.huangder.lumibooks.ui.home
 
+import androidx.compose.foundation.layout.heightIn
+import com.huangder.lumibooks.ui.components.lumiCardSurface
 import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.spring
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -39,7 +41,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items as lazyListItems
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -61,7 +63,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Rect
@@ -79,6 +80,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.shadow
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.ui.animation.AppEasing
@@ -622,8 +624,8 @@ private fun FolderBooksHeader(
                 Spacer(Modifier.width(AppSpace.sm))
                 LiquidGlassButton(
                     onClick = onSelectAll,
-                    modifier = Modifier.height(44.dp),
-                    shape = RoundedCornerShape(AppRadius.capsule),
+                    modifier = Modifier.heightIn(min = 44.dp),
+                    shape = AppRoundedCornerShape(AppRadius.capsule),
                     tintedColor = AppColors.Accent,
                     prominentShadow = false,
                     contentColor = AppColors.OnAccent
@@ -632,7 +634,10 @@ private fun FolderBooksHeader(
                         text = selectAllLabel,
                         color = AppColors.OnAccent,
                         fontSize = AppType.BodySmall,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
             }
@@ -645,6 +650,7 @@ private fun FolderBooksHeader(
             )
             Spacer(Modifier.width(AppSpace.sm))
             LiquidGlassSurface(
+                controlEdge = true,
                 shape = CircleShape,
                 fallbackColor = AppColors.BgGray,
                 contentScrimColor = AppColors.CardBg.copy(alpha = 0.58f),
@@ -684,6 +690,7 @@ private fun FolderBooksSearchPill(
         }
     }
     LiquidGlassSurface(
+        controlEdge = true,
         shape = CircleShape,
         fallbackColor = AppColors.BgGray,
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.58f),
@@ -848,7 +855,7 @@ private fun FolderBooksSortButton(
                 expanded = sortExpanded,
                 onDismissRequest = { sortExpanded = false },
                 modifier = Modifier.width(196.dp),
-                shape = RoundedCornerShape(AppRadius.md),
+                shape = AppRoundedCornerShape(AppRadius.md),
                 containerColor = AppColors.WindowBg,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
@@ -1043,8 +1050,8 @@ private fun FolderBooksFolderRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
+            .clip(AppRoundedCornerShape(AppRadius.md))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() }
@@ -1096,10 +1103,10 @@ private fun FolderBooksBookRow(
             .border(
                 width = 1.5.dp,
                 color = AppColors.Accent.copy(alpha = if (isSelected) 1f else 0f),
-                shape = RoundedCornerShape(AppRadius.md)
+                shape = AppRoundedCornerShape(AppRadius.md)
             )
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
+            .clip(AppRoundedCornerShape(AppRadius.md))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
@@ -1110,7 +1117,7 @@ private fun FolderBooksBookRow(
     ) {
         ImportBookCoverArt(
             book = file.toSelectedImportBook(),
-            shape = RoundedCornerShape(AppRadius.sm),
+            shape = AppRoundedCornerShape(AppRadius.sm),
             placeholderFontSize = AppType.Caption,
             coverPathOverride = coverPath,
             modifier = Modifier
@@ -1166,7 +1173,7 @@ private fun FolderBooksFolderTile(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(AppRadius.lg))
+            .clip(AppRoundedCornerShape(AppRadius.lg))
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() }
@@ -1213,9 +1220,9 @@ private fun FolderBooksBookTile(
             .border(
                 width = 1.5.dp,
                 color = AppColors.Accent.copy(alpha = if (isSelected) 1f else 0f),
-                shape = RoundedCornerShape(AppRadius.lg)
+                shape = AppRoundedCornerShape(AppRadius.lg)
             )
-            .clip(RoundedCornerShape(AppRadius.lg))
+            .clip(AppRoundedCornerShape(AppRadius.lg))
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
@@ -1225,7 +1232,7 @@ private fun FolderBooksBookTile(
     ) {
         ImportBookCoverArt(
             book = file.toSelectedImportBook(),
-            shape = RoundedCornerShape(AppRadius.md),
+            shape = AppRoundedCornerShape(AppRadius.md),
             placeholderFontSize = if (compact) AppType.Caption else AppType.BodySmall,
             coverPathOverride = coverPath,
             modifier = Modifier
@@ -1274,7 +1281,7 @@ private fun FolderThumb(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(AppRadius.sm))
+            .clip(AppRoundedCornerShape(AppRadius.sm))
             .background(AppColors.BgGray),
         contentAlignment = Alignment.Center
     ) {
@@ -1322,7 +1329,7 @@ private fun SelectionIndicator(isSelected: Boolean) {
 private fun ImportedBadge() {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(AppRadius.full))
+            .clip(AppRoundedCornerShape(AppRadius.full))
             .background(AppColors.Accent.copy(alpha = 0.14f))
             .padding(horizontal = 5.dp, vertical = 1.dp)
     ) {
@@ -1341,19 +1348,17 @@ private fun FolderBooksConfirmButton(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(AppRadius.lg)
+    val shape = AppRoundedCornerShape(AppRadius.lg)
     LiquidGlassButton(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
+            .heightIn(min = 58.dp)
             .then(
-                if (enabled) {
+                if (enabled && LocalAppTheme.current != "liquid_glass") {
                     Modifier.shadow(
-                        elevation = 28.dp,
-                        shape = shape,
-                        clip = false,
+                        elevation = 28.dp, shape = shape, clip = false,
                         ambientColor = Color.Black.copy(alpha = 0.10f),
                         spotColor = Color.Black.copy(alpha = 0.08f)
                     )
@@ -1370,7 +1375,10 @@ private fun FolderBooksConfirmButton(
             text = stringResource(R.string.import_confirm),
             color = if (enabled) AppColors.OnAccent else AppColors.TextSecondary,
             fontSize = AppType.Body,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            softWrap = false,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
         )
     }
 }

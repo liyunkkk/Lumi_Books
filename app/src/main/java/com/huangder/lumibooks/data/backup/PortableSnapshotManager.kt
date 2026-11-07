@@ -11,6 +11,8 @@ import androidx.room.withTransaction
 import com.huangder.lumibooks.data.local.DataStoreManager
 import com.huangder.lumibooks.data.local.database.AppDatabase
 import com.huangder.lumibooks.data.local.entity.BookEntity
+import com.huangder.lumibooks.data.local.entity.AnnotationTagEntity
+import com.huangder.lumibooks.domain.model.AnnotationTags
 import com.huangder.lumibooks.data.sync.SyncIdentityStore
 import com.huangder.lumibooks.mineru.MineruTokenStore
 import com.huangder.lumibooks.tts.ExternalTtsTokenStore
@@ -19,6 +21,7 @@ import com.huangder.lumibooks.util.FileUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -45,7 +48,8 @@ class PortableSnapshotManager @Inject constructor(
     private val dataStoreManager: DataStoreManager,
     private val syncIdentityStore: SyncIdentityStore,
     private val mineruTokenStore: MineruTokenStore,
-    private val externalTtsTokenStore: ExternalTtsTokenStore
+    private val externalTtsTokenStore: ExternalTtsTokenStore,
+    private val translationTokenStore: com.huangder.lumibooks.translation.TranslationTokenStore
 ) {
     suspend fun capture(includeBookFiles: Boolean = true): PortableSnapshotBundle = withContext(Dispatchers.IO) {
         val deviceId = syncIdentityStore.deviceId()
@@ -92,8 +96,9 @@ class PortableSnapshotManager @Inject constructor(
                 addSource(
                     "book",
                     book.id,
-                    BookFileAccess.displayName(context, book.filePath) ?: "${book.id}.${book.format.lowercase()}"
-                ) { BookFileAccess.openInputStream(context, book.filePath) }
+                    if (book.format == "MARKDOWN") "${book.id}.mdpack" else BookFileAccess.displayName(context, book.filePath) ?: "${book.id}.${book.format.lowercase()}"
+                ) { if (book.format == "MARKDOWN") com.huangder.lumibooks.util.markdown.MarkdownSnapshotStore.packageFile(File(book.filePath)).inputStream().buffered()
+                    else BookFileAccess.openInputStream(context, book.filePath) }
             } else null
             val coverId = book.coverPath?.let(::File)?.let { addFile("book_cover", book.id, it) }
             book.toPortable(bodyId, coverId)
@@ -141,6 +146,7 @@ class PortableSnapshotManager @Inject constructor(
                 folders = portableFolders,
                 bookFolderLinks = syncDao.getAllBookFolderLinks(),
                 tags = syncDao.getAllTags(),
+                annotationTags = database.annotationTagDao().getAllTags(),
                 bookTagLinks = syncDao.getAllBookTagLinks(),
                 readingRecords = syncDao.getAllReadingRecords(),
                 bookmarks = syncDao.getAllBookmarks(),
@@ -149,7 +155,11 @@ class PortableSnapshotManager @Inject constructor(
                 assets = sources.values.map { it.asset },
                 bookSourcesJson = bookSourcesJson,
                 legadoBooksJson = legadoBooksJson,
-                replaceRulesJson = replaceRulesJson
+                replaceRulesJson = replaceRulesJson,
+                highlightRules = database.highlightRuleDao().getRules(),
+                bookHighlightRuleStates = database.highlightRuleDao().getAllBookStates(),
+                bookHighlightSettings = database.highlightRuleDao().getAllSettings(),
+                highlightRuleExclusions = database.highlightRuleDao().getAllExclusions()
             ),
             assetSources = sources
         )
@@ -181,6 +191,10 @@ class PortableSnapshotManager @Inject constructor(
             else dataStoreManager.applyPortablePreferences(preferences)
             if (!mineruTokenStore.hasToken()) dataStoreManager.saveMineruMode("disabled")
             if (!externalTtsTokenStore.hasToken()) dataStoreManager.disableExternalTts()
+            val translationSettings = dataStoreManager.translationSettings.first()
+            if (!translationTokenStore.hasToken(translationSettings.credentialScope)) {
+                dataStoreManager.saveTranslationSettings(translationSettings.copy(enabled = false))
+            }
 
             database.withTransaction {
                 val bookDao = database.bookDao()
@@ -195,8 +209,14 @@ class PortableSnapshotManager @Inject constructor(
                 val restoredBooks = snapshot.books.map { book ->
                     val existing = existingBooks[book.id]
                     book.toEntity(
-                        filePath = book.bodyAssetId?.let(assetPaths::get)
-                            ?: book.filePath?.takeIf { it.startsWith("online://") }
+                        filePath = book.bodyAssetId?.let(assetPaths::get)?.let { path ->
+                            if (book.format == "MARKDOWN") {
+                                com.huangder.lumibooks.util.markdown.MarkdownSnapshotStore
+                                    .unpack(context, book.id, File(path)).absolutePath
+                            } else {
+                                path
+                            }
+                        } ?: book.filePath?.takeIf { it.startsWith("online://") }
                             ?: existing?.filePath.orEmpty().takeIf { !replaceAssetDirectories }.orEmpty(),
                         coverPath = book.coverAssetId?.let(assetPaths::get)
                             ?: existing?.coverPath?.takeIf { !replaceAssetDirectories },
@@ -205,7 +225,14 @@ class PortableSnapshotManager @Inject constructor(
                         // 快照用推导结果把已下载书籍翻回仅云端。
                         existingIsCloudOnly = existing?.isCloudOnly
                             ?.takeIf { !replaceAssetDirectories && book.bodyAssetId == null }
-                    )
+                    ).let { restored ->
+                        if (book.format == "MARKDOWN" && !replaceAssetDirectories && existing != null) {
+                            restored.copy(sourceUri = existing.sourceUri, sourceDocumentKey = existing.sourceDocumentKey,
+                                sourceParentUri = existing.sourceParentUri, sourceSha256 = existing.sourceSha256,
+                                sourceDisplayName = existing.sourceDisplayName, sourceLastModified = existing.sourceLastModified,
+                                isMissing = existing.isMissing)
+                        } else restored
+                    }
                 }
                 if (replace) {
                     syncDao.clearBookFolderLinks()
@@ -215,8 +242,13 @@ class PortableSnapshotManager @Inject constructor(
                     syncDao.clearReadingRecords()
                     syncDao.clearFolders()
                     syncDao.clearTags()
+                    database.annotationTagDao().clearTags()
                     bookDao.clearBooks()
                     syncDao.clearTombstones()
+                    database.highlightRuleDao().clearBookStates()
+                    database.highlightRuleDao().clearSettings()
+                    database.highlightRuleDao().clearAllExclusions()
+                    database.highlightRuleDao().clearRules()
                 }
                 if (restoredBooks.isNotEmpty()) bookDao.upsertBooks(restoredBooks)
                 val knownFolderIds = if (replace) emptySet() else existingFolders.mapTo(mutableSetOf()) { it.id }
@@ -240,12 +272,45 @@ class PortableSnapshotManager @Inject constructor(
                     it.copy(id = if (replace) 0 else existingRecords[key]?.id ?: 0)
                 })
                 if (snapshot.bookmarks.isNotEmpty()) syncDao.upsertBookmarks(snapshot.bookmarks.map {
-                    it.copy(id = if (replace) 0 else existingBookmarks[it.syncId]?.id ?: 0)
+                    val existing = existingBookmarks[it.syncId]
+                    // A sync payload may have been captured before the user edited tags
+                    // while network requests were in flight. Recheck under the write lock.
+                    if (!replace && existing != null && existing.updatedAt > it.updatedAt) existing
+                    else it.copy(id = if (replace) 0 else existing?.id ?: 0)
                 })
                 if (snapshot.notes.isNotEmpty()) syncDao.upsertNotes(snapshot.notes.map {
-                    it.copy(id = if (replace) 0 else existingNotes[it.syncId]?.id ?: 0)
+                    val existing = existingNotes[it.syncId]
+                    if (!replace && existing != null && existing.updatedAt > it.updatedAt) existing
+                    else it.copy(id = if (replace) 0 else existing?.id ?: 0)
+                })
+                val tagDao = database.annotationTagDao()
+                val existingAnnotationTags = tagDao.getAllTags().associateBy { it.name }
+                // Backfill labels from older backups that have no independent catalog.
+                tagDao.ensureTags((snapshot.notes.flatMap { note ->
+                    AnnotationTags.decode(note.tagsJson).map { AnnotationTagEntity(it, note.updatedAt) }
+                } + snapshot.bookmarks.flatMap { bookmark ->
+                    AnnotationTags.decode(bookmark.tagsJson).map { AnnotationTagEntity(it, bookmark.updatedAt) }
+                }).distinctBy { it.name })
+                tagDao.upsertTags(snapshot.annotationTags.map { incoming ->
+                    val existing = existingAnnotationTags[incoming.name]
+                    if (!replace && existing != null && (
+                        existing.updatedAt > incoming.updatedAt ||
+                            (existing.updatedAt == incoming.updatedAt && existing.isDeleted)
+                    )) existing else incoming
                 })
                 if (snapshot.tombstones.isNotEmpty()) syncDao.upsertTombstones(snapshot.tombstones)
+                if (snapshot.highlightRules.isNotEmpty()) {
+                    database.highlightRuleDao().upsertRules(snapshot.highlightRules)
+                }
+                if (snapshot.bookHighlightRuleStates.isNotEmpty()) {
+                    database.highlightRuleDao().upsertBookStates(snapshot.bookHighlightRuleStates)
+                }
+                if (snapshot.bookHighlightSettings.isNotEmpty()) {
+                    database.highlightRuleDao().upsertAllSettings(snapshot.bookHighlightSettings)
+                }
+                if (snapshot.highlightRuleExclusions.isNotEmpty()) {
+                    database.highlightRuleDao().upsertExclusions(snapshot.highlightRuleExclusions)
+                }
                 applyTombstones(snapshot)
 
                 if (!snapshot.bookSourcesJson.isNullOrBlank()) {
@@ -359,6 +424,8 @@ class PortableSnapshotManager @Inject constructor(
         require(snapshot.books.map { it.id }.distinct().size == snapshot.books.size) { "Duplicate book IDs" }
         require(snapshot.folders.map { it.id }.distinct().size == snapshot.folders.size) { "Duplicate folder IDs" }
         require(snapshot.tags.map { it.id }.distinct().size == snapshot.tags.size) { "Duplicate tag IDs" }
+        require(snapshot.annotationTags.map { it.name }.distinct().size == snapshot.annotationTags.size) { "Duplicate annotation tags" }
+        require(snapshot.annotationTags.all { it.name.isNotBlank() && it.name == it.name.trim() }) { "Invalid annotation tag" }
         require(snapshot.bookmarks.all { it.syncId.isNotBlank() }) { "Bookmark without stable ID" }
         require(snapshot.bookmarks.map { it.syncId }.distinct().size == snapshot.bookmarks.size) {
             "Duplicate bookmark stable IDs"
@@ -546,7 +613,7 @@ class PortableSnapshotManager @Inject constructor(
     private fun BookEntity.toPortable(bodyAssetId: String?, coverAssetId: String?) = PortableBook(
         id, title, author, format, lastReadTime, readingProgress, locatorJson, createdAt, isFavorite,
         isCloudOnly, metadataUpdatedAt, bodyAssetId, coverAssetId, remoteLibraryKey, remoteFileName,
-        remoteFileSize, remoteFileSha256, filePath
+        remoteFileSize, remoteFileSha256, filePath, isPinned
     )
 
 }
@@ -563,7 +630,7 @@ internal fun PortableBook.toEntity(
         ?: (bodyAssetId == null && (isCloudOnly || filePath.isBlank())),
     remoteLibraryKey = remoteLibraryKey, remoteFileName = remoteFileName,
     remoteFileSize = remoteFileSize, remoteFileSha256 = remoteFileSha256,
-    metadataUpdatedAt = metadataUpdatedAt
+    metadataUpdatedAt = metadataUpdatedAt, isPinned = isPinned
 )
 
 private fun stableSuffix(value: String): String = MessageDigest.getInstance("SHA-256")

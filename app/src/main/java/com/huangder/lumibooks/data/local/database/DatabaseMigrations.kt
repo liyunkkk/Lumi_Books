@@ -2,8 +2,24 @@ package com.huangder.lumibooks.data.local.database
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.huangder.lumibooks.domain.model.AnnotationTags
 
 object DatabaseMigrations {
+    val MIGRATION_19_20 = object : Migration(19, 20) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS annotation_tags (name TEXT NOT NULL PRIMARY KEY, updatedAt INTEGER NOT NULL, isDeleted INTEGER NOT NULL DEFAULT 0)")
+            // Android SQLite versions do not all provide json_each; decode in Kotlin.
+            db.query("SELECT tagsJson, updatedAt FROM notes UNION ALL SELECT tagsJson, updatedAt FROM bookmarks").use { cursor ->
+                while (cursor.moveToNext()) {
+                    AnnotationTags.decode(cursor.getString(0)).forEach { name ->
+                        db.execSQL("INSERT OR IGNORE INTO annotation_tags (name, updatedAt, isDeleted) VALUES (?, ?, 0)",
+                            arrayOf<Any>(name, cursor.getLong(1)))
+                    }
+                }
+            }
+        }
+    }
+
     val MIGRATION_1_2 = object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE books ADD COLUMN isFavorite INTEGER NOT NULL DEFAULT 0")
@@ -192,6 +208,81 @@ object DatabaseMigrations {
             db.execSQL("ALTER TABLE notes ADD COLUMN isNote INTEGER NOT NULL DEFAULT 0")
             // Old empty notes and highlights are indistinguishable. Preserve their stored style.
             db.execSQL("UPDATE notes SET isNote = 1 WHERE length(trim(note)) > 0 OR type = 'note'")
+        }
+    }
+
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE notes ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'")
+            db.execSQL("ALTER TABLE notes ADD COLUMN sourceRuleId TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE notes ADD COLUMN sourceMatchKey TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE notes ADD COLUMN styleSnapshotJson TEXT DEFAULT NULL")
+            db.execSQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS index_notes_bookId_sourceRuleId_sourceMatchKey " +
+                    "ON notes (bookId, sourceRuleId, sourceMatchKey)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS highlight_rules (" +
+                    "id TEXT NOT NULL, name TEXT NOT NULL, pattern TEXT NOT NULL, enabled INTEGER NOT NULL, " +
+                    "position INTEGER NOT NULL, targetScope INTEGER NOT NULL, textColor INTEGER, " +
+                    "underlineMode INTEGER NOT NULL, underlineOffset REAL NOT NULL, underlineWidth REAL NOT NULL, " +
+                    "fontWeight INTEGER NOT NULL, isItalic INTEGER NOT NULL, sampleText TEXT NOT NULL, " +
+                    "rawJson TEXT NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(id))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS book_highlight_rule_states (" +
+                    "bookId TEXT NOT NULL, ruleId TEXT NOT NULL, enabled INTEGER NOT NULL, " +
+                    "position INTEGER NOT NULL, PRIMARY KEY(bookId, ruleId))"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_book_highlight_rule_states_ruleId " +
+                    "ON book_highlight_rule_states (ruleId)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS book_highlight_settings (" +
+                    "bookId TEXT NOT NULL, materializeNotes INTEGER NOT NULL, revision INTEGER NOT NULL, " +
+                    "PRIMARY KEY(bookId))"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS highlight_rule_exclusions (" +
+                    "bookId TEXT NOT NULL, ruleId TEXT NOT NULL, matchKey TEXT NOT NULL, createdAt INTEGER NOT NULL, " +
+                    "PRIMARY KEY(bookId, ruleId, matchKey))"
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_highlight_rule_exclusions_ruleId " +
+                    "ON highlight_rule_exclusions (ruleId)"
+            )
+        }
+    }
+
+    val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE books ADD COLUMN isPinned INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    val MIGRATION_15_16 = object : Migration(15, 16) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE highlight_rules ADD COLUMN fontType TEXT NOT NULL DEFAULT ''")
+        }
+    }
+
+    val MIGRATION_16_17 = object : Migration(16, 17) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE bookmarks ADD COLUMN remark TEXT NOT NULL DEFAULT ''")
+        }
+    }
+
+    val MIGRATION_17_18 = object : Migration(17, 18) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE notes ADD COLUMN tagsJson TEXT NOT NULL DEFAULT '[]'")
+            db.execSQL("ALTER TABLE bookmarks ADD COLUMN tagsJson TEXT NOT NULL DEFAULT '[]'")
+        }
+    }
+    val MIGRATION_18_19 = object : Migration(18, 19) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE notes ADD COLUMN isStale INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE bookmarks ADD COLUMN isStale INTEGER NOT NULL DEFAULT 0")
         }
     }
 }

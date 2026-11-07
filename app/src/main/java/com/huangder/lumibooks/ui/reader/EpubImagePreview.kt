@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -73,6 +73,7 @@ internal data class EpubImagePreviewRequest(
 @Composable
 internal fun EpubImagePreviewOverlay(
     session: BookRenderSession,
+    imageAdjustments: com.huangder.lumibooks.domain.model.ReaderImageAdjustments = com.huangder.lumibooks.domain.model.ReaderImageAdjustments(),
     request: EpubImagePreviewRequest,
     progress: Float,
     onDismissRequest: () -> Unit
@@ -156,13 +157,6 @@ internal fun EpubImagePreviewOverlay(
         val openingScaleY = (sourceHeightPx / targetHeightPx).coerceIn(0.02f, 1.4f)
         val p = progress.coerceIn(0f, 1f)
         val easedButtonProgress = ((p - 0.48f) / 0.52f).coerceIn(0f, 1f)
-        val effectiveUserScale = 1f + (userScale - 1f) * p
-        val maxPanX = targetWidthPx * (userScale - 1f).coerceAtLeast(0f) * 0.55f
-        val maxPanY = targetHeightPx * (userScale - 1f).coerceAtLeast(0f) * 0.55f
-        val clampedPan = Offset(
-            userPan.x.coerceIn(-maxPanX, maxPanX),
-            userPan.y.coerceIn(-maxPanY, maxPanY)
-        )
         val imageWidth = with(density) { targetWidthPx.toDp() }
         val imageHeight = with(density) { targetHeightPx.toDp() }
         val targetOffsetX = targetCenterX - targetWidthPx / 2f
@@ -187,16 +181,25 @@ internal fun EpubImagePreviewOverlay(
         Box(
             modifier = Modifier
                 .graphicsLayer {
-                    translationX = targetOffsetX + (sourceCenterX - targetCenterX) * (1f - p) + clampedPan.x * p
-                    translationY = targetOffsetY + (sourceCenterY - targetCenterY) * (1f - p) + clampedPan.y * p
+                    // Read gesture state in the layer block so panning only updates the transform,
+                    // without recomposing and redrawing the decoded image on every pointer event.
+                    val currentScale = userScale
+                    val currentPan = userPan
+                    val effectiveUserScale = 1f + (currentScale - 1f) * p
+                    val maxPanX = targetWidthPx * (currentScale - 1f).coerceAtLeast(0f) * 0.55f
+                    val maxPanY = targetHeightPx * (currentScale - 1f).coerceAtLeast(0f) * 0.55f
+                    val clampedPanX = currentPan.x.coerceIn(-maxPanX, maxPanX)
+                    val clampedPanY = currentPan.y.coerceIn(-maxPanY, maxPanY)
+                    translationX = targetOffsetX + (sourceCenterX - targetCenterX) * (1f - p) + clampedPanX * p
+                    translationY = targetOffsetY + (sourceCenterY - targetCenterY) * (1f - p) + clampedPanY * p
                     scaleX = (openingScaleX + (1f - openingScaleX) * p) * effectiveUserScale
                     scaleY = (openingScaleY + (1f - openingScaleY) * p) * effectiveUserScale
                     alpha = p.coerceIn(0.08f, 1f)
                 }
                 .size(imageWidth, imageHeight)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(AppRoundedCornerShape(14.dp))
                 .background(Color(0xFFDFDFDF))
-                .border(0.5.dp, Color.White.copy(alpha = 0.34f), RoundedCornerShape(14.dp))
+                .border(0.5.dp, Color.White.copy(alpha = 0.34f), AppRoundedCornerShape(14.dp))
                 .pointerInput(request.source) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         val nextScale = (userScale * zoom).coerceIn(1f, 4f)
@@ -217,12 +220,17 @@ internal fun EpubImagePreviewOverlay(
                     model = ImageRequest.Builder(context)
                         .data(image.bytes)
                         .crossfade(false)
+                        .allowHardware(false)
+                        .transformations(ReaderSharpenTransformation(imageAdjustments.sharpen))
                         .build(),
                     imageLoader = imageLoader,
                     contentDescription = request.altText.ifBlank {
                         context.getString(R.string.epub_image_preview)
                     },
                     contentScale = ContentScale.Fit,
+                    colorFilter = androidx.compose.ui.graphics.ColorFilter.colorMatrix(
+                        androidx.compose.ui.graphics.ColorMatrix(imageAdjustments.colorMatrixValues())
+                    ),
                     modifier = Modifier.fillMaxSize()
                 )
             } else if (!loadFinished) {

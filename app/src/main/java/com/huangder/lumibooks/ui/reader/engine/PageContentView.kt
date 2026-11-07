@@ -1,13 +1,20 @@
 package com.huangder.lumibooks.ui.reader.engine
+import com.huangder.lumibooks.domain.model.ReaderImageAdjustments
+import com.huangder.lumibooks.domain.model.LongPressSelectionRange
+import com.huangder.lumibooks.domain.model.selectionRangeAt
+import com.huangder.lumibooks.ui.reader.adjustedReaderImages
+import com.huangder.lumibooks.ui.reader.AdjustedReaderDrawable
+import kotlinx.coroutines.*
 
 import android.content.Context
+import android.graphics.Color
 import android.graphics.Typeface
 import android.text.Layout
 import android.text.Selection
 import android.text.Spannable
+import android.text.Spanned
 import android.text.SpannableStringBuilder
 import android.text.style.ClickableSpan
-import android.text.style.DynamicDrawableSpan
 import android.text.style.ImageSpan
 import android.text.style.URLSpan
 import android.util.Log
@@ -20,6 +27,10 @@ import android.widget.ImageView
 import android.widget.TextView
 import coil.load
 import com.huangder.lumibooks.domain.model.ReaderTextAlignment
+import com.huangder.lumibooks.ui.reader.readerCoverEdgeColor
+import com.huangder.lumibooks.ui.reader.readerBreakStrategyForText
+import com.huangder.lumibooks.ui.reader.readerJustificationForText
+import com.huangder.lumibooks.ui.reader.readerHyphenationFrequency
 import com.huangder.lumibooks.ui.reader.readerBreakStrategy
 import com.huangder.lumibooks.ui.reader.readerJustificationMode
 import com.huangder.lumibooks.domain.model.ReaderWritingMode
@@ -65,12 +76,22 @@ private class PagedSelectableTextView(context: Context) : RoundedHighlightTextVi
  * 来自不同排版结果而产生累计偏移。
  */
 class PageContentView(context: Context) : FrameLayout(context) {
+    internal var initialSelectionRangeProvider: ((Int, IntRange) -> IntRange?)? = null
+    var longPressSelectionRange: LongPressSelectionRange = LongPressSelectionRange.DEFAULT
+        set(value) {
+            field = value
+            (textView as? RoundedHighlightTextView)?.longPressSelectionRange = value
+            verticalTextView.longPressSelectionRange = value
+        }
 
     companion object {
         private const val TAG = "PageContentView"
         private const val SEARCH_HIGHLIGHT_RGB = 0x00FFE082
         internal const val TTS_HIGHLIGHT_RGB = 0x00FF9E80
         internal const val UNDERLINE_FLAG = 0xFE
+        internal const val STRAIGHT_UNDERLINE_FLAG = 0xFD
+        internal const val DOUBLE_UNDERLINE_FLAG = 0xFC
+        internal const val DASHED_UNDERLINE_FLAG = 0xFB
         /** buildHighlights 用 alpha 字节标记「ReadView 自持的瞬态选区」。 */
         internal const val READER_SELECTION_FLAG = 0xFD
         /** 瞬态选区固定使用的透明度（与系统选区 readerSelectionColor 一致）。 */
@@ -120,6 +141,9 @@ class PageContentView(context: Context) : FrameLayout(context) {
     }
 
     init {
+        (textView as? RoundedHighlightTextView)?.initialSelectionRangeProvider = { offset, line ->
+            initialSelectionRangeProvider?.invoke(offset, line)
+        }
         isClickable = false
         isFocusable = false
         isLongClickable = false
@@ -140,6 +164,8 @@ class PageContentView(context: Context) : FrameLayout(context) {
     private var readerBackgroundImagePath: String? = null
     private var readerBackgroundImageOpacity: Float = 1f
     private var readerBackgroundImageBlurDp: Float = 0f
+    private var backgroundImageNeedsRetry = false
+    private var backgroundImageRequestGeneration = 0L
     private var currentBgColor: Int = 0
     private var showingCoverPage = false
     private var coverImageSpan: ImageSpan? = null
@@ -156,28 +182,60 @@ class PageContentView(context: Context) : FrameLayout(context) {
         val opacity = imageOpacity.coerceIn(0f, 1f)
         val blurDp = imageBlurDp.coerceIn(0f, 40f)
         val imageChanged = readerBackgroundImagePath != imagePath
-        val effectChanged = readerBackgroundImageOpacity != opacity ||
-            readerBackgroundImageBlurDp != blurDp
-        if (!imageChanged && !effectChanged) return
+        val blurChanged = readerBackgroundImageBlurDp != blurDp
+
+        // Opacity belongs to the view, not the decoded image. Reloading on every
+        // slider tick cancels the in-flight blur and clears the visible drawable.
+        readerBackgroundImageOpacity = opacity
+        backgroundImageView.alpha = opacity
+        if (!imageChanged && !blurChanged && !backgroundImageNeedsRetry) return
 
         readerBackgroundImagePath = imagePath
-        readerBackgroundImageOpacity = opacity
         readerBackgroundImageBlurDp = blurDp
-        backgroundImageView.alpha = opacity
-        val imageFile = imagePath?.let(::File)?.takeIf { it.exists() }
-        if (imageFile == null) {
+        backgroundImageNeedsRetry = false
+        val requestGeneration = ++backgroundImageRequestGeneration
+        if (imagePath == null) {
             backgroundImageView.load(null)
             backgroundImageView.visibility = View.GONE
         } else {
+            val imageFile = File(imagePath)
+            if (!imageFile.isFile) {
+                // A temporarily unavailable file must not latch an empty image
+                // as an already-applied background for the lifetime of the page.
+                backgroundImageNeedsRetry = true
+                return
+            }
+            val previousImage = backgroundImageView.drawable
             backgroundImageView.visibility = View.VISIBLE
             backgroundImageView.load(imageFile) {
                 allowHardware(false)
                 crossfade(false)
+                placeholder(previousImage)
+                error(previousImage)
+                listener(
+                    onError = { _, _ ->
+                        if (requestGeneration == backgroundImageRequestGeneration) backgroundImageNeedsRetry = true
+                    },
+                    onSuccess = { _, _ ->
+                        if (requestGeneration == backgroundImageRequestGeneration) backgroundImageNeedsRetry = false
+                    }
+                )
                 val radiusPx = blurDp * resources.displayMetrics.density
                 if (radiusPx >= 0.5f) {
                     transformations(ReaderBackgroundBlurTransformation(radiusPx.roundToInt()))
                 }
             }
+        }
+    }
+
+    internal fun retryReaderBackground() {
+        if (backgroundImageNeedsRetry) {
+            setReaderBackground(
+                currentBgColor,
+                readerBackgroundImagePath,
+                readerBackgroundImageOpacity,
+                readerBackgroundImageBlurDp
+            )
         }
     }
 
@@ -277,11 +335,49 @@ class PageContentView(context: Context) : FrameLayout(context) {
 
     /** 原始 spannable（含真实 BitmapDrawable ImageSpan），供 syncText/moveSlot 使用 */
     private var originalSpannable: Spannable? = null
+    private var imageSettings = ReaderImageAdjustments()
+    private var imageScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    fun setImageAdjustments(settings: ReaderImageAdjustments) {
+        if (imageSettings == settings) return
+        imageSettings = settings
+        val current = originalSpannable ?: return
+        val adjusted = adjustedReaderImages(current, settings, imageScope) { invalidateRenderers(); coverImageView.invalidate() }
+        syncText(adjusted, adjusted as? Spannable, justifyLastLine, chapterStartOffset, verticalGeometry)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (!imageScope.isActive) {
+            imageScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+            originalSpannable?.let {
+                adjustedReaderImages(it, imageSettings, imageScope) { invalidateRenderers(); coverImageView.invalidate() }
+            }
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        imageScope.cancel()
+        super.onDetachedFromWindow()
+    }
     /** 最近一次写入的瞬态跨页选区（章节级），避免拖拽时重复刷同一个范围。 */
     private var appliedReaderSelection: Pair<Int, Int>? = null
     private var appliedReaderSelectionColor: Int = 0
     private var justifyLastLine: Boolean = false
     private var writingMode: ReaderWritingMode = ReaderWritingMode.HORIZONTAL
+    private var configuredTextAlignment = ReaderTextAlignment.NATURAL
+
+    private fun configureTextBreaking(text: CharSequence) {
+        val strategy = configuredTextAlignment.readerBreakStrategyForText(text)
+        val hyphenation = readerHyphenationFrequency(text)
+        val justification = configuredTextAlignment.readerJustificationForText(text)
+        if (textView.breakStrategy != strategy) textView.breakStrategy = strategy
+        if (textView.hyphenationFrequency != hyphenation) textView.hyphenationFrequency = hyphenation
+        if (textView.justificationMode != justification) textView.justificationMode = justification
+        (textView as? RoundedHighlightTextView)?.readerJustificationMode = justification
+        justifiedView.readerBreakStrategy = strategy
+        justifiedView.readerJustificationMode = justification
+    }
     private var verticalGeometry: VerticalPageGeometry? = null
     // Vertical placement is defined solely by the configured padding. The page
     // itself may still move during a page-turn animation, but its text layers
@@ -297,7 +393,8 @@ class PageContentView(context: Context) : FrameLayout(context) {
         startChar: Int,
         endChar: Int,
         highlights: List<Triple<Int, Int, Int>> = emptyList(),
-        verticalGeometry: VerticalPageGeometry? = null
+        verticalGeometry: VerticalPageGeometry? = null,
+        endHyphenEdit: Int = 0
     ) {
         // 文本被整体重建：瞬态选区缓存失效（新 spannable 由 highlights 重新带上）
         appliedReaderSelection = null
@@ -430,10 +527,16 @@ class PageContentView(context: Context) : FrameLayout(context) {
                         Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
                     )
                     ttsHighlightInfo = Triple(localStart, localEnd, ttsColor)
-                } else if (hColor ushr 24 == UNDERLINE_FLAG) {
+                } else if (hColor ushr 24 in DASHED_UNDERLINE_FLAG..UNDERLINE_FLAG) {
                     // 涓嬪垝绾匡細浣跨敤鏂囧瓧棰滆壊 + 涓嬪垝绾匡紝涓嶇敾鑳屾櫙
                     val underlineColor = 0xFF000000.toInt() or (hColor and 0x00FFFFFF)
-                    spannable.setSpan(WaveUnderlineSpan(underlineColor), localStart, localEnd, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    val mode = when (hColor ushr 24) {
+                        STRAIGHT_UNDERLINE_FLAG -> 1
+                        DOUBLE_UNDERLINE_FLAG -> 2
+                        DASHED_UNDERLINE_FLAG -> 4
+                        else -> 3
+                    }
+                    spannable.setSpan(WaveUnderlineSpan(underlineColor, mode), localStart, localEnd, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                 } else if (hColor ushr 24 == READER_SELECTION_FLAG) {
                     // 跨页选择：ReadView 自持的瞬态选区（不落库）
                     spannable.setSpan(
@@ -470,12 +573,18 @@ class PageContentView(context: Context) : FrameLayout(context) {
         }
 
         // One layout now owns visible glyphs, images, highlights, and selection geometry.
-        textView.text = spannable
+        val adjusted = adjustedReaderImages(spannable, imageSettings, imageScope) { invalidateRenderers(); coverImageView.invalidate() } as Spannable
+        if (endHyphenEdit != 0 && adjusted.isNotEmpty()) {
+            adjusted.setSpan(ReaderPageEndHyphenSpan(endHyphenEdit), adjusted.length - 1, adjusted.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        configureTextBreaking(adjusted)
+        textView.text = adjusted
         textView.scrollTo(0, 0)
-        justifiedView.text = spannable
+        justifiedView.text = adjusted
         // 保存原始 spannable（含真实 BitmapDrawable ImageSpan），供 moveSlot/syncText 使用
-        this.originalSpannable = spannable
-        updateCoverPage(spannable)
+        this.originalSpannable = adjusted
+        updateCoverPage(adjusted)
 
         // setTextIsSelectable(true) 时 Android 内部通过 Editable.Factory.newEditable() 创建副本
         // 必须从 textView.text 取实际存储的 Spannable，否则 SpanWatcher 注册在死对象上
@@ -660,7 +769,10 @@ class PageContentView(context: Context) : FrameLayout(context) {
 
         showingCoverPage = true
         coverImageSpan = image
-        coverImageView.setImageDrawable(image.drawable.constantState?.newDrawable()?.mutate() ?: image.drawable)
+        coverImageView.setBackgroundColor(readerCoverEdgeColor(image.drawable, currentBgColor))
+        // ImageView sizes its drawable to intrinsic dimensions. Keep those
+        // display bounds separate from the ImageSpan's fixed layout bounds.
+        coverImageView.setImageDrawable(AdjustedReaderDrawable(image.drawable))
         coverImageView.visibility = View.VISIBLE
         updateContentRendererVisibility()
     }
@@ -668,6 +780,7 @@ class PageContentView(context: Context) : FrameLayout(context) {
     private fun clearCoverPage() {
         showingCoverPage = false
         coverImageSpan = null
+        coverImageView.setBackgroundColor(Color.TRANSPARENT)
         coverImageView.setImageDrawable(null)
         coverImageView.visibility = View.GONE
         updateContentRendererVisibility()
@@ -711,6 +824,7 @@ class PageContentView(context: Context) : FrameLayout(context) {
         boldText: Boolean = false
     ) {
         this.writingMode = writingMode
+        configuredTextAlignment = textAlignment
         val spacingRatio = if (fontSizePx > 0) letterSpacingPx / fontSizePx else 0f
 
         // Native TextView is the visible renderer as well as the selection owner.
@@ -743,23 +857,7 @@ class PageContentView(context: Context) : FrameLayout(context) {
         // 🔥 守卫：仅在值变更时才设置，避免无条件触发 nullLayouts() + requestLayout()
         // Android 的 setBreakStrategy/setHyphenationFrequency 不检查相等性，即使值相同
         // 也会无效化已存在的 Layout，导致多余的 layout pass → 内容位移
-        val breakStrategy = textAlignment.readerBreakStrategy()
-        if (textView.breakStrategy != breakStrategy) {
-            textView.breakStrategy = breakStrategy
-        }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-            if (textView.hyphenationFrequency != Layout.HYPHENATION_FREQUENCY_NONE) {
-                textView.hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE
-            }
-        }
-        val justificationMode = textAlignment.readerJustificationMode()
-        if (textView.justificationMode != justificationMode) {
-            textView.justificationMode = justificationMode
-        }
-        (textView as? RoundedHighlightTextView)?.readerJustificationMode = justificationMode
-        justifiedView.readerJustificationMode = justificationMode
-        // 可见层在翻页槽位轮转时可能先于选择层完成排版，回退布局要跟选择层用同一条断行策略。
-        justifiedView.readerBreakStrategy = breakStrategy
+        configureTextBreaking(textView.text ?: "")
         // 🔥 守卫：仅在 padding 实际变更时调用 setPadding，避免无谓的 requestLayout()
         val ml = marginLeftPx.toInt()
         val mt = marginTopPx.toInt()
@@ -803,6 +901,20 @@ class PageContentView(context: Context) : FrameLayout(context) {
     fun getTextSpannable(): Spannable? = textView.text as? Spannable
 
     fun getVisualLineInfo(offset: Int): Pair<Int, Int>? = justifiedView.getLineInfoForOffset(offset)
+
+    fun guideLines(): List<ReaderGuideLine> {
+        if (showingCoverPage || writingMode.isVertical) return emptyList()
+        val text = textView.text ?: return emptyList()
+        val layout = textView.layout ?: return emptyList()
+        val sideInset = 8f * resources.displayMetrics.density
+        return readableGuideLines(
+            text, layout,
+            sideInset,
+            (width - sideInset).coerceAtLeast(sideInset),
+            (textView.top + textView.totalPaddingTop).toFloat(),
+            density = resources.displayMetrics.density
+        ).map { it.copy(startOffset = it.startOffset + chapterStartOffset) }
+    }
 
     /** 返回指定页面坐标处的 EPUB 链接；未命中链接时返回 null。 */
     fun getLinkAt(x: Float, y: Float): String? = if (writingMode.isVertical) {
@@ -887,15 +999,7 @@ class PageContentView(context: Context) : FrameLayout(context) {
             val imageLeft = textView.totalPaddingLeft +
                 (geometry?.horizontalPosition(spanStart)
                     ?: textLayout.getPrimaryHorizontal(spanStart)) - textView.scrollX
-            val lineTop = textLayout.getLineTop(line).toFloat()
-            val lineBottom = textLayout.getLineBottom(line).toFloat()
-            val imageTopInLayout = when (image.verticalAlignment) {
-                DynamicDrawableSpan.ALIGN_BASELINE ->
-                    textLayout.getLineBaseline(line).toFloat() - imageHeight
-                DynamicDrawableSpan.ALIGN_CENTER ->
-                    lineTop + (lineBottom - lineTop - imageHeight) / 2f
-                else -> lineBottom - imageHeight
-            }
+            val imageTopInLayout = readerImageTop(textLayout, line, image)
             val imageTop = textView.totalPaddingTop + imageTopInLayout - textView.scrollY
             val imageRight = imageLeft + imageWidth
             val imageBottom = imageTop + imageHeight
@@ -1008,20 +1112,12 @@ class PageContentView(context: Context) : FrameLayout(context) {
             ?: layout.getOffsetForHorizontal(line, tx)
         val safeOffset = offset.coerceIn(0, spannable.length - 1)
 
-        // 扩词：CJK 左2右3，英文到词边界
         val text = spannable.toString()
-        var start = safeOffset
-        var end = safeOffset
-        val charCode = text[safeOffset].code
-        val isCJK = charCode in 0x4E00..0x9FFF || charCode in 0x3400..0x4DBF
-        if (isCJK) {
-            start = (safeOffset - 2).coerceAtLeast(0)
-            end = (safeOffset + 3).coerceAtMost(text.length)
-        } else {
-            fun isWordSep(c: Char): Boolean = c.isWhitespace() || (!c.isLetterOrDigit() && c != '\'' && c != '-')
-            while (start > 0 && !isWordSep(text[start - 1])) start--
-            while (end < text.length && !isWordSep(text[end])) end++
-        }
+        val visualLine = layout.getLineStart(line) until layout.getLineEnd(line)
+        val range = initialSelectionRangeProvider?.invoke(safeOffset, visualLine)
+            ?: text.selectionRangeAt(safeOffset, longPressSelectionRange, visualLine) ?: return null
+        val start = range.first
+        val end = range.last + 1
 
         if (end <= start) {
             Log.d(TAG, "selectWordAt: word range invalid start=$start end=$end")
@@ -1109,6 +1205,7 @@ class PageContentView(context: Context) : FrameLayout(context) {
         // 确保 textView 触发的 layout pass 中，justifiedView 已有正确内容供 onSizeChanged → rebuildLayout 使用
         justifiedView.text = justifiedText
             ?: (textViewText as? Spannable ?: textViewText?.let { SpannableStringBuilder(it) })
+        configureTextBreaking(textViewText ?: "")
         textView.text = textViewText
         textView.scrollTo(0, 0)
         // 如果传入了 justifiedText，同步更新 originalSpannable
@@ -1142,17 +1239,22 @@ class PageContentView(context: Context) : FrameLayout(context) {
         if (width > 0 && height > 0) {
             val widthSpec = View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY)
             val heightSpec = View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY)
-            listOf(textView, justifiedView, verticalTextView).forEach { child ->
+            // The cover starts GONE while the opening chapter loads, so it
+            // may never have been measured by the empty page's layout pass.
+            // Size it now as well, before drawing the first loaded frame.
+            listOf(coverImageView, textView, justifiedView, verticalTextView).forEach { child ->
                 child.forceLayout()
                 child.measure(widthSpec, heightSpec)
                 child.layout(0, 0, width, height)
             }
         } else {
+            coverImageView.requestLayout()
             textView.requestLayout()
             justifiedView.requestLayout()
             verticalTextView.requestLayout()
             requestLayout()
         }
+        coverImageView.invalidate()
         textView.invalidate()
         justifiedView.invalidate()
         verticalTextView.invalidate()

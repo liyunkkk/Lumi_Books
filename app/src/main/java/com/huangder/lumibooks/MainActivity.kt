@@ -16,7 +16,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,6 +41,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.huangder.lumibooks.data.local.DataStoreManager
+import com.huangder.lumibooks.data.sync.LocalNetworkAccessManager
+import com.huangder.lumibooks.data.sync.WebdavAutoSyncScheduler
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
 import com.huangder.lumibooks.domain.model.Book
 import com.huangder.lumibooks.domain.model.BookFormat
@@ -58,9 +60,9 @@ import com.huangder.lumibooks.ui.components.AppUpdateDialog
 import com.huangder.lumibooks.ui.components.ExternalImportChoiceDialog
 import com.huangder.lumibooks.ui.components.ExternalImportFolder
 import com.huangder.lumibooks.ui.components.LiquidGlassDialogHost
+import com.huangder.lumibooks.ui.components.rememberLocalNetworkPermissionGate
 import com.huangder.lumibooks.ui.components.PolicyUpdateDialog
 import com.huangder.lumibooks.ui.components.RemoteNoticeDialog
-import com.huangder.lumibooks.ui.settings.WebViewActivity
 import com.huangder.lumibooks.ui.welcome.WelcomeActivity
 import com.huangder.lumibooks.ui.theme.EBookReaderTheme
 import com.huangder.lumibooks.ui.theme.MotionPreference
@@ -94,8 +96,11 @@ private data class PendingPolicyUpdate(
     val privacyVersion: Int
 )
 
+private const val REMOTE_TERMS_URL = "https://huangder.top/terms.html"
+private const val REMOTE_PRIVACY_URL = "https://huangder.top/privacy.html"
+
 /** 外部打开/分享导入支持的书籍扩展名。 */
-private val SUPPORTED_IMPORT_EXTENSIONS = setOf("epub", "pdf", "txt", "mobi", "cbz")
+private val SUPPORTED_IMPORT_EXTENSIONS = setOf("epub", "pdf", "txt", "mobi", "cbz", "md", "markdown")
 
 private fun Intent?.extractImportUris(): List<Uri> {
     val importIntent = this ?: return emptyList()
@@ -151,11 +156,6 @@ private data class PendingRemoteNotice(
     val message: String
 )
 
-enum class ReaderPageDirection {
-    PREVIOUS,
-    NEXT
-}
-
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
@@ -193,26 +193,25 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var authorizedFolderSnapshotStore: AuthorizedFolderSnapshotStore
 
+    @Inject
+    lateinit var localNetworkAccessManager: LocalNetworkAccessManager
+
+    @Inject
+    lateinit var webdavAutoSyncScheduler: WebdavAutoSyncScheduler
+
     /**
      * 当 ReaderScreen 处于前台时置为 true，
      * 确保 ActionMode 拦截只在阅读页生效，不影响其他页面。
      */
     var isInReaderScreen = false
 
-    /** 非空时由当前阅读页接管音量键；阅读页离开或设置关闭时恢复系统音量行为。 */
-    var readerVolumeKeyHandler: ((ReaderPageDirection) -> Unit)? = null
+    /** 当前阅读页可分别处理两个音量键；返回 false 时交给系统处理。 */
+    var readerVolumeKeyHandler: ((KeyEvent) -> Boolean)? = null
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val handler = readerVolumeKeyHandler
-        val direction = when (event.keyCode) {
-            KeyEvent.KEYCODE_VOLUME_UP -> ReaderPageDirection.PREVIOUS
-            KeyEvent.KEYCODE_VOLUME_DOWN -> ReaderPageDirection.NEXT
-            else -> null
-        }
-        if (handler != null && direction != null) {
-            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                handler(direction)
-            }
+        val isVolumeKey = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
+            event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN
+        if (isVolumeKey && readerVolumeKeyHandler?.invoke(event) == true) {
             return true
         }
         // 部分 ROM / 耳机把媒体按键投递给前台窗口而不是 MediaSession。
@@ -476,14 +475,20 @@ class MainActivity : ComponentActivity() {
         sourceKey: String?,
         sourceHash: String?
     ): ImportOutcome {
-        val file = FileUtils.copyFileToInternal(this, uri, fileName) ?: return ImportOutcome.UNSUPPORTED
         val format = extension.toBookFormat()
+        val bookId = FileUtils.generateBookId()
+        if (format == BookFormat.MARKDOWN) {
+            runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        }
+        val file = if (format == BookFormat.MARKDOWN) {
+            com.huangder.lumibooks.util.markdown.MarkdownSnapshotStore.create(this, bookId, uri.toString())
+        } else FileUtils.copyFileToInternal(this, uri, fileName) ?: return ImportOutcome.UNSUPPORTED
         val coverPath = extractBookCover(file.absolutePath, format)
         // 导入时从文件解析真实标题和作者，而不是写死"未知作者"
         val (parsedTitle, parsedAuthor) = resolveBookMetadata(file.absolutePath, fileName, format)
 
         val book = Book(
-            id = FileUtils.generateBookId(),
+            id = bookId,
             title = parsedTitle,
             author = parsedAuthor,
             filePath = file.absolutePath,
@@ -494,7 +499,10 @@ class MainActivity : ComponentActivity() {
             createdAt = System.currentTimeMillis(),
             sourceUri = uri.toString(),
             sourceDocumentKey = sourceKey,
-             sourceSha256 = sourceHash ?: runCatching {
+             sourceSha256 = if (format == BookFormat.MARKDOWN) {
+                 com.huangder.lumibooks.util.markdown.MarkdownSnapshotStore.manifest(file)
+                     ?.optString("sourceSha256")?.takeIf { it.isNotBlank() }
+             } else sourceHash ?: runCatching {
                  authorizedStorageManager.sha256(this, file.absolutePath)
              }.getOrNull(),
              sourceDisplayName = fileName,
@@ -541,16 +549,20 @@ class MainActivity : ComponentActivity() {
         }
 
         val format = extension.toBookFormat()
-        val coverPath = extractBookCover(location, format)
-        val (parsedTitle, parsedAuthor) = resolveBookMetadata(location, fileName, format)
+        val bookId = FileUtils.generateBookId()
+        val readingLocation = if (format == BookFormat.MARKDOWN) {
+            com.huangder.lumibooks.util.markdown.MarkdownSnapshotStore.create(this, bookId, location, treeRootUri.toString()).absolutePath
+        } else location
+        val coverPath = extractBookCover(readingLocation, format)
+        val (parsedTitle, parsedAuthor) = resolveBookMetadata(readingLocation, fileName, format)
         val documentKey = authorizedStorageManager.documentKey(move.destinationUri)
         val lastModified = authorizedStorageManager.queryLastModified(this, move.destinationUri)
         val now = System.currentTimeMillis()
         val book = Book(
-            id = FileUtils.generateBookId(),
+            id = bookId,
             title = parsedTitle,
             author = parsedAuthor,
-            filePath = location,
+            filePath = readingLocation,
             coverPath = coverPath,
             format = format,
             lastReadTime = now,
@@ -598,6 +610,11 @@ class MainActivity : ComponentActivity() {
         format: BookFormat
     ): Pair<String, String> {
         val fallback = fileName.substringBeforeLast('.') to getString(R.string.book_author_unknown)
+        if (format == BookFormat.MARKDOWN) {
+            val metadata = com.huangder.lumibooks.util.markdown.MarkdownSnapshotStore.manifest(File(location))
+            return (metadata?.optString("title")?.takeIf { it.isNotBlank() } ?: fallback.first) to
+                (metadata?.optString("author")?.takeIf { it.isNotBlank() } ?: fallback.second)
+        }
         if (format != BookFormat.EPUB && format != BookFormat.MOBI) return fallback
         return runCatching {
             val parser = BookParserFactory.createParser(format, this)
@@ -622,6 +639,7 @@ class MainActivity : ComponentActivity() {
         "pdf" -> BookFormat.PDF
         "mobi" -> BookFormat.MOBI
         "cbz" -> BookFormat.CBZ
+        "md", "markdown", "mdpack" -> BookFormat.MARKDOWN
         else -> BookFormat.TXT
     }
 
@@ -681,8 +699,9 @@ class MainActivity : ComponentActivity() {
         StartupTrace.event("main_splash_decision", mapOf("enabled" to splashEnabledAtLaunch, "source" to if (isExternalBookOpen) "external_book" else if (intent.hasExtra(LaunchThemeController.EXTRA_SPLASH_ENABLED)) "intent" else "cache", "snapshot" to LaunchThemeController.splashEnabledSnapshot(this)))
         val iconStyleAtLaunch = LaunchThemeController.iconStyleSnapshot(this)
 
+        val appFontLaunchSnapshot = com.huangder.lumibooks.util.LaunchThemeController.themeSnapshot(this)
         setContent {
-            val appTheme by dataStoreManager.appTheme.collectAsState(initial = "lumi")
+            val appTheme by dataStoreManager.appTheme.collectAsState(initial = LaunchThemeController.themeSnapshot(this).appTheme)
             val startupScreen by produceState<String?>(initialValue = null, dataStoreManager) {
                 value = dataStoreManager.startupScreen.first()
             }
@@ -690,10 +709,12 @@ class MainActivity : ComponentActivity() {
                 value = dataStoreManager.bookshelfLayoutMode.first()
             }
             val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = DEFAULT_APP_ACCENT_HEX)
+            val appFontSize by dataStoreManager.appFontSize.collectAsState(initial = appFontLaunchSnapshot.appFontSize)
             val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = "system")
             val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = 0.55f)
             val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = false)
             val cardOutlinesEnabled by dataStoreManager.cardOutlinesEnabled.collectAsState(initial = false)
+            val coverReadingProgressEnabled by dataStoreManager.coverReadingProgressEnabled.collectAsState(initial = false)
             val darkMode by dataStoreManager.darkMode.collectAsState(initial = "system")
             val entranceAnimationsEnabled by dataStoreManager.entranceAnimationsEnabled.collectAsState(initial = true)
             val motionPreferenceValue by dataStoreManager.motionPreference.collectAsState(initial = "standard")
@@ -760,18 +781,48 @@ class MainActivity : ComponentActivity() {
                 pendingPolicyUpdate = null
             }
 
+            val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = com.huangder.lumibooks.util.LaunchThemeController.themeSnapshot(this).menuAnimationStyle)
+            val liquidGlassStyle by dataStoreManager.liquidGlassStyle
+                .collectAsState(initial = appFontLaunchSnapshot.liquidGlassStyle)
+            val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
+                .collectAsState(initial = appFontLaunchSnapshot.reduceTransparencyEnabled)
             EBookReaderTheme(
+                liquidGlassStyle = liquidGlassStyle,
+                reduceTransparencyEnabled = reduceTransparencyEnabled,
+                menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
                 darkTheme = isDark,
                 dynamicColor = effectiveAppTheme == "material3",
-                appTheme = effectiveAppTheme,
+                appTheme = appTheme,
                 appAccentColor = appAccentColor,
                 liquidGlassTransparency = liquidGlassTransparency,
                 liquidGlassHdrHighlightEnabled = liquidGlassHdrHighlightEnabled && !eInkModeEnabled,
                 cardOutlinesEnabled = cardOutlinesEnabled,
+                coverReadingProgressEnabled = coverReadingProgressEnabled,
                 eInkMode = eInkModeEnabled,
+                appFontSize = appFontSize,
                 globalFontMode = globalFontMode,
                 motionPreference = MotionPreference.fromStoredValue(motionPreferenceValue)
             ) {
+                val requestLocalNetworkPermission = rememberLocalNetworkPermissionGate(
+                    accessManager = localNetworkAccessManager,
+                    onPermissionGranted = webdavAutoSyncScheduler::onLocalNetworkPermissionGranted
+                )
+                LaunchedEffect(Unit) {
+                    val config = dataStoreManager.webdavConfig.first()
+                    if (config.enabled && config.serverUrl.isNotBlank()) {
+                        requestLocalNetworkPermission(
+                            config.serverUrl,
+                            {},
+                            {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    R.string.webdav_error_local_network_permission,
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        )
+                    }
+                }
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -783,9 +834,13 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.fillMaxSize()) {
                         val navController = rememberNavController()
                         val navCurrentEntry by navController.currentBackStackEntryAsState()
+                        val navVisibleEntries by navController.visibleEntries.collectAsState()
                         // 阅读页（EPUB/TXT/PDF 共用 reader/{bookId} 路由）禁止弹出全局启动弹窗：
                         // 弹窗会切换主内容 layerBackdrop 导致阅读内容闪烁，退出阅读页后补显示。
-                        val onReaderRoute = navCurrentEntry?.destination?.route == Screen.Reader.route
+                        val onReaderRoute = !com.huangder.lumibooks.ui.navigation.navigationBackdropCaptureAllowed(
+                            navCurrentEntry?.destination?.route,
+                            navVisibleEntries.map { it.destination.route }
+                        )
                         val globalGlassDialogVisible = !onReaderRoute && (
                             pendingAppUpdate != null ||
                                 pendingRemoteNotice != null ||
@@ -826,7 +881,7 @@ class MainActivity : ComponentActivity() {
                                     startDestination = startupRoute,
                                     initialBookshelfLayoutMode = configuredBookshelfLayoutMode,
                                     entranceAnimationsEnabled = entranceAnimationsEnabled &&
-                                        motionPreferenceValue == "standard" &&
+                                        motionPreferenceValue != "reduced" &&
                                         !showSplash && !eInkModeEnabled,
                                     bookOpenUsesHeroTransition = bookOpenTransition ==
                                         com.huangder.lumibooks.domain.model.BookOpenTransition.HERO.storedValue,
@@ -911,10 +966,10 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onDecline = { finishAffinity() },
                                     onViewTerms = {
-                                        openUpdateDocument(getString(R.string.terms_of_service), "terms.html")
+                                        openRemoteUrl(REMOTE_TERMS_URL)
                                     },
                                     onViewPrivacy = {
-                                        openUpdateDocument(getString(R.string.privacy_policy), "privacy.html")
+                                        openRemoteUrl(REMOTE_PRIVACY_URL)
                                     }
                                 )
                             }
@@ -969,14 +1024,6 @@ class MainActivity : ComponentActivity() {
 
     private fun Configuration.isNightModeEnabled(): Boolean {
         return (uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-    }
-
-    private fun openUpdateDocument(title: String, assetFile: String) {
-        startActivity(
-            Intent(this, WebViewActivity::class.java)
-                .putExtra("title", title)
-                .putExtra("file", assetFile)
-        )
     }
 
     private fun openRemoteUrl(url: String) {

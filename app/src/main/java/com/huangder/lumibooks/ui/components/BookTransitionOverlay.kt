@@ -8,7 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,7 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -207,7 +207,7 @@ fun BookTransitionOverlay(
                         translationX = predictiveBackProgress * 48.dp.toPx()
                         // transformOrigin 默认居中，不需要额外设置
                     }
-                    .clip(RoundedCornerShape(28.dp))
+                    .clip(AppRoundedCornerShape(28.dp))
                     .background(AppColors.CardBg)
             ) {
                 LiquidGlassIconButton(
@@ -244,7 +244,7 @@ fun BookTransitionOverlay(
                         modifier = Modifier
                             .width(200.dp)
                             .height(270.dp)
-                            .clip(RoundedCornerShape(AppRadius.md))
+                            .clip(AppRoundedCornerShape(AppRadius.md))
                             .background(AppColors.BgGray),
                         contentAlignment = Alignment.Center
                     ) {
@@ -259,7 +259,7 @@ fun BookTransitionOverlay(
                                 contentDescription = null,
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .clip(RoundedCornerShape(AppRadius.md)),
+                                    .clip(AppRoundedCornerShape(AppRadius.md)),
                                 contentScale = ContentScale.Crop,
                                 onError = { coverLoadFailed = true }
                             )

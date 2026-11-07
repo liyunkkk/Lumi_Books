@@ -2,7 +2,7 @@ package com.huangder.lumibooks.ui.bookshelf
 import com.huangder.lumibooks.ui.icons.AppIcons
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.spring
+import com.huangder.lumibooks.ui.animation.VisualMotion.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -30,7 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -172,7 +172,7 @@ fun BookTagBottomSheet(
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
-                        .clip(RoundedCornerShape(AppRadius.md))
+                        .clip(AppRoundedCornerShape(AppRadius.md))
                         .background(AppColors.BgGray)
                         .padding(horizontal = AppSpace.md),
                     contentAlignment = Alignment.CenterStart
@@ -310,7 +310,7 @@ fun BookTagBottomSheet(
         LiquidGlassDialog(
             onDismissRequest = onDismiss,
             alignment = Alignment.BottomCenter,
-            shape = RoundedCornerShape(28.dp),
+            shape = AppRoundedCornerShape(28.dp),
             contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
             backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
         ) {
@@ -324,7 +324,7 @@ fun BookTagBottomSheet(
             containerColor = AppColors.CardBg,
             contentColor = AppColors.TextPrimary,
             scrimColor = Color.Black.copy(alpha = 0.12f),
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+            shape = AppRoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
             sheetContent()
         }
@@ -451,7 +451,7 @@ private fun PrimaryTagSection(
                     modifier = Modifier
                         .weight(1f)
                         .height(38.dp)
-                        .clip(RoundedCornerShape(AppRadius.md))
+                        .clip(AppRoundedCornerShape(AppRadius.md))
                         .background(AppColors.BgGray)
                         .padding(horizontal = AppSpace.md),
                     contentAlignment = Alignment.CenterStart
@@ -600,7 +600,7 @@ fun BatchBookTagSheet(
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
-                        .clip(RoundedCornerShape(AppRadius.md))
+                        .clip(AppRoundedCornerShape(AppRadius.md))
                         .background(AppColors.BgGray)
                         .padding(horizontal = AppSpace.md),
                     contentAlignment = Alignment.CenterStart
@@ -677,7 +677,8 @@ fun BatchBookTagSheet(
                     tags.forEach { tag ->
                         val selected = tag.id in selectedTagIds
                         LiquidGlassSurface(
-                            shape = RoundedCornerShape(50),
+                            controlEdge = true,
+                            shape = AppRoundedCornerShape(50),
                             fallbackColor = if (selected) {
                                 AppColors.Accent.copy(alpha = 0.18f)
                             } else {
@@ -734,7 +735,7 @@ fun BatchBookTagSheet(
         LiquidGlassDialog(
             onDismissRequest = onDismiss,
             alignment = Alignment.BottomCenter,
-            shape = RoundedCornerShape(28.dp),
+            shape = AppRoundedCornerShape(28.dp),
             contentScrimColor = AppColors.CardBg.copy(alpha = 0.82f),
             backgroundScrimColor = Color.Black.copy(alpha = 0.12f)
         ) {
@@ -748,7 +749,7 @@ fun BatchBookTagSheet(
             containerColor = AppColors.CardBg,
             contentColor = AppColors.TextPrimary,
             scrimColor = Color.Black.copy(alpha = 0.12f),
-            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+            shape = AppRoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
         ) {
             content()
         }
@@ -764,15 +765,16 @@ private fun TagSelectionChip(
     onToggle: () -> Unit,
     onShowDelete: () -> Unit
 ) {
-    val shape = RoundedCornerShape(50)
+    val shape = AppRoundedCornerShape(50)
     val chipHeight = if (small) 30.dp else 36.dp
     LiquidGlassSurface(
+        controlEdge = true,
         shape = shape,
-        fallbackColor = if (selected) AppColors.Accent.copy(alpha = 0.18f) else AppColors.BgGray,
+        fallbackColor = if (selected) AppColors.Accent.copy(alpha = 0.28f) else AppColors.BgGray.copy(alpha = 0.88f),
         contentScrimColor = if (selected) {
-            AppColors.Accent.copy(alpha = 0.34f)
+            AppColors.Accent.copy(alpha = 0.52f)
         } else {
-            AppColors.CardBg.copy(alpha = 0.24f)
+            AppColors.CardBg.copy(alpha = 0.68f)
         },
         interactive = false,
         modifier = Modifier

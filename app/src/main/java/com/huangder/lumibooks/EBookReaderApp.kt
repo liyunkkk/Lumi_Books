@@ -46,6 +46,9 @@ class EBookReaderApp : Application(), Application.ActivityLifecycleCallbacks, Co
     lateinit var webdavAutoSyncScheduler: WebdavAutoSyncScheduler
 
     @Inject
+    lateinit var dictionaryRepository: com.huangder.lumibooks.dictionary.DictionaryRepository
+
+    @Inject
     lateinit var diagnosticLogger: DiagnosticLogger
 
     override val workManagerConfiguration: Configuration
@@ -63,6 +66,7 @@ class EBookReaderApp : Application(), Application.ActivityLifecycleCallbacks, Co
 
     override fun onCreate() {
         super.onCreate()
+        dictionaryRepository.start()
         installDiagnosticExceptionHandler()
         ErrorHandler.installDiagnosticLogger(diagnosticLogger)
         DiagnosticLoggerRegistry.logger = diagnosticLogger
@@ -81,6 +85,7 @@ class EBookReaderApp : Application(), Application.ActivityLifecycleCallbacks, Co
         applicationScope.launch(Dispatchers.IO) {
             dataStoreManager.launchThemeSnapshot.collectLatest { snapshot ->
                 LaunchThemeController.updateThemeSnapshot(this@EBookReaderApp, snapshot)
+                LaunchThemeController.synchronizeLauncherComponents(this@EBookReaderApp)
             }
         }
         applicationScope.launch(Dispatchers.IO) {
@@ -92,6 +97,7 @@ class EBookReaderApp : Application(), Application.ActivityLifecycleCallbacks, Co
                     splashEnabled = snapshot.splashEnabled,
                     hasCompletedLanguageSetup = snapshot.hasCompletedLanguageSetup
                 )
+                LaunchThemeController.synchronizeLauncherComponents(this@EBookReaderApp)
             }
         }
     }

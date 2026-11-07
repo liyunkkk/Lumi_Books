@@ -3,7 +3,7 @@ package com.huangder.lumibooks.ui.settings
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -49,6 +49,7 @@ fun AppIconStyleDetail(viewModel: SettingsViewModel) {
 
     AppIconStyleOptions(
         selectedStyle = uiState.appIconStyle,
+        easterEggUnlocked = uiState.lumiEasterEggUnlocked,
         onSelect = viewModel::saveAppIconStyle
     )
 }
@@ -56,6 +57,7 @@ fun AppIconStyleDetail(viewModel: SettingsViewModel) {
 @Composable
 internal fun AppIconStyleOptions(
     selectedStyle: String,
+    easterEggUnlocked: Boolean = false,
     onSelect: (String) -> Unit
 ) {
     Row(
@@ -74,6 +76,16 @@ internal fun AppIconStyleOptions(
             onSelect = onSelect,
             modifier = Modifier.weight(1f)
         )
+        if (easterEggUnlocked) {
+            AppIconStyleOption(
+                style = AppIconStyle.LUMI_CHAN,
+                label = stringResource(R.string.icon_style_lumi_chan),
+                imageRes = R.mipmap.ic_launcher_lumi_chan,
+                selected = selectedStyle == AppIconStyle.LUMI_CHAN.storedValue,
+                onSelect = onSelect,
+                modifier = Modifier.weight(1f)
+            )
+        }
         AppIconStyleOption(
             style = AppIconStyle.CLASSIC,
             label = stringResource(R.string.icon_style_classic),
@@ -94,8 +106,8 @@ private fun AppIconStyleOption(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val outerShape = RoundedCornerShape(28.dp)
-    val imageShape = RoundedCornerShape(24.dp)
+    val outerShape = AppRoundedCornerShape(28.dp)
+    val imageShape = AppRoundedCornerShape(24.dp)
     val interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val motionEnabled = LocalMotionEnabled.current

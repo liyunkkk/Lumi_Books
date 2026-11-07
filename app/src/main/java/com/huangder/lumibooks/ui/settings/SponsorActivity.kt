@@ -1,6 +1,7 @@
 package com.huangder.lumibooks.ui.settings
 import com.huangder.lumibooks.ui.icons.AppIcons
 
+import com.huangder.lumibooks.ui.components.lumiCardSurface
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -25,9 +26,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -89,14 +90,16 @@ class SponsorActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
+        val launchTheme = com.huangder.lumibooks.util.LaunchThemeController.themeSnapshot(this)
         setContent {
-            val appTheme by dataStoreManager.appTheme.collectAsState(initial = "lumi")
-            val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = DEFAULT_APP_ACCENT_HEX)
-            val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = "system")
-            val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = 0.55f)
-            val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = false)
-            val darkMode by dataStoreManager.darkMode.collectAsState(initial = "system")
-            val predictiveBackEnabled by dataStoreManager.predictiveBackEnabled.collectAsState(initial = true)
+            val appTheme by dataStoreManager.appTheme.collectAsState(initial = launchTheme.appTheme)
+            val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = launchTheme.appAccentColor)
+            val appFontSize by dataStoreManager.appFontSize.collectAsState(initial = launchTheme.appFontSize)
+            val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = launchTheme.globalFontMode)
+            val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = launchTheme.liquidGlassTransparency)
+            val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = launchTheme.liquidGlassHdrHighlightEnabled)
+            val darkMode by dataStoreManager.darkMode.collectAsState(initial = launchTheme.darkMode)
+            val predictiveBackEnabled by dataStoreManager.predictiveBackEnabled.collectAsState(initial = launchTheme.predictiveBackEnabled)
             val isDark = when (darkMode) {
                 "dark" -> true
                 "light" -> false
@@ -105,13 +108,27 @@ class SponsorActivity : ComponentActivity() {
             val capability = rememberLiquidGlassCapability(view = LocalView.current)
             val resolvedAppTheme = effectiveAppTheme(appTheme, capability)
 
+            val eInkMode by dataStoreManager.eInkModeEnabled.collectAsState(initial = launchTheme.eInkModeEnabled)
+            val motion by dataStoreManager.motionPreference.collectAsState(initial = launchTheme.motionPreference)
+            val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
+            val liquidGlassStyle by dataStoreManager.liquidGlassStyle
+                .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
+                .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
+                liquidGlassStyle = liquidGlassStyle,
+                reduceTransparencyEnabled = reduceTransparencyEnabled,
+                menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
+                motionPreference = com.huangder.lumibooks.ui.theme.MotionPreference.fromStoredValue(motion),
+                eInkMode = eInkMode,
                 darkTheme = isDark,
                 dynamicColor = resolvedAppTheme == "material3",
-                appTheme = resolvedAppTheme,
+                appTheme = appTheme,
+                lumiBackgroundScene = com.huangder.lumibooks.ui.theme.LumiBackgroundScene.SECONDARY,
                 appAccentColor = appAccentColor,
                 liquidGlassTransparency = liquidGlassTransparency,
                 liquidGlassHdrHighlightEnabled = liquidGlassHdrHighlightEnabled,
+                appFontSize = appFontSize,
                 globalFontMode = globalFontMode
             ) {
                 com.huangder.lumibooks.ui.components.ConfigurableActivityBack(
@@ -173,9 +190,9 @@ private fun SponsorPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = AppSpace.lg)
-                .shadow(12.dp, RoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
-                .clip(RoundedCornerShape(AppRadius.lg))
-                .background(AppColors.CardBg)
+                .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
+                .clip(AppRoundedCornerShape(AppRadius.lg))
+                .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
                 .padding(AppSpace.lg),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -197,7 +214,7 @@ private fun SponsorPage(
                 ),
                 modifier = Modifier
                     .size(220.dp)
-                    .clip(RoundedCornerShape(AppRadius.md)),
+                    .clip(AppRoundedCornerShape(AppRadius.md)),
                 contentScale = ContentScale.Fit
             )
 
@@ -225,7 +242,7 @@ private fun SponsorPage(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .clip(RoundedCornerShape(AppRadius.capsule))
+                    .clip(AppRoundedCornerShape(AppRadius.capsule))
                     .background(Color(0xFFD4A542))
                     .clickable(
                         indication = null,
@@ -253,7 +270,7 @@ private fun SponsorPage(
         // 感谢列表
         CreditSection(
             title = stringResource(R.string.sponsor_thanks_title),
-            names = listOf("雋乂、匿名、匿名、匿名、Jun.、BennyBlack、百年老字号、匿名、匿名、白飘飘、唱罢阴山敕勒歌、七七七、Y3uoO、祈、宇宙无敌哥儿赞、马果、匿名、马果、知我、匿名")
+            names = listOf("雋乂、匿名、匿名、匿名、Jun.、BennyBlack、百年老字号、匿名、匿名、白飘飘、唱罢阴山敕勒歌、七七七、Y3uoO、祈、宇宙无敌哥儿赞、马果、匿名、马果、知我、匿名、&_赵、匿名、匿名、蟑螂恶霸、路上行人、大灰狼、与瓦无瓜、Micah、小张、超级小步、选择春虫走向成功、盘旋在古城上的白色乌鸦、我滴龟龟哟")
         )
 
         Spacer(Modifier.height(AppSpace.md))
@@ -314,7 +331,7 @@ private fun SponsorPaymentTagSwitcher(
         modifier = modifier
             .fillMaxWidth()
             .height(40.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(AppRoundedCornerShape(20.dp))
             .background(AppColors.BgGray)
             .padding(2.dp)
     ) {
@@ -325,8 +342,8 @@ private fun SponsorPaymentTagSwitcher(
                 .graphicsLayer {
                     translationX = indicatorProgress * size.width
                 }
-                .clip(RoundedCornerShape(18.dp))
-                .shadow(2.dp, RoundedCornerShape(18.dp))
+                .clip(AppRoundedCornerShape(18.dp))
+                .shadow(2.dp, AppRoundedCornerShape(18.dp))
                 .background(if (isDark) AppColors.CardBg else Color.White)
         )
         Row(Modifier.fillMaxSize()) {
@@ -389,9 +406,9 @@ private fun DeveloperCard(contributor: Contributor, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(6.dp, RoundedCornerShape(AppRadius.md), ambientColor = Color(0x04000000), spotColor = Color(0x04000000))
-            .clip(RoundedCornerShape(AppRadius.md))
-            .background(AppColors.CardBg)
+            .shadow(6.dp, AppRoundedCornerShape(AppRadius.md), ambientColor = Color(0x04000000), spotColor = Color(0x04000000))
+            .clip(AppRoundedCornerShape(AppRadius.md))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
             .clickable(onClick = onClick)
             .padding(AppSpace.md),
         verticalAlignment = Alignment.CenterVertically
@@ -492,9 +509,9 @@ private fun CreditSection(title: String, names: List<String>) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(6.dp, RoundedCornerShape(AppRadius.md), ambientColor = Color(0x04000000), spotColor = Color(0x04000000))
-                .clip(RoundedCornerShape(AppRadius.md))
-                .background(AppColors.CardBg)
+                .shadow(6.dp, AppRoundedCornerShape(AppRadius.md), ambientColor = Color(0x04000000), spotColor = Color(0x04000000))
+                .clip(AppRoundedCornerShape(AppRadius.md))
+                .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
                 .padding(AppSpace.md)
         ) {
             names.forEachIndexed { index, name ->

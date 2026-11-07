@@ -61,7 +61,145 @@ class EpubLiveTurnRenderingTest {
         down = SystemClock.uptimeMillis()
     }
 
-    @After fun tearDown() { activity.pause().stop().destroy() }
+    @After fun tearDown() { host.release(); activity.pause().stop().destroy() }
+
+    @Test fun warmChapterMovesIntoNeighbourWithoutReplacingActiveOrReloading() {
+        assertTrue(host.ensureWarmPage())
+        val warm = host.warmWebView!!
+        warm.right = 400
+        warm.bottom = 800
+        val active = host.activeWebView
+        val oldNext = host.nextWebView
+        val target = EpubPageTarget(1, 0)
+        host.markPreloadLoading(EpubPageTurnHost.PreloadSlot.WARM, target, 42)
+        host.markPreloadReady(EpubPageTurnHost.PreloadSlot.WARM, target, 42, 0, 4, warm)
+        assertTrue(host.adoptWarmPage(EpubPageTurnHost.PreloadSlot.NEXT, target))
+        assertSame(active, host.activeWebView)
+        assertSame(warm, host.nextWebView)
+        assertSame(oldNext, host.warmWebView)
+        assertTrue(host.hasPreparedPage(EpubPageTurnHost.PreloadSlot.NEXT, target))
+        host.discardWarmPage()
+        assertEquals(3, host.allWebViews().size)
+        assertFalse(warm.released)
+        assertTrue(oldNext.released)
+    }
+
+    @Test fun loadingWarmChapterKeepsItsRequestWhenItBecomesAdjacent() {
+        assertTrue(host.ensureWarmPage())
+        val warm = host.warmWebView!!
+        warm.right = 400
+        warm.bottom = 800
+        val target = EpubPageTarget(1, 0)
+        host.markPreloadLoading(EpubPageTurnHost.PreloadSlot.WARM, target, 42)
+        assertTrue(host.adoptWarmPage(EpubPageTurnHost.PreloadSlot.NEXT, target))
+        assertFalse(host.isPreloadReady(EpubPageTurnHost.PreloadSlot.NEXT))
+        host.markPreloadReady(EpubPageTurnHost.PreloadSlot.NEXT, target, 41, 0, 4, warm)
+        assertFalse(host.isPreloadReady(EpubPageTurnHost.PreloadSlot.NEXT))
+        host.markPreloadReady(EpubPageTurnHost.PreloadSlot.NEXT, target, 42, 0, 4, warm)
+        assertTrue(host.hasPreparedPage(EpubPageTurnHost.PreloadSlot.NEXT, target))
+    }
+
+    @Test fun warmChapterWithChangedConfigurationCannotBePromoted() {
+        assertTrue(host.ensureWarmPage())
+        val warm = host.warmWebView!!
+        warm.right = 400
+        warm.bottom = 800
+        val target = EpubPageTarget(1, 0)
+        host.markPreloadLoading(EpubPageTurnHost.PreloadSlot.WARM, target, 42)
+        host.markPreloadReady(EpubPageTurnHost.PreloadSlot.WARM, target, 42, 0, 4, warm)
+        warm.documentLifecycle.configure("new-font")
+        assertFalse(host.adoptWarmPage(EpubPageTurnHost.PreloadSlot.NEXT, target))
+        assertEquals(4, host.allWebViews().size)
+        host.discardWarmPage()
+        assertEquals(3, host.allWebViews().size)
+    }
+
+    @Test fun closingDetachesImmediatelyButDestroysAndNavigatesOnlyAfterFrameFence() {
+        var frameCommitted: (() -> Unit)? = null
+        val closingHost = EpubPageTurnHost(activity.get()) { _, callback -> frameCommitted = callback }
+        val views = closingHost.allWebViews().toList()
+        var navigated = 0
+        closingHost.release { navigated++ }
+        closingHost.release()
+        assertNotNull(frameCommitted)
+        assertEquals(0, closingHost.childCount)
+        assertEquals(0, navigated)
+        views.forEach { assertTrue(it.released); assertFalse(it.destroyed); assertNull(it.parent) }
+        val oldTarget = closingHost.currentPageTarget()
+        closingHost.setCurrentPage(8, 3, 4)
+        assertEquals(oldTarget, closingHost.currentPageTarget())
+        frameCommitted!!.invoke()
+        assertEquals(1, navigated)
+        views.forEach { assertTrue(it.destroyed) }
+        closingHost.release()
+        assertEquals(1, navigated)
+    }
+
+    @Test fun scrollingPreloadCanPromoteWithoutNativePaging() {
+        host.setNativePagingEnabled(false)
+        host.setNativeTouchPagingEnabled(false)
+        host.setCurrentPage(1, 0, 1)
+        host.markPreloadLoading(EpubPageTurnHost.PreloadSlot.NEXT, EpubPageTarget(2, 0), 8)
+        host.markPreloadReady(EpubPageTurnHost.PreloadSlot.NEXT, EpubPageTarget(2, 0), 8, 0, 1, host.nextWebView)
+        assertTrue(host.promotePreparedPage(EpubPageTurnHost.PreloadSlot.NEXT, EpubPageTarget(2, 0), 1))
+        assertEquals(EpubPageTarget(2, 0), host.currentPageTarget())
+        host.markPreloadLoading(EpubPageTurnHost.PreloadSlot.PREVIOUS, EpubPageTarget(1, Int.MAX_VALUE), 9)
+        host.markPreloadReady(EpubPageTurnHost.PreloadSlot.PREVIOUS, EpubPageTarget(1, Int.MAX_VALUE), 9, 0, 1, host.previousWebView)
+        assertTrue(host.promotePreparedPage(EpubPageTurnHost.PreloadSlot.PREVIOUS, EpubPageTarget(1, 0), 1))
+        assertEquals(EpubPageTarget(1, 0), host.currentPageTarget())
+    }
+
+    @Test fun releaseWhileTurningDetachesBeforeDestroyAndDropsCallbacks() {
+        var callbacks = 0
+        val views = host.allWebViews().toList()
+        host.onPageCommit = { _, _, _ -> callbacks++ }
+        views.forEach { it.runAfterNextDraw { callbacks++ } }
+        event(MotionEvent.ACTION_DOWN, 350f, 0)
+        event(MotionEvent.ACTION_MOVE, 40f, 120)
+        event(MotionEvent.ACTION_UP, 40f, 170)
+        host.release()
+        host.release()
+        views.forEach {
+            assertTrue(it.released)
+            assertNull(it.parent)
+            it.loadUrl("https://should-not-load.invalid")
+            it.evaluateJavascript("true") { callbacks++ }
+        }
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+        host.computeScroll()
+        frame().recycle()
+        assertEquals(0, callbacks)
+        assertEquals(0, host.childCount)
+    }
+
+    @Test fun repeatedBookEndSwipeThenPreviousDoesNotQueueAReturn() {
+        host.onHasPotentialTurn = { direction, current, count ->
+            if (direction > 0) current.pageIndex + 1 < count else current.pageIndex > 0
+        }
+        host.setCurrentPage(0, 2, 3)
+        host.markPreloadLoading(EpubPageTurnHost.PreloadSlot.NEXT, null, 3)
+        host.markPreloadLoading(EpubPageTurnHost.PreloadSlot.PREVIOUS, EpubPageTarget(0, 1), 4)
+        host.markPreloadReady(EpubPageTurnHost.PreloadSlot.PREVIOUS, EpubPageTarget(0, 1), 4, 1, 3, host.previousWebView)
+        repeat(3) { index ->
+            event(MotionEvent.ACTION_DOWN, 350f, index * 300L)
+            event(MotionEvent.ACTION_MOVE, 40f, index * 300L + 100)
+            event(MotionEvent.ACTION_UP, 40f, index * 300L + 150)
+        }
+        var commits = 0
+        host.onPageCommit = { _, target, count ->
+            commits++
+            host.setCurrentPage(target.chapterIndex, target.pageIndex, count)
+        }
+        event(MotionEvent.ACTION_DOWN, 70f, 1100)
+        event(MotionEvent.ACTION_MOVE, 360f, 1250)
+        event(MotionEvent.ACTION_UP, 360f, 1280)
+        repeat(8) {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+            host.computeScroll(); frame().recycle()
+        }
+        assertEquals(1, commits)
+        assertEquals(EpubPageTarget(0, 1), host.currentPageTarget())
+    }
 
     private fun event(action: Int, x: Float, elapsed: Long) {
         val event = MotionEvent.obtain(down, down + elapsed, action, x, 400f, 0)
@@ -184,5 +322,323 @@ class EpubLiveTurnRenderingTest {
         assertEquals(Color.RED, bitmap.getPixel(120, 400))
         assertEquals(Color.BLUE, bitmap.getPixel(399, 400))
         bitmap.recycle()
+    }
+
+    @Test fun crossChapterCommitWaitsForTargetDrawAndDoesNotStartLookaheadInAnimation() {
+        prepareCrossChapterTurn()
+        var commits = 0
+        var lookahead = 0
+        host.onSlideLookaheadRequested = { _, _ -> lookahead++ }
+        host.onSlideVisualPageAdvanced = { _, _ -> lookahead++ }
+        host.onPageCommit = { _, target, count ->
+            commits++
+            host.setCurrentPage(target.chapterIndex, target.pageIndex, count)
+        }
+
+        finishCrossChapterAnimation()
+        assertEquals(EpubPageTarget(1, 0), host.currentPageTarget())
+        assertEquals(0, lookahead)
+        assertEquals(0, commits)
+        frame().recycle()
+        assertEquals("chapter work must run outside drawing", 0, commits)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, commits)
+        assertFalse(host.hasPendingPageHandoff())
+        repeat(3) { host.computeScroll(); frame().recycle() }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, commits)
+    }
+
+    @Test fun crossChapterDrawCommitCannotOutliveItsDocument() {
+        prepareCrossChapterTurn()
+        var commits = 0
+        host.onPageCommit = { _, _, _ -> commits++ }
+        finishCrossChapterAnimation()
+        frame().recycle()
+        host.activeWebView.documentLifecycle.beginDocument()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, commits)
+    }
+
+    @Test fun crossChapterReflowBeforeFirstDrawStillFinishesHandoffOnce() {
+        prepareCrossChapterTurn()
+        var commits = 0
+        host.onPageCommit = { _, target, count ->
+            commits++
+            host.setCurrentPage(target.chapterIndex, target.pageIndex, count)
+        }
+        finishCrossChapterAnimation()
+        val lifecycle = host.activeWebView.documentLifecycle
+        lifecycle.observeLayout(lifecycle.configurationGeneration, 2L, stable = false)
+        lifecycle.observeLayout(lifecycle.configurationGeneration, 3L, stable = true)
+        frame().recycle()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertEquals(1, commits)
+        assertEquals(EpubPageTarget(1, 0), host.currentPageTarget())
+        assertFalse(host.hasPendingPageHandoff())
+    }
+
+    @Test fun marginChangeDuringChapterHandoffAcceptsTheRepaginatedPosition() {
+        prepareCrossChapterTurn()
+        var staleCommits = 0
+        host.onPageCommit = { _, _, _ -> staleCommits++ }
+        finishCrossChapterAnimation()
+        assertTrue(host.hasPendingPageHandoff())
+
+        host.activeWebView.documentLifecycle.configure("new-margins")
+        host.invalidateLayout()
+        host.setCurrentPage(1, 2, 6)
+        frame().recycle()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+
+        assertFalse("old page address must not keep the handoff busy", host.hasPendingPageHandoff())
+        assertEquals(EpubPageTarget(1, 2), host.currentPageTarget())
+        assertEquals(6, host.currentPageCount())
+        assertEquals(0, staleCommits)
+
+        val next = EpubPageTarget(1, 3)
+        host.markPreloadLoading(EpubPageTurnHost.PreloadSlot.NEXT, next, 10)
+        host.markPreloadReady(EpubPageTurnHost.PreloadSlot.NEXT, next, 10, 3, 6, host.nextWebView)
+        host.onPageCommit = { _, target, count -> host.setCurrentPage(target.chapterIndex, target.pageIndex, count) }
+        assertTrue(host.requestTurn(1))
+        SystemClock.sleep(500)
+        repeat(3) { host.computeScroll(); frame().recycle() }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(next, host.currentPageTarget())
+    }
+
+    @Test fun marginChangeDuringSwipeReleasesBothOldSheetsBeforeInvalidatingPreloads() {
+        var invalidations = 0
+        host.onInvalidatePreloads = {
+            invalidations++
+            assertFalse(host.ownsPage(host.activeWebView))
+            assertFalse(host.ownsPage(host.nextWebView))
+        }
+        event(MotionEvent.ACTION_DOWN, 200f, 0)
+        event(MotionEvent.ACTION_MOVE, 130f, 100)
+        assertTrue(host.ownsPage(host.activeWebView))
+
+        host.activeWebView.documentLifecycle.configure("new-margins")
+        host.invalidateLayout()
+        host.setCurrentPage(0, 4, 8)
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertEquals(1, invalidations)
+        assertEquals(EpubPageTarget(0, 4), host.currentPageTarget())
+        assertFalse(host.isPreloadReady(EpubPageTurnHost.PreloadSlot.NEXT))
+        assertFalse(host.isPreloadReady(EpubPageTurnHost.PreloadSlot.PREVIOUS))
+    }
+
+    @Test fun swipeRequestsStaleNeighbourAgainAndResumesAfterReprepare() {
+        val target = EpubPageTarget(0, 2)
+        val incoming = host.nextWebView
+        incoming.documentLifecycle.observeLayout(
+            incoming.documentLifecycle.configurationGeneration, 3L, stable = true
+        )
+        assertFalse(host.hasPreparedPage(EpubPageTurnHost.PreloadSlot.NEXT, target))
+        var preparations = 0
+        host.onSlideLookaheadRequested = { slot, requested ->
+            assertEquals(EpubPageTurnHost.PreloadSlot.NEXT, slot)
+            assertEquals(target, requested)
+            preparations++
+            host.markPreloadLoading(slot, requested, 4)
+            host.markPreloadReady(slot, requested, 4, 2, 3, incoming)
+        }
+        event(MotionEvent.ACTION_DOWN, 200f, 0)
+        event(MotionEvent.ACTION_MOVE, 130f, 100)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, preparations)
+        assertTrue(host.hasPreparedPage(EpubPageTurnHost.PreloadSlot.NEXT, target))
+        assertTrue(host.ownsPage(host.activeWebView))
+        val bitmap = frame()
+        assertEquals(Color.BLUE, bitmap.getPixel(399, 400))
+        bitmap.recycle()
+    }
+
+    @Test fun preparedLastPageMatchesSentinelWithoutPreparingAgain() {
+        val slot = EpubPageTurnHost.PreloadSlot.PREVIOUS
+        val lastPage = EpubPageTarget(0, Int.MAX_VALUE)
+        host.markPreloadLoading(slot, lastPage, 6)
+        host.markPreloadReady(slot, lastPage, 6, 2, 3, host.previousWebView)
+        assertTrue(host.hasPreparedPage(slot, lastPage))
+        assertTrue(host.hasPreparedPage(slot, EpubPageTarget(0, 2)))
+        assertFalse(host.hasPreparedPage(slot, EpubPageTarget(0, 1)))
+        host.previousWebView.documentLifecycle.beginDocument()
+        assertFalse(host.hasPreparedPage(slot, lastPage))
+    }
+
+    @Test fun scrollingChapterFadeDrawsIntermediateOpacityBeforeCommitting() {
+        host.setNativePagingEnabled(false)
+        prepareCrossChapterTurn()
+        host.setPageBackgroundColor(Color.WHITE)
+        val slot = EpubPageTurnHost.PreloadSlot.NEXT
+        val target = EpubPageTarget(1, 0)
+        val outgoing = host.activeWebView
+        val incoming = host.nextWebView
+        var commits = 0
+        assertTrue(host.fadePreparedChapter(slot, target, onComplete = {
+            assertTrue(host.promotePreparedPage(slot, target, 1))
+            commits++
+        }, onInvalidated = { fail("stable documents must not cancel") }))
+        assertTrue(host.ownsPage(outgoing))
+        assertTrue(host.ownsPage(incoming))
+        host.setCurrentPage(0, 1, 3) { fail("late scroll callback must not commit during the fade") }
+        assertEquals(EpubPageTarget(0, 2), host.currentPageTarget())
+        fun pixel() = frame().let { bitmap -> bitmap.getPixel(200, 400).also { bitmap.recycle() } }
+        assertEquals(Color.RED, pixel())
+        SystemClock.sleep(90)
+        val fadingOut = pixel()
+        assertEquals(255, Color.red(fadingOut))
+        assertTrue(Color.green(fadingOut) in 1..254)
+        assertEquals(Color.green(fadingOut), Color.blue(fadingOut))
+        assertEquals(0, commits)
+        assertEquals(EpubPageTarget(0, 2), host.currentPageTarget())
+        SystemClock.sleep(180)
+        val fadingIn = pixel()
+        assertEquals(255, Color.blue(fadingIn))
+        assertTrue(Color.red(fadingIn) in 1..254)
+        assertEquals(Color.red(fadingIn), Color.green(fadingIn))
+        SystemClock.sleep(90)
+        assertEquals(Color.BLUE, pixel())
+        assertEquals(0, commits)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, commits)
+        assertEquals(target, host.currentPageTarget())
+        assertFalse(host.ownsPage(outgoing))
+        assertFalse(host.ownsPage(incoming))
+        assertEquals(Color.BLUE, pixel())
+    }
+
+    @Test fun paginatedChapterFadeUsesConfiguredDurationWithoutMovingSheets() {
+        host.setNativePagingEnabled(false)
+        prepareCrossChapterTurn()
+        host.setPageBackgroundColor(Color.WHITE)
+        val slot = EpubPageTurnHost.PreloadSlot.NEXT
+        val target = EpubPageTarget(1, 0)
+        var commits = 0
+        assertTrue(host.fadePreparedChapter(slot, target,
+            onComplete = {
+                assertTrue(host.promotePreparedPage(slot, target, 1))
+                commits++
+            },
+            onInvalidated = { fail("stable documents must not cancel") },
+            verticalMotion = false, durationMs = 800))
+
+        fun uniformPixel(): Int {
+            val bitmap = frame()
+            val top = bitmap.getPixel(200, 100)
+            assertEquals("fade must not slide either sheet", top, bitmap.getPixel(200, 700))
+            bitmap.recycle()
+            return top
+        }
+        assertEquals(Color.RED, uniformPixel())
+        SystemClock.sleep(200)
+        val outgoing = uniformPixel()
+        assertEquals(255, Color.red(outgoing))
+        assertTrue(Color.blue(outgoing) in 1..254)
+        SystemClock.sleep(200)
+        assertEquals(Color.WHITE, uniformPixel())
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("duration must not use the scrolling default", 0, commits)
+        SystemClock.sleep(200)
+        val incoming = uniformPixel()
+        assertEquals(255, Color.blue(incoming))
+        assertTrue(Color.red(incoming) in 1..254)
+        SystemClock.sleep(200)
+        assertEquals(Color.BLUE, uniformPixel())
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, commits)
+        assertEquals(target, host.currentPageTarget())
+    }
+
+    @Test fun scrollingChapterFadeMovesBothSheetsThroughTheViewport() {
+        host.setNativePagingEnabled(false)
+        prepareCrossChapterTurn()
+        host.setPageBackgroundColor(Color.WHITE)
+        assertTrue(host.fadePreparedChapter(
+            EpubPageTurnHost.PreloadSlot.NEXT,
+            EpubPageTarget(1, 0),
+            onComplete = {},
+            onInvalidated = { fail("stable documents must not cancel") }
+        ))
+
+        frame().recycle()
+        SystemClock.sleep(180)
+        val bitmap = frame()
+        val top = bitmap.getPixel(200, 100)
+        val bottom = bitmap.getPixel(200, 700)
+        bitmap.recycle()
+
+        assertTrue("outgoing sheet should remain visible near the top: $top", Color.red(top) > Color.blue(top))
+        assertTrue("incoming sheet should rise from the bottom: $bottom", Color.blue(bottom) > Color.red(bottom))
+    }
+
+    @Test fun cancelledScrollingFadeLeavesOriginalPageAndDropsFinalFrameCallback() {
+        prepareCrossChapterTurn()
+        var commits = 0
+        assertTrue(host.fadePreparedChapter(EpubPageTurnHost.PreloadSlot.NEXT, EpubPageTarget(1, 0),
+            onComplete = { commits++ }, onInvalidated = { commits++ }))
+        frame().recycle()
+        SystemClock.sleep(400)
+        frame().recycle()
+        host.cancelPendingInput()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, commits)
+        assertEquals(EpubPageTarget(0, 2), host.currentPageTarget())
+        val bitmap = frame()
+        assertEquals(Color.RED, bitmap.getPixel(200, 400))
+        bitmap.recycle()
+    }
+
+    @Test fun previousChapterFadeRejectsALateLayoutChange() {
+        val slot = EpubPageTurnHost.PreloadSlot.PREVIOUS
+        val target = EpubPageTarget(0, 2)
+        host.setCurrentPage(1, 0, 1)
+        host.markPreloadLoading(slot, target, 9)
+        host.markPreloadReady(slot, target, 9, 2, 3, host.previousWebView)
+        var commits = 0
+        var cancelled = 0
+        assertTrue(host.fadePreparedChapter(slot, target,
+            onComplete = { commits++ }, onInvalidated = { cancelled++ }))
+        frame().recycle()
+        SystemClock.sleep(400)
+        frame().recycle()
+        host.previousWebView.documentLifecycle.beginDocument()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, commits)
+        assertEquals(1, cancelled)
+        assertEquals(EpubPageTarget(1, 0), host.currentPageTarget())
+    }
+
+    @Test fun closingDuringScrollingFadeDropsCommitAndReleasesBothPages() {
+        prepareCrossChapterTurn()
+        var commits = 0
+        assertTrue(host.fadePreparedChapter(EpubPageTurnHost.PreloadSlot.NEXT, EpubPageTarget(1, 0),
+            onComplete = { commits++ }, onInvalidated = { commits++ }))
+        frame().recycle()
+        SystemClock.sleep(400)
+        frame().recycle()
+        host.release()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertEquals(0, commits)
+        assertEquals(0, host.childCount)
+        host.allWebViews().forEach { assertTrue(it.released) }
+    }
+
+    private fun prepareCrossChapterTurn() {
+        host.setCurrentPage(0, 2, 3)
+        host.markPreloadLoading(EpubPageTurnHost.PreloadSlot.NEXT, EpubPageTarget(1, 0), 3)
+        host.markPreloadReady(EpubPageTurnHost.PreloadSlot.NEXT,
+            EpubPageTarget(1, 0), 3, 0, 1, host.nextWebView)
+    }
+
+    private fun finishCrossChapterAnimation() {
+        event(MotionEvent.ACTION_DOWN, 350f, 0)
+        event(MotionEvent.ACTION_MOVE, 40f, 120)
+        event(MotionEvent.ACTION_UP, 40f, 170)
+        // Advance the animation without dispatching queued frame callbacks yet.
+        SystemClock.sleep(500)
+        host.computeScroll()
+        host.computeScroll()
     }
 }

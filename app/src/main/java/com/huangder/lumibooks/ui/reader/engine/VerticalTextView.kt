@@ -1,8 +1,11 @@
 package com.huangder.lumibooks.ui.reader.engine
+import com.huangder.lumibooks.domain.model.LongPressSelectionRange
+import com.huangder.lumibooks.domain.model.selectionRangeAt
 
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -26,6 +29,7 @@ import kotlin.math.abs
 import kotlin.math.min
 
 internal class VerticalTextView(context: Context) : View(context) {
+    var longPressSelectionRange = LongPressSelectionRange.DEFAULT
     private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG)
     private var defaultTextSize = 56f
     private var defaultTextColor = 0xFF333333.toInt()
@@ -98,6 +102,7 @@ internal class VerticalTextView(context: Context) : View(context) {
                 is VerticalImageLayout -> drawImage(canvas, spannable, item)
             }
         }
+        drawVerticalUnderlines(canvas, spannable, page)
         drawSelection(canvas, spannable, page)
         canvas.restoreToCount(save)
     }
@@ -235,6 +240,68 @@ internal class VerticalTextView(context: Context) : View(context) {
             ?: spannable.getSpans(start, end, BackgroundColorSpan::class.java)
                 .lastOrNull()?.backgroundColor
 
+    private fun drawVerticalUnderlines(
+        canvas: Canvas,
+        spannable: Spannable,
+        page: VerticalPageGeometry
+    ) {
+        data class Run(
+            val columnIndex: Int,
+            val mode: Int,
+            val color: Int,
+            var lastOffset: Int,
+            var left: Float,
+            var top: Float,
+            var bottom: Float
+        )
+
+        val runs = mutableListOf<Run>()
+        page.glyphs.forEach { glyph ->
+            val start = glyph.startOffset - chapterStartOffset
+            val end = glyph.endOffset - chapterStartOffset
+            if (start !in 0 until spannable.length || end !in 1..spannable.length) return@forEach
+            val wave = spannable.getSpans(start, end, WaveUnderlineSpan::class.java).lastOrNull()
+            val straight = spannable.getSpans(start, end, UnderlineSpan::class.java).lastOrNull()
+            val mode = wave?.mode ?: if (straight != null) 1 else return@forEach
+            val color = wave?.color
+                ?: spannable.getSpans(start, end, ForegroundColorSpan::class.java)
+                    .lastOrNull()?.foregroundColor
+                ?: defaultTextColor
+            val previous = runs.lastOrNull()
+            if (previous != null && previous.columnIndex == glyph.columnIndex &&
+                previous.mode == mode && previous.color == color && previous.lastOffset == glyph.startOffset
+            ) {
+                previous.lastOffset = glyph.endOffset
+                previous.left = minOf(previous.left, glyph.bounds.left)
+                previous.top = minOf(previous.top, glyph.bounds.top)
+                previous.bottom = maxOf(previous.bottom, glyph.bounds.bottom)
+            } else {
+                runs += Run(
+                    columnIndex = glyph.columnIndex,
+                    mode = mode,
+                    color = color,
+                    lastOffset = glyph.endOffset,
+                    left = glyph.bounds.left,
+                    top = glyph.bounds.top,
+                    bottom = glyph.bounds.bottom
+                )
+            }
+        }
+
+        val density = resources.displayMetrics.density
+        val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.0f * density
+            strokeCap = Paint.Cap.ROUND
+        }
+        runs.forEach { run ->
+            linePaint.color = run.color
+            val baseX = (run.left + 1.5f * density).coerceIn(2f * density, page.width - 2f * density)
+            drawReaderUnderline(canvas, linePaint, run.mode, run.top.coerceAtLeast(0f),
+                run.bottom.coerceAtMost(page.height), baseX, true, density)
+        }
+    }
+
     private fun drawImage(canvas: Canvas, spannable: Spannable, image: VerticalImageLayout) {
         val localStart = (image.startOffset - chapterStartOffset).coerceIn(0, spannable.length)
         val localEnd = (image.endOffset - chapterStartOffset).coerceIn(localStart, spannable.length)
@@ -250,8 +317,11 @@ internal class VerticalTextView(context: Context) : View(context) {
         val top = target.centerY - height / 2f
         val oldBounds = Rect(drawable.bounds)
         drawable.setBounds(left.toInt(), top.toInt(), (left + width).toInt(), (top + height).toInt())
-        drawable.draw(canvas)
-        drawable.bounds = oldBounds
+        try {
+            drawable.draw(canvas)
+        } finally {
+            drawable.bounds = oldBounds
+        }
     }
 
     private fun drawSelection(canvas: Canvas, spannable: Spannable, page: VerticalPageGeometry) {
@@ -380,18 +450,14 @@ internal class VerticalTextView(context: Context) : View(context) {
         val glyph = glyphAt(x, y) ?: return
         val offset = (glyph.startOffset - chapterStartOffset).coerceIn(0, spannable.length - 1)
         val value = spannable.toString()
-        val c = value[offset]
-        val cjk = c.code in 0x3400..0x4DBF || c.code in 0x4E00..0x9FFF
-        var start = offset
-        var end = (glyph.endOffset - chapterStartOffset).coerceAtMost(value.length)
-        if (cjk) {
-            start = (start - 2).coerceAtLeast(0)
-            end = (end + 2).coerceAtMost(value.length)
-        } else {
-            fun separator(char: Char): Boolean = char.isWhitespace() || (!char.isLetterOrDigit() && char != '\'' && char != '-')
-            while (start > 0 && !separator(value[start - 1])) start--
-            while (end < value.length && !separator(value[end])) end++
+        val column = geometry?.glyphs.orEmpty().filter { it.columnIndex == glyph.columnIndex }
+        val line = column.takeIf { it.isNotEmpty() }?.let {
+            (it.minOf { item -> item.startOffset } - chapterStartOffset) until
+                (it.maxOf { item -> item.endOffset } - chapterStartOffset)
         }
+        val range = value.selectionRangeAt(offset, longPressSelectionRange, line) ?: return
+        val start = range.first
+        val end = range.last + 1
         if (end > start) {
             Selection.setSelection(spannable, start, end)
             invalidate()
@@ -432,12 +498,18 @@ internal class VerticalTextView(context: Context) : View(context) {
                         paint.textSkewX = -0.25f
                     }
                 }
+                is ReaderRuleTypefaceSpan -> {
+                    paint.typeface = span.typeface
+                    if (span.bold) paint.isFakeBoldText = true
+                    if (span.italic) paint.textSkewX = -0.25f
+                }
                 is ForegroundColorSpan -> paint.color = span.foregroundColor
                 is URLSpan -> {
                     paint.color = paint.linkColor
                     paint.isUnderlineText = true
                 }
-                is UnderlineSpan -> paint.isUnderlineText = true
+                // Vertical underlines are drawn as a separate column-oriented layer.
+                is UnderlineSpan -> Unit
                 is StrikethroughSpan -> paint.isStrikeThruText = true
                 is AbsoluteSizeSpan -> paint.textSize = if (span.dip) span.size * resources.displayMetrics.density else span.size.toFloat()
                 is RelativeSizeSpan -> paint.textSize *= span.sizeChange

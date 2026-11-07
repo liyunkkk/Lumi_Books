@@ -11,18 +11,13 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.huangder.lumibooks.data.local.DataStoreManager
-import com.huangder.lumibooks.data.local.database.AppDatabase
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -39,10 +34,10 @@ class WebdavSyncWorker @AssistedInject constructor(
         val config = dataStoreManager.webdavConfig.first()
         if (!config.enabled || config.syncMode != "auto") return Result.success()
         val result = syncManager.fullSync()
-        return when {
-            result.success -> Result.success()
-            runAttemptCount < MAX_RETRIES -> Result.retry()
-            else -> Result.failure()
+        return when (webdavWorkerDecision(result, runAttemptCount, MAX_RETRIES)) {
+            WebdavWorkerDecision.SUCCESS -> Result.success()
+            WebdavWorkerDecision.RETRY -> Result.retry()
+            WebdavWorkerDecision.FAILURE -> Result.failure()
         }
     }
 
@@ -52,11 +47,10 @@ class WebdavSyncWorker @AssistedInject constructor(
 }
 
 @Singleton
-@OptIn(FlowPreview::class)
 class WebdavAutoSyncScheduler @Inject constructor(
     @ApplicationContext context: Context,
-    private val database: AppDatabase,
-    private val dataStoreManager: DataStoreManager
+    private val dataStoreManager: DataStoreManager,
+    private val localNetworkAccessManager: LocalNetworkAccessManager
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -65,35 +59,34 @@ class WebdavAutoSyncScheduler @Inject constructor(
     fun start() {
         if (started) return
         started = true
-        scope.launch {
-            enqueue(immediate = true)
-            database.invalidationTracker.createFlow(
-                "books", "folders", "book_folder_cross_refs", "tags", "book_tag_cross_refs",
-                "reading_records", "bookmarks", "notes", "sync_tombstones"
-            ).debounce(CHANGE_DEBOUNCE_MS).collectLatest { enqueue(immediate = false) }
-        }
-        scope.launch {
-            dataStoreManager.portablePreferenceChanges
-                .debounce(CHANGE_DEBOUNCE_MS)
-                .collectLatest { enqueue(immediate = false) }
-        }
+        scope.launch { enqueue() }
     }
 
     fun onAppBackgrounded() {
-        scope.launch { enqueue(immediate = true) }
+        scope.launch { enqueue() }
     }
 
     fun onReaderExited() {
-        scope.launch { enqueue(immediate = true) }
+        scope.launch { enqueue() }
     }
 
-    private suspend fun enqueue(immediate: Boolean) {
+    fun onLocalNetworkPermissionGranted() {
+        scheduleImmediate()
+    }
+
+    fun scheduleImmediate() {
+        scope.launch { enqueue() }
+    }
+
+    private suspend fun enqueue() {
         val config = dataStoreManager.webdavConfig.first()
         if (!config.enabled || config.syncMode != "auto") return
+        if (localNetworkAccessManager.stateFor(config.serverUrl) ==
+            LocalNetworkAccessState.PERMISSION_REQUIRED
+        ) return
         val request = OneTimeWorkRequestBuilder<WebdavSyncWorker>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-            .apply { if (!immediate) setInitialDelay(CHANGE_DEBOUNCE_MS, TimeUnit.MILLISECONDS) }
             .build()
         WorkManager.getInstance(appContext).enqueueUniqueWork(
             UNIQUE_WORK_NAME,
@@ -104,6 +97,32 @@ class WebdavAutoSyncScheduler @Inject constructor(
 
     companion object {
         private const val UNIQUE_WORK_NAME = "lumi_webdav_auto_sync"
-        private const val CHANGE_DEBOUNCE_MS = 5_000L
     }
 }
+
+internal enum class WebdavWorkerDecision { SUCCESS, RETRY, FAILURE }
+
+internal fun webdavWorkerDecision(
+    result: SyncResult,
+    runAttemptCount: Int,
+    maxRetries: Int
+): WebdavWorkerDecision = when {
+    result.success || result.failureCategory == WebdavFailureCategory.LOCAL_NETWORK_PERMISSION ->
+        WebdavWorkerDecision.SUCCESS
+    result.failureCategory in NON_RETRYABLE_FAILURES -> WebdavWorkerDecision.FAILURE
+    runAttemptCount < maxRetries -> WebdavWorkerDecision.RETRY
+    else -> WebdavWorkerDecision.FAILURE
+}
+
+private val NON_RETRYABLE_FAILURES = setOf(
+    WebdavFailureCategory.AUTH,
+    WebdavFailureCategory.FORBIDDEN,
+    WebdavFailureCategory.NOT_FOUND,
+    WebdavFailureCategory.CONFLICT,
+    WebdavFailureCategory.NOT_SUPPORTED,
+    WebdavFailureCategory.TLS,
+    WebdavFailureCategory.QUOTA,
+    WebdavFailureCategory.INVALID_URL,
+    WebdavFailureCategory.REDIRECT,
+    WebdavFailureCategory.INVALID_RESPONSE
+)

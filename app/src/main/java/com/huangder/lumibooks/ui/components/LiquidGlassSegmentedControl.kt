@@ -1,8 +1,9 @@
 package com.huangder.lumibooks.ui.components
 
+import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.spring
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -18,7 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,9 +31,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
@@ -41,7 +40,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
@@ -55,14 +53,11 @@ import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassTransparency
 import com.huangder.lumibooks.ui.theme.LocalMotionEnabled
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.shadow.Shadow
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -242,6 +237,7 @@ fun LiquidGlassSegmentedControl(
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val isDark = LocalIsDarkTheme.current
     val transparency = LocalLiquidGlassTransparency.current
+    val reduceTransparency = LocalReduceTransparency.current
     val motionEnabled = LocalMotionEnabled.current
     val animationScope = rememberCoroutineScope()
     val safeSelectedIndex = selectedIndex.coerceIn(0, itemCount - 1)
@@ -321,13 +317,17 @@ fun LiquidGlassSegmentedControl(
     val indicatorWidthPx = segmentMetricAtValue(geometry.widthsPx, visualValue)
     val indicatorHeight = (trackHeight - trackPadding * 2).coerceAtLeast(1.dp)
     val controlHeight = maxOf(trackHeight, SegmentMinimumTouchHeight)
-    val trackShape = RoundedCornerShape(trackHeight / 2)
-    val indicatorShape = RoundedCornerShape(indicatorHeight / 2)
-    val trackBackdrop = rememberLayerBackdrop()
-    val indicatorBackdrop = if (backdrop != null) {
-        rememberCombinedBackdrop(backdrop, trackBackdrop)
+    val trackShape = AppRoundedCornerShape(trackHeight / 2)
+    val indicatorShape = AppRoundedCornerShape(indicatorHeight / 2)
+    // Export the already-composited track surface for the moving segment. The
+    // indicator must sample this container surface instead of the page backdrop;
+    // otherwise the page shows through the selected label and softens its edge.
+    val trackSurfaceBackdrop = rememberLayerBackdrop()
+    val indicatorBackdrop = trackSurfaceBackdrop.takeIf { backdrop != null }
+    val indicatorTint = if (isDark) {
+        Color.Black.copy(alpha = 0.18f)
     } else {
-        null
+        Color.Black.copy(alpha = 0.07f)
     }
     val trackScrim = if (isDark) {
         Color(0xFF161618).copy(alpha = 0.44f - transparency * 0.18f)
@@ -341,9 +341,12 @@ fun LiquidGlassSegmentedControl(
             effects = {
                 vibrancy()
                 if (transparency < 1f) blur((6.dp * (1f - transparency)).toPx())
-                lens(10.dp.toPx(), 18.dp.toPx())
+                if (!reduceTransparency) {
+                    lens(10.dp.toPx(), 18.dp.toPx())
+                }
             },
             highlight = { liquidGlassHighlight() },
+            exportedBackdrop = trackSurfaceBackdrop,
             onDrawSurface = { drawRect(trackScrim) }
         )
     } else {
@@ -359,19 +362,16 @@ fun LiquidGlassSegmentedControl(
             effects = {
                 if (transparency < 1f) blur((3.dp * (1f - transparency)).toPx())
                 val opticalProgress = if (motionEnabled) motionState.pressProgress else 0f
-                lens(
-                    2.dp.toPx() * opticalProgress,
-                    4.dp.toPx() * opticalProgress,
-                    chromaticAberration = false
-                )
+                if (!reduceTransparency) {
+                    lens(
+                        2.dp.toPx() * opticalProgress,
+                        4.dp.toPx() * opticalProgress,
+                        chromaticAberration = false
+                    )
+                }
             },
             highlight = null,
-            shadow = {
-                Shadow(
-                    radius = 3.dp,
-                    color = Color.Black.copy(alpha = if (isDark) 0.12f else 0.07f)
-                )
-            },
+            shadow = null,
             innerShadow = null,
             layerBlock = {
                 if (motionEnabled) {
@@ -380,28 +380,12 @@ fun LiquidGlassSegmentedControl(
                     scaleY = motionState.scale * (1f - abs(velocity) * 0.35f)
                 }
             },
-            onDrawSurface = {
-                drawRect(
-                    color = if (isDark) Color.White else Color.Black,
-                    alpha = if (isDark) 0.12f else 0.07f
-                )
-            }
+            onDrawSurface = { drawRect(indicatorTint) }
         )
     } else {
         Modifier
-            .shadow(
-                elevation = 4.dp,
-                shape = indicatorShape,
-                clip = false,
-                ambientColor = Color.Black.copy(alpha = 0.08f),
-                spotColor = Color.Black.copy(alpha = 0.12f)
-            )
             .clip(indicatorShape)
-            .background(
-                (if (isDark) Color.White else Color.Black).copy(
-                    alpha = if (isDark) 0.12f else 0.07f
-                )
-            )
+            .background(indicatorTint)
     }
     val variableWidth = segmentWidths?.let {
         it.fold(0.dp) { sum, width -> sum + width } +
@@ -508,26 +492,6 @@ fun LiquidGlassSegmentedControl(
                 .onSizeChanged { trackWidthPx = it.width }
                 .then(trackVisual)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(trackPadding)
-                    .clearAndSetSemantics { }
-                    .alpha(0f)
-                    .layerBackdrop(trackBackdrop)
-            ) {
-                LiquidGlassSegmentItems(
-                    itemCount = itemCount,
-                    segmentWidths = segmentWidths,
-                    spacing = spacing,
-                    selectedIndex = previewIndex,
-                    enabledItems = enabledItems,
-                    interactive = false,
-                    onSelected = {},
-                    content = content
-                )
-            }
-
             if (trackWidthPx > 0 && indicatorWidthPx > 0f) {
                 Box(
                     modifier = Modifier

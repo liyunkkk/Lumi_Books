@@ -32,6 +32,7 @@ internal class RasterRenderSession(
     override val pageCount = decoder.pageCount
     private val scheduler = RasterWorkScheduler(scope, decoder.parallelism, ::log)
     private val dimensions = ConcurrentHashMap<Int, RasterDimensions>()
+    private val horizontalCrops = ConcurrentHashMap<Int, RasterHorizontalCrop>()
     private val pageCache = bitmapCache(PAGE_BYTES)
     private val previewCache = bitmapCache(PREVIEW_BYTES)
     private val thumbnailCache = bitmapCache(THUMBNAIL_BYTES)
@@ -94,6 +95,16 @@ internal class RasterRenderSession(
         return geometry(pageIndex, if (background) 5 else 0, background)?.ratio
     }
 
+    override suspend fun pageWidth(pageIndex: Int): Int? = geometry(pageIndex, 0, false)?.width
+
+    override suspend fun horizontalCrop(pageIndex: Int): RasterHorizontalCrop {
+        if (pageIndex !in 0 until pageCount) return RasterHorizontalCrop.FULL
+        horizontalCrops[pageIndex]?.let { return it }
+        val crop = detectPageHorizontalCrop(pageIndex)
+        horizontalCrops.putIfAbsent(pageIndex, crop)
+        return horizontalCrops[pageIndex] ?: crop
+    }
+
     private suspend fun restore(page: Int, priority: Int, background: Boolean) {
         if (disk == null || page in diskAttempted) return
         scheduler.execute("disk:$page", priority, background) {
@@ -141,7 +152,9 @@ internal class RasterRenderSession(
                 bitmap?.also {
                     val cache = when { thumbnail -> thumbnailCache; preview -> previewCache; else -> pageCache }
                     val budget = when { thumbnail -> THUMBNAIL_BYTES; preview -> PREVIEW_BYTES; else -> PAGE_BYTES }
-                    put(cache, budget, spec, it)
+                    // An OOM fallback may return fewer pixels than requested. Never let that
+                    // bitmap satisfy a later full-resolution cache lookup under the original key.
+                    put(cache, budget, spec.copy(width = it.width, height = it.height), it)
                 }
                 log("decode page=$page preview=$preview queueMs=${started - queuedAt} decodeMs=${SystemClock.elapsedRealtime() - started} bytes=${bitmap?.allocationByteCount ?: 0}")
                 bitmap
@@ -193,6 +206,7 @@ internal class RasterRenderSession(
             synchronized(this@RasterRenderSession) {
                 if (closed || paused || viewport != this@RasterRenderSession.viewport || viewport.scrolling) return@launch
                 motion.value = false
+                if (!viewport.backgroundPreparationEnabled) return@launch
                 persistJob = scope.launch {
                     delay(RASTER_PERSIST_MS - RASTER_SETTLE_MS)
                     persistWindow(viewport, decodeMissing = true)

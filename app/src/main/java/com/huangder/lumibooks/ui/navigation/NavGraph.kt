@@ -1,5 +1,12 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.huangder.lumibooks.ui.navigation
 
+import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
+import com.huangder.lumibooks.ui.theme.LumiBackgroundHost
+import com.huangder.lumibooks.ui.theme.LumiBackgroundScene
+import com.huangder.lumibooks.ui.theme.LocalAppThemeVariant
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.huangder.lumibooks.ui.theme.AppColors
 
 import android.net.Uri
@@ -10,10 +17,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -23,6 +29,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -31,8 +38,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +62,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.ui.bookshelf.BookshelfScreen
@@ -66,6 +76,7 @@ import com.huangder.lumibooks.ui.components.LiquidGlassDialogHost
 import com.huangder.lumibooks.ui.components.ImmersiveMode
 import com.huangder.lumibooks.ui.components.MainSystemBarStyle
 import com.huangder.lumibooks.ui.components.ConfigurableNavigationBack
+import com.huangder.lumibooks.ui.components.ConfigurableBackHandler
 import com.huangder.lumibooks.ui.components.CloudBookDownloadDialog
 import com.huangder.lumibooks.ui.components.LocalShowFinishedBadge
 import com.huangder.lumibooks.ui.components.LocalPredictiveBackEnabled
@@ -85,13 +96,26 @@ import com.huangder.lumibooks.ui.home.HomeViewModel
 import com.huangder.lumibooks.ui.home.ReadingGoalSheet
 import com.huangder.lumibooks.ui.animation.PageEntranceTracker
 import com.huangder.lumibooks.ui.animation.PAGE_ENTRANCE_PLAYBACK_MILLIS
+import com.huangder.lumibooks.ui.animation.VisualMotion.delayMillis
 import com.huangder.lumibooks.ui.animation.BookHeroWindowOverlay
 import com.huangder.lumibooks.ui.animation.BookReaderAnchorScope
 import com.huangder.lumibooks.ui.animation.BookReaderLibraryLayer
 import com.huangder.lumibooks.ui.animation.LocalBookReaderAnchorScope
-import com.huangder.lumibooks.ui.animation.bookReaderTargetAnchor
+import com.huangder.lumibooks.ui.animation.bookReaderLibraryLayer
+import com.huangder.lumibooks.ui.animation.bookReaderWindowClip
+import com.huangder.lumibooks.ui.animation.BookReaderTransitionPhase
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
+import androidx.compose.foundation.layout.windowInsetsPadding
 import com.huangder.lumibooks.ui.animation.rememberBookReaderTransitionState
+import com.huangder.lumibooks.ui.reader.EpubComicSwitchDialog
 import com.huangder.lumibooks.ui.reader.RasterReaderScreen
+import com.huangder.lumibooks.ui.reader.LocalReaderOpeningComplete
+import androidx.compose.runtime.rememberUpdatedState
+import com.huangder.lumibooks.ui.reader.resolveReaderPaperColor
 import com.huangder.lumibooks.ui.reader.ReaderScreen
 import com.huangder.lumibooks.ui.reader.ReaderViewModel
 import com.huangder.lumibooks.ui.statistics.StatisticsScreen
@@ -106,6 +130,7 @@ import com.huangder.lumibooks.ui.theme.LocalGlobalFontMode
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassTransparency
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassHdrHighlightEnabled
 import com.huangder.lumibooks.ui.theme.LocalMotionPreference
+import com.huangder.lumibooks.ui.theme.LocalMotionEnabled
 import com.huangder.lumibooks.ui.theme.LocalUseMaterial3Theme
 import com.huangder.lumibooks.ui.theme.LocalReaderColors
 import com.huangder.lumibooks.ui.theme.ReaderColors
@@ -118,6 +143,8 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
  * 根据书籍格式路由：PDF → 竖向滚动，EPUB/TXT → 横向翻页
@@ -128,14 +155,56 @@ private fun ReaderRouter(
     onNavigateBack: () -> Unit,
     onFirstContentDrawn: () -> Unit,
     onInteractive: () -> Unit,
+    onReaderPaperColorChanged: (Int) -> Unit,
+    windowReady: Boolean,
+    openingComplete: Boolean,
+    readerActive: Boolean,
     onOpenBook: (String) -> Unit
 ) {
     val viewModel: ReaderViewModel = hiltViewModel()
+    var firstContentDrawn by remember(bookId) { mutableStateOf(false) }
+    var backgroundWorkReady by remember(bookId) { mutableStateOf(false) }
+    val activeReader = rememberUpdatedState(readerActive)
+    val latestFirstContentCallback = rememberUpdatedState(onFirstContentDrawn)
+    val reportFirstContent = {
+        if (activeReader.value && !firstContentDrawn) {
+            firstContentDrawn = true
+            latestFirstContentCallback.value()
+        }
+    }
+    LaunchedEffect(firstContentDrawn, openingComplete, readerActive) {
+        backgroundWorkReady = false
+        if (readerActive) {
+            viewModel.resumeOpenDeferredWork()
+            if (firstContentDrawn && openingComplete) {
+                onInteractive()
+                // Let the last animation frame and navigation disposal finish
+                // before adjacent-page work invalidates the reader again.
+                androidx.compose.runtime.withFrameNanos { }
+                androidx.compose.runtime.withFrameNanos { }
+                backgroundWorkReady = true
+                viewModel.onOpenTransitionComplete()
+            }
+        } else {
+            viewModel.cancelOpenDeferredWork()
+        }
+    }
+    val appIsDark = LocalIsDarkTheme.current
+    val paperColor by remember(viewModel, appIsDark) {
+        viewModel.uiState.map { it.resolveReaderPaperColor(appIsDark) }.distinctUntilChanged()
+    }.collectAsState(initial = viewModel.uiState.value.resolveReaderPaperColor(appIsDark))
+    androidx.compose.runtime.SideEffect { onReaderPaperColorChanged(paperColor) }
     val documentState by viewModel.documentState.collectAsState()
+    if (!shouldMountReaderContent(documentState, windowReady = windowReady)) {
+        // The ViewModel loads independently. Avoid constructing the text engine
+        // with default settings before the actual book/renderer is known.
+        ReaderOpeningPlaceholder(onNavigateBack)
+        return
+    }
     // PDF and CBZ share the raster page reader; every other format uses the text engines.
-    val isRasterPageFormat = documentState.book?.format?.isRasterPageFormat == true
+    val isRasterPageFormat = documentState.book?.format?.isRasterPageFormat == true || documentState.epubComicReader
     val isAppDarkTheme = LocalIsDarkTheme.current
-    val appTheme = LocalAppTheme.current
+    val appTheme = LocalAppThemeVariant.current
     val appAccentColor = LocalAppAccentHex.current
     val liquidGlassTransparency = LocalLiquidGlassTransparency.current
     val liquidGlassHdrHighlightEnabled = LocalLiquidGlassHdrHighlightEnabled.current
@@ -143,6 +212,16 @@ private fun ReaderRouter(
     val eInkMode = LocalEInkMode.current
     val globalFontMode = LocalGlobalFontMode.current
     val motionPreference = LocalMotionPreference.current
+    val comicDialogVisible by remember(viewModel) {
+        viewModel.uiState.map { it.epubComicPreparing || it.epubComicConfirmation || it.epubComicError != null }
+            .distinctUntilChanged()
+    }.collectAsState(initial = false)
+    // Navigation deliberately stops capturing while reading. Capture the actual reader
+    // only while this dialog is visible, including the original-layout WebView.
+    val comicDialogBackdrop = rememberLayerBackdrop()
+    val activeComicDialogBackdrop = comicDialogBackdrop.takeIf {
+        comicDialogVisible && LocalAppTheme.current == "liquid_glass" && !eInkMode
+    }
 
     // 正文颜色由阅读主题控制，弹层和应用级控件继承全局主题。
     EBookReaderTheme(
@@ -156,26 +235,36 @@ private fun ReaderRouter(
         globalFontMode = globalFontMode,
         motionPreference = motionPreference
     ) {
-        CompositionLocalProvider(LocalReaderColors provides ReaderColors.Light) {
+        CompositionLocalProvider(
+            LocalReaderColors provides ReaderColors.Light,
+            LocalReaderOpeningComplete provides backgroundWorkReady
+        ) {
+            Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().then(
+                activeComicDialogBackdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier
+            )) {
             if (isRasterPageFormat) {
                 RasterReaderScreen(
                     bookId = bookId,
                     onNavigateBack = onNavigateBack,
                     onOpenBook = onOpenBook,
+                    onFirstContentDrawn = reportFirstContent,
+                    readerActive = readerActive,
                     viewModel = viewModel
                 )
-                LaunchedEffect(Unit) {
-                    onFirstContentDrawn()
-                    if (eInkMode) onInteractive()
-                }
             } else {
                 ReaderScreen(
                     bookId = bookId,
                     onNavigateBack = onNavigateBack,
-                    onFirstContentDrawn = onFirstContentDrawn,
-                    onInteractive = onInteractive,
+                    onFirstContentDrawn = reportFirstContent,
+                    onInteractive = {},
+                    onReaderPaperColorChanged = onReaderPaperColorChanged,
+                    readerActive = readerActive,
                     viewModel = viewModel
                 )
+            }
+            }
+            EpubComicSwitchDialog(viewModel, activeComicDialogBackdrop)
             }
         }
     }
@@ -199,7 +288,7 @@ private fun rememberPageEntrancePlayback(
     }
     LaunchedEffect(play) {
         if (play) {
-            delay(PAGE_ENTRANCE_PLAYBACK_MILLIS)
+            delay(delayMillis(PAGE_ENTRANCE_PLAYBACK_MILLIS))
             play = false
         }
     }
@@ -227,15 +316,20 @@ fun MainNavGraph(
         Screen.Statistics.route -> Screen.Statistics.route
         else -> Screen.Home.route
     }
-    var selectedTab by remember(mainStartDestination) {
-        mutableIntStateOf(
-            when (mainStartDestination) {
-                Screen.Bookshelf.route -> 1
-                Screen.Discover.route -> 2
-                Screen.Statistics.route -> 3
-                else -> 0
-            }
-        )
+    val mainPagerState = rememberPagerState(
+        initialPage = if (requestedOpenBookshelf) 1 else mainTabRoutes.indexOf(mainStartDestination)
+    ) { mainTabRoutes.size }
+    val selectedTab by remember { derivedStateOf { mainPagerState.settledPage } }
+    val tabNavigationScope = rememberCoroutineScope()
+    val mainTabSelection = remember { MainTabSelection() }
+    var tabNavigationJob by remember { mutableStateOf<Job?>(null) }
+    val reduceTransparency = LocalReduceTransparency.current
+    val motionEnabled = LocalMotionEnabled.current
+    val selectTab: (Int) -> Unit = { index ->
+        tabNavigationJob?.cancel()
+        tabNavigationJob = tabNavigationScope.launch {
+            mainTabSelection.select(mainPagerState, index, motionEnabled)
+        }
     }
         var pendingDiscoverSearchQuery by remember { mutableStateOf<String?>(null) }
     var pendingBookshelfSearchQuery by remember { mutableStateOf<String?>(null) }
@@ -275,6 +369,7 @@ fun MainNavGraph(
     val eInkMode = LocalEInkMode.current
     val useMaterial3Navigation = LocalUseMaterial3Theme.current
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass" && !eInkMode
+    val isLumiChan = LocalAppThemeVariant.current == "lumi_chan"
     val glassBackdropBackground = AppColors.WindowBg
     val liquidGlassBackdrop = rememberLayerBackdrop(onDraw = {
         drawRect(glassBackdropBackground)
@@ -289,7 +384,7 @@ fun MainNavGraph(
         if (showImportActions) {
             val candidates = uris.mapNotNull { uri ->
                 val name = FileUtils.getFileNameFromUri(context, uri) ?: return@mapNotNull null
-                if (FileUtils.getFileExtension(name) !in setOf("epub", "pdf", "txt", "mobi", "cbz")) {
+                if (FileUtils.getFileExtension(name) !in setOf("epub", "pdf", "txt", "mobi", "cbz", "md", "markdown")) {
                     return@mapNotNull null
                 }
                 SelectedImportBook(
@@ -361,10 +456,19 @@ fun MainNavGraph(
                     selectedImportBookUris = files.mapTo(linkedSetOf()) { it.uri.toString() }
                     importCopiesIntoApp = false
                     importRequestFolderId = null
+                    showImportActions = false
                     showImportDestination = true
                 }
             }
         }
+    }
+    // Keep the import sheet in place underneath the remote page so returning restores the same
+    // import choices without an intermediate dismissal.
+    val openRemoteLibrary: (com.huangder.lumibooks.data.remote.RemoteSourceType) -> Unit = { type ->
+        val folderId = importRequestFolderId
+        context.startActivity(
+            com.huangder.lumibooks.ui.home.remote.RemoteLibraryActivity.createIntent(context, type, folderId)
+        )
     }
     val startAuthorizedRefresh: (Boolean) -> Unit = { keepActionSheet ->
         val requestGeneration = importPreparationGeneration + 1
@@ -573,11 +677,10 @@ fun MainNavGraph(
     LaunchedEffect(requestedOpenBookshelf) {
         if (!requestedOpenBookshelf) return@LaunchedEffect
         onBeforeOpenDifferentBook()
-        if (navController.currentDestination?.route != Screen.Bookshelf.route) {
-            navController.navigate(Screen.Bookshelf.route) {
-                popUpTo(mainStartDestination)
-                launchSingleTop = true
-            }
+        tabNavigationJob?.cancel()
+        mainPagerState.scrollToPage(1)
+        if (navController.currentDestination?.route != mainStartDestination) {
+            navController.popBackStack(mainStartDestination, inclusive = false)
         }
         if (requestedOpenFolderId == null) onOpenBookshelfRequestConsumed()
     }
@@ -585,6 +688,39 @@ fun MainNavGraph(
     // 监听路由变化，从阅读页/设置页返回时延迟显示 TabBar
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentEntry?.destination?.route
+    LaunchedEffect(bookReaderTransition.closeNavigationReady) {
+        if (bookReaderTransition.consumeCloseNavigation()) {
+            navController.popBackStack()
+        }
+    }
+    LaunchedEffect(currentRoute, bookReaderTransition.phase) {
+        if (currentRoute != Screen.Reader.route &&
+            bookReaderTransition.phase == BookReaderTransitionPhase.Closing
+        ) {
+            bookReaderTransition.completeCloseAfterNavigation()
+        }
+    }
+    val visibleEntries by navController.visibleEntries.collectAsState()
+    val canCaptureNavigationBackdrop = navigationBackdropCaptureAllowed(
+        currentRoute, visibleEntries.map { it.destination.route }
+    )
+    var lastMainRoute by rememberSaveable {
+        mutableStateOf(if (requestedOpenBookshelf) Screen.Bookshelf.route else mainStartDestination)
+    }
+    var bookshelfFolderOpen by rememberSaveable { mutableStateOf(requestedOpenFolderId != null) }
+    val windowConfiguration = androidx.compose.ui.platform.LocalConfiguration.current
+    var bookshelfHeaderBottom by remember(windowConfiguration.screenWidthDp, windowConfiguration.screenHeightDp, windowConfiguration.fontScale) {
+        mutableFloatStateOf(0f)
+    }
+    val activeMainRoute = mainTabRoutes[selectedTab]
+    val backgroundRoute = if (requestedOpenBookshelf) Screen.Bookshelf.route
+        else if (currentRoute == mainStartDestination) activeMainRoute else lastMainRoute
+    androidx.compose.runtime.SideEffect { lastMainRoute = backgroundRoute }
+    val backgroundScene = when {
+        backgroundRoute != Screen.Bookshelf.route -> LumiBackgroundScene.HOME
+        bookshelfFolderOpen -> LumiBackgroundScene.SECONDARY
+        else -> LumiBackgroundScene.BOOKSHELF
+    }
 
     if (currentRoute == Screen.Reader.route) {
         // Keep one owner while switching between PDF and parsed TXT reader entries.
@@ -592,27 +728,25 @@ fun MainNavGraph(
     } else {
         MainSystemBarStyle()
     }
-    LaunchedEffect(currentRoute, showTransition) {
+    LaunchedEffect(currentRoute, selectedTab, showTransition) {
         val returningFromReader = previousRoute == Screen.Reader.route &&
             currentRoute != null &&
             currentRoute != Screen.Reader.route
-        selectedTab = when (currentRoute) {
-            Screen.Home.route -> 0
-            Screen.Bookshelf.route -> 1
-            Screen.Discover.route -> 2
-            else -> selectedTab
-        }
-        if (currentRoute != Screen.Home.route) {
+        if (currentRoute != mainStartDestination || selectedTab != 0) {
             homeGoalSheetVisible = false
         }
-        if (currentRoute != Screen.Bookshelf.route) {
+        if (currentRoute != mainStartDestination || selectedTab != 1) {
             bookshelfOverlayProgress = 0f
+            bookshelfContextMenuVisible = false
         }
         if (currentRoute == Screen.Reader.route || currentRoute == Screen.Search.route || currentRoute == Screen.Statistics.route || showTransition) {
             tabBarVisible = false
             useMainReturnTabBarTransition = false
         } else {
-            useMainReturnTabBarTransition = true
+            if (!eInkMode) {
+                delay(delayMillis(800L))
+            }
+            useMainReturnTabBarTransition = false
             tabBarVisible = true
         }
         previousRoute = currentRoute
@@ -630,34 +764,52 @@ fun MainNavGraph(
 
     CompositionLocalProvider(LocalPredictiveBackEnabled provides predictiveBackEnabled,
         LocalCoverFlowEntrance provides coverFlowEntrance) {
+    LumiBackgroundHost(
+        scene = backgroundScene,
+        modifier = Modifier.fillMaxSize(),
+        bookshelfHeaderBottom = bookshelfHeaderBottom,
+        backgroundBackdrop = liquidGlassBackdrop
+    ) {
     LiquidGlassMenuHost(
         modifier = Modifier.fillMaxSize(),
         backdrop = liquidGlassBackdrop.takeIf {
-            isLiquidGlass && currentRoute != Screen.Reader.route
+            isLiquidGlass && canCaptureNavigationBackdrop
         }
     ) {
         LiquidGlassDialogHost(
             modifier = Modifier.fillMaxSize(),
             backdrop = liquidGlassBackdrop.takeIf {
-                isLiquidGlass && currentRoute != Screen.Reader.route
+                isLiquidGlass && canCaptureNavigationBackdrop
             }
         ) {
-            ConfigurableNavigationBack(
-                predictiveBackEnabled = predictiveBackEnabled,
-                bridgeEnabled = currentRoute != null && navController.previousBackStackEntry != null
+        ConfigurableNavigationBack(
+            predictiveBackEnabled = predictiveBackEnabled,
+            bridgeEnabled = currentRoute != null && (
+                navController.previousBackStackEntry != null ||
+                    selectedTab != mainTabRoutes.indexOf(mainStartDestination) ||
+                    (selectedTab == 1 && bookshelfFolderOpen)
+                )
+        ) {
+            ConfigurableBackHandler(
+                enabled = currentRoute == mainStartDestination &&
+                    selectedTab != mainTabRoutes.indexOf(mainStartDestination)
             ) {
+                selectTab(mainTabRoutes.indexOf(mainStartDestination))
+            }
             // 主内容
-            SharedTransitionLayout {
-            val sharedTransitionScope = this
+            // Cover motion is rendered by BookHeroWindowOverlay without resizing library cells.
+            Box(Modifier.fillMaxSize()) {
             NavHost(
                 navController = navController,
                 startDestination = mainStartDestination,
+                enterTransition = { fadeIn(tween(700)) },
+                exitTransition = { fadeOut(tween(700)) },
                 modifier = Modifier
                     .fillMaxSize()
                     .then(
-                        if (isLiquidGlass && currentRoute != Screen.Reader.route) {
+                        if (canCaptureNavigationBackdrop && isLiquidGlass && !isLumiChan) {
                             Modifier.layerBackdrop(liquidGlassBackdrop)
-                        } else if (!eInkMode) {
+                        } else if (canCaptureNavigationBackdrop && !eInkMode && !reduceTransparency) {
                             Modifier.haze(hazeState)
                         } else {
                             Modifier
@@ -665,7 +817,7 @@ fun MainNavGraph(
                     )
             ) {
             composable(
-                route = Screen.Home.route,
+                route = mainStartDestination,
                 enterTransition = { if (eInkMode) EnterTransition.None else null },
                 exitTransition = {
                     when {
@@ -701,265 +853,132 @@ fun MainNavGraph(
                 },
                 popExitTransition = { if (eInkMode) ExitTransition.None else null }
             ) { backStackEntry ->
-                val playEntranceAnimation = rememberPageEntrancePlayback(
-                    pageKey = Screen.Home.route,
-                    entryKey = backStackEntry.id,
-                    enabled = entranceAnimationsEnabled,
-                    tracker = entranceTracker
-                )
-                val bookAnchorScope = remember(
-                    sharedTransitionScope,
-                    this,
-                    bookReaderTransition
-                ) {
-                    BookReaderAnchorScope(
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = this,
-                        transitionState = bookReaderTransition
+                val entrancePage by rememberSaveable(backStackEntry.id) { mutableIntStateOf(selectedTab) }
+                MainTabsPager(
+                    state = mainPagerState,
+                    selection = mainTabSelection,
+                    userScrollEnabled = !showTransition &&
+                        bookReaderTransition.phase == BookReaderTransitionPhase.Library &&
+                        !homeGoalSheetVisible && !showImportActions &&
+                        !showImportConfirmation && !showImportDestination &&
+                        !bookshelfContextMenuVisible && bookshelfOverlayProgress <= 0.01f
+                ) { page ->
+                    val playEntranceAnimation = rememberPageEntrancePlayback(
+                        pageKey = mainTabRoutes[page],
+                        entryKey = "${backStackEntry.id}:$page",
+                        enabled = entranceAnimationsEnabled && page == entrancePage,
+                        tracker = entranceTracker
                     )
-                }
-                CompositionLocalProvider(
-                    LocalBookReaderAnchorScope provides bookAnchorScope.takeIf {
-                        entranceAnimationsEnabled && !eInkMode
+                    val bookAnchorScope = remember(bookReaderTransition) {
+                        BookReaderAnchorScope(transitionState = bookReaderTransition)
                     }
-                ) {
-                    BookReaderLibraryLayer(
-                        transition = bookReaderTransition,
-                        blurEnabled = !eInkMode
-                    ) {
-                    HomeScreen(
-                    playEntranceAnimation = playEntranceAnimation,
-                    onNavigateToReader = { book, sourceBounds ->
-                        requestOpenBook(book, sourceBounds)
-                    },
-                    onTabBarVisibleChange = { visible -> tabBarVisible = visible },
-                    onNavigateToStatistics = {
-                        navController.navigate(Screen.Statistics.route)
-                    },
-                    onNavigateToBookshelf = {
-                        selectedTab = 1
-                        navController.navigate(Screen.Bookshelf.route) {
-                            popUpTo(mainStartDestination) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+                    CompositionLocalProvider(
+                        LocalBookReaderAnchorScope provides bookAnchorScope.takeIf {
+                            page == selectedTab && entranceAnimationsEnabled && !eInkMode
                         }
-                    },
-                    onImportClick = {
-                        importRequestFolderId = null
-                        selectedImportBooks = emptyList()
-                        selectedImportBookUris = emptySet()
-                        importCopiesIntoApp = true
-                        isPreparingImport = false
-                        importPreparationGeneration++
-                        showImportActions = true
-                        showImportConfirmation = false
-                    },
-                    showImportButton = false,
-                    showReadingGoalSheet = homeGoalSheetVisible,
-                    onReadingGoalSheetVisibleChange = { visible -> homeGoalSheetVisible = visible },
-                    renderReadingGoalSheet = false,
-                    viewModel = homeViewModel
-                )
-                    }
-                }
-            }
-
-            composable(
-                route = Screen.Bookshelf.route,
-                enterTransition = { if (eInkMode) EnterTransition.None else null },
-                exitTransition = {
-                    when {
-                        eInkMode -> ExitTransition.None
-                        targetState.destination.route == Screen.Reader.route &&
-                            bookReaderTransition.usesHeroTransition -> scaleOut(
-                            targetScale = 1f,
-                            animationSpec = tween(
-                                durationMillis =
-                                    com.huangder.lumibooks.ui.animation.BookReaderMotion.WINDOW_DURATION_MS,
-                                easing = LinearEasing
-                            )
-                        )
-                        else -> null
-                    }
-                },
-                popEnterTransition = {
-                    if (eInkMode) {
-                        EnterTransition.None
-                    } else if (
-                        initialState.destination.route == Screen.Reader.route &&
-                        bookReaderTransition.usesHeroTransition
                     ) {
-                        EnterTransition.None
-                    } else if (initialState.destination.route == Screen.Reader.route) {
-                        fadeIn(tween(300, easing = FastOutSlowInEasing)) + scaleIn(
-                            initialScale = 0.985f,
-                            animationSpec = tween(320, easing = FastOutSlowInEasing)
-                        )
-                    } else {
-                        null
-                    }
-                },
-                popExitTransition = { if (eInkMode) ExitTransition.None else null }
-            ) { backStackEntry ->
-                val playEntranceAnimation = rememberPageEntrancePlayback(
-                    pageKey = Screen.Bookshelf.route,
-                    entryKey = backStackEntry.id,
-                    enabled = entranceAnimationsEnabled,
-                    tracker = entranceTracker
-                )
-                val bookAnchorScope = remember(
-                    sharedTransitionScope,
-                    this,
-                    bookReaderTransition
-                ) {
-                    BookReaderAnchorScope(
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = this,
-                        transitionState = bookReaderTransition
-                    )
-                }
-                CompositionLocalProvider(
-                    LocalBookReaderAnchorScope provides bookAnchorScope.takeIf {
-                        entranceAnimationsEnabled && !eInkMode
-                    }
-                ) {
-                    BookReaderLibraryLayer(
-                        transition = bookReaderTransition,
-                        blurEnabled = !eInkMode
-                    ) {
-                BookshelfScreen(
-                    initialLayoutMode = initialBookshelfLayoutMode,
-                    playEntranceAnimation = playEntranceAnimation,
-                    onNavigateToReader = { book, sourceBounds ->
-                        requestOpenBook(book, sourceBounds)
-                    },
-                    onNavigateToReaderCoverFlow = { book, sourceBounds ->
-                        requestOpenBook(book, sourceBounds,
-                            com.huangder.lumibooks.ui.animation.BookReaderPresentation.CoverFlow)
-                    },
-                    onAddBook = { folderId ->
-                        importRequestFolderId = folderId
-                        selectedImportBooks = emptyList()
-                        selectedImportBookUris = emptySet()
-                        importCopiesIntoApp = true
-                        isPreparingImport = false
-                        importPreparationGeneration++
-                        showImportActions = true
-                        showImportConfirmation = false
-                    },
-                    requestedFolderId = requestedOpenFolderId,
-                    onRequestedFolderConsumed = onOpenBookshelfRequestConsumed,
-                    onMessage = { transientMessage = it },
-                    onRefreshAuthorizedDirectories = { startAuthorizedRefresh(false) },
-                    onOverlayProgressChange = { progress ->
-                        bookshelfOverlayProgress = progress.coerceIn(0f, 1f)
-                    },
-                    initialSearchQuery = pendingBookshelfSearchQuery,
-                    onInitialSearchQueryConsumed = { pendingBookshelfSearchQuery = null },
-                    onNavigateToSearch = { initialQuery ->
-                        navController.navigate(Screen.Search.createRoute(initialQuery))
-                    },
-                    onSearchInDiscover = { query ->
-                        selectedTab = 2
-                        pendingDiscoverSearchQuery = query
-                        navController.navigate(Screen.Discover.route) {
-                            popUpTo(Screen.Home.route) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
+                        BookReaderLibraryLayer(
+                            transition = bookReaderTransition,
+                            blurEnabled = !eInkMode
+                        ) {
+                            when (page) {
+                                0 -> {
+                                    HomeScreen(
+                                        playEntranceAnimation = playEntranceAnimation,
+                                        onNavigateToReader = { book, sourceBounds ->
+                                            requestOpenBook(book, sourceBounds)
+                                        },
+                                        onTabBarVisibleChange = { visible -> tabBarVisible = visible },
+                                        onNavigateToStatistics = { selectTab(3) },
+                                        onNavigateToBookshelf = { selectTab(1) },
+                                        onImportClick = {
+                                            importRequestFolderId = null
+                                            selectedImportBooks = emptyList()
+                                            selectedImportBookUris = emptySet()
+                                            importCopiesIntoApp = true
+                                            isPreparingImport = false
+                                            importPreparationGeneration++
+                                            showImportActions = true
+                                            showImportConfirmation = false
+                                        },
+                                        showImportButton = !isLiquidGlass,
+                                        showReadingGoalSheet = homeGoalSheetVisible,
+                                        onReadingGoalSheetVisibleChange = { visible -> homeGoalSheetVisible = visible },
+                                        renderReadingGoalSheet = false,
+                                        viewModel = homeViewModel
+                                    )
+                                }
+                                1 -> {
+                                    BookshelfScreen(
+                                        onFolderOpenChange = { bookshelfFolderOpen = it },
+                                        onHeaderBottomChange = { bookshelfHeaderBottom = it },
+                                        initialLayoutMode = initialBookshelfLayoutMode,
+                                        playEntranceAnimation = playEntranceAnimation,
+                                        onNavigateToReader = { book, sourceBounds ->
+                                            requestOpenBook(book, sourceBounds)
+                                        },
+                                        onNavigateToReaderCoverFlow = { book, sourceBounds ->
+                                            requestOpenBook(book, sourceBounds,
+                                                com.huangder.lumibooks.ui.animation.BookReaderPresentation.CoverFlow)
+                                        },
+                                        onAddBook = { folderId ->
+                                            importRequestFolderId = folderId
+                                            selectedImportBooks = emptyList()
+                                            selectedImportBookUris = emptySet()
+                                            importCopiesIntoApp = true
+                                            isPreparingImport = false
+                                            importPreparationGeneration++
+                                            showImportActions = true
+                                            showImportConfirmation = false
+                                        },
+                                        requestedFolderId = requestedOpenFolderId,
+                                        onRequestedFolderConsumed = onOpenBookshelfRequestConsumed,
+                                        onMessage = { transientMessage = it },
+                                        onRefreshAuthorizedDirectories = { startAuthorizedRefresh(false) },
+                                        onOverlayProgressChange = { progress ->
+                                            bookshelfOverlayProgress = progress.coerceIn(0f, 1f)
+                                        },
+                                        onContextMenuVisibleChange = { visible ->
+                                            bookshelfContextMenuVisible = visible
+                                        },
+                                        onEnterCoverFlow = { commit ->
+                                            if (eInkMode) commit() else coverFlowEntrance.enter(entranceAnimationsEnabled, commit)
+                                        },
+                                        viewModel = homeViewModel
+                                    )
+                                }
+                                2 -> {
+                                    DiscoveryScreen(
+                                        initialSearchQuery = pendingDiscoverSearchQuery,
+                                        onInitialSearchQueryConsumed = { pendingDiscoverSearchQuery = null },
+                                        onNavigateToSearch = { initialQuery ->
+                                            navController.navigate(Screen.Search.createRoute(initialQuery))
+                                        },
+                                        onSearchInBookshelf = { query ->
+                                            selectTab(1)
+                                            pendingBookshelfSearchQuery = query
+                                        },
+                                        onOpenBook = { bookId, coverUrl, title ->
+                                            requestOpenBook(bookId, coverUrl, title)
+                                        }
+                                    )
+                                }
+                                3 -> {
+                                    StatisticsScreen(
+                                        playEntranceAnimation = playEntranceAnimation,
+                                        onMessage = { transientMessage = it }
+                                    )
+                                }
+                                else -> {
+                                    StatisticsScreen(
+                                        playEntranceAnimation = playEntranceAnimation,
+                                        onMessage = { transientMessage = it }
+                                    )
+                                }
+                            }
                         }
-                    },
-                    onContextMenuVisibleChange = { visible ->
-                        bookshelfContextMenuVisible = visible
-                    },
-                    onEnterCoverFlow = { commit ->
-                        if (eInkMode) commit() else coverFlowEntrance.enter(entranceAnimationsEnabled, commit)
-                    },
-                    viewModel = homeViewModel
-                )
                     }
                 }
-            }
-
-            composable(
-                route = Screen.Discover.route,
-                enterTransition = { if (eInkMode) EnterTransition.None else null },
-                exitTransition = { if (eInkMode) ExitTransition.None else null },
-                popEnterTransition = { if (eInkMode) EnterTransition.None else null },
-                popExitTransition = { if (eInkMode) ExitTransition.None else null }
-            ) { _ ->
-                DiscoveryScreen(
-                    initialSearchQuery = pendingDiscoverSearchQuery,
-                    onInitialSearchQueryConsumed = { pendingDiscoverSearchQuery = null },
-                    onNavigateToSearch = { initialQuery ->
-                        navController.navigate(Screen.Search.createRoute(initialQuery))
-                    },
-                    onSearchInBookshelf = { query ->
-                        selectedTab = 1
-                        pendingBookshelfSearchQuery = query
-                        navController.navigate(Screen.Bookshelf.route) {
-                            popUpTo(Screen.Home.route) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    onOpenBook = { bookId, coverUrl, title ->
-                        requestOpenBook(bookId, coverUrl, title)
-                    }
-                )
-            }
-            composable(
-                route = Screen.Search.route,
-                arguments = listOf(
-                    navArgument("initialQuery") {
-                        type = NavType.StringType
-                        nullable = true
-                        defaultValue = null
-                    }
-                ),
-                enterTransition = { if (eInkMode) EnterTransition.None else null },
-                exitTransition = { if (eInkMode) ExitTransition.None else null },
-                popEnterTransition = { if (eInkMode) EnterTransition.None else null },
-                popExitTransition = { if (eInkMode) ExitTransition.None else null }
-            ) { backStackEntry ->
-                val initialQuery = backStackEntry.arguments?.getString("initialQuery")
-                SearchScreen(
-                    initialQuery = initialQuery,
-                    onBack = { navController.popBackStack() },
-                    onOpenBook = { bookId, coverUrl, title ->
-                        requestOpenBook(bookId, coverUrl, title)
-                    }
-                )
-            }
-
-            composable(
-                route = Screen.Statistics.route,
-                enterTransition = { if (eInkMode) EnterTransition.None else null },
-                exitTransition = { if (eInkMode) ExitTransition.None else null },
-                popEnterTransition = {
-                    if (eInkMode) {
-                        EnterTransition.None
-                    } else if (initialState.destination.route == Screen.Reader.route) {
-                        fadeIn(tween(300, easing = FastOutSlowInEasing)) + scaleIn(
-                            initialScale = 0.985f,
-                            animationSpec = tween(320, easing = FastOutSlowInEasing)
-                        )
-                    } else {
-                        null
-                    }
-                },
-                popExitTransition = { if (eInkMode) ExitTransition.None else null }
-            ) { backStackEntry ->
-                val playEntranceAnimation = rememberPageEntrancePlayback(
-                    pageKey = Screen.Statistics.route,
-                    entryKey = backStackEntry.id,
-                    enabled = entranceAnimationsEnabled,
-                    tracker = entranceTracker
-                )
-                StatisticsScreen(
-                    playEntranceAnimation = playEntranceAnimation,
-                    onBack = { navController.popBackStack() },
-                    onMessage = { transientMessage = it }
-                )
             }
 
             composable(
@@ -1025,36 +1044,11 @@ fun MainNavGraph(
                     bookReaderTransition.activeBookId == bookId && bookReaderTransition.presentation ==
                         com.huangder.lumibooks.ui.animation.BookReaderPresentation.CoverFlow
                 }
-                val bookAnchorScope = remember(
-                    sharedTransitionScope,
-                    this,
-                    bookReaderTransition
-                ) {
-                    BookReaderAnchorScope(
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = this,
-                        transitionState = bookReaderTransition
-                    )
+                val bookAnchorScope = remember(bookReaderTransition) {
+                    BookReaderAnchorScope(transitionState = bookReaderTransition)
                 }
-                LaunchedEffect(
-                    bookReaderTransition.phase,
-                    bookReaderTransition.readerReady,
-                    bookReaderTransition.activeBookId
-                ) {
-                    val activeBookId = bookReaderTransition.activeBookId
-                    if (
-                        activeBookId == bookId &&
-                        bookReaderTransition.readerReady &&
-                        (
-                            bookReaderTransition.phase ==
-                                com.huangder.lumibooks.ui.animation.BookReaderTransitionPhase.Reader ||
-                                bookReaderTransition.phase ==
-                                com.huangder.lumibooks.ui.animation.BookReaderTransitionPhase.Ready
-                            )
-                    ) {
-                        ReaderOpenPerformance.markInteractive(bookId)
-                    }
-                }
+                val openingSession = remember(backStackEntry.id) { bookReaderTransition.sessionId }
+                val readerActive = currentEntry?.id == backStackEntry.id
 
                 CompositionLocalProvider(
                     LocalBookReaderAnchorScope provides bookAnchorScope.takeIf {
@@ -1065,11 +1059,7 @@ fun MainNavGraph(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .bookReaderTargetAnchor(bookId)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
+                                .bookReaderWindowClip(bookReaderTransition)
                                 .then(
                                     if (coverFlowReader ||
                                         bookReaderTransition.phase ==
@@ -1082,26 +1072,10 @@ fun MainNavGraph(
                                         com.huangder.lumibooks.ui.animation.BookReaderTransitionPhase.Closing
                                     ) {
                                         Modifier.graphicsLayer {
-                                            val transitionPhase = bookReaderTransition.phase
-                                            alpha = when (transitionPhase) {
-                                                com.huangder.lumibooks.ui.animation.BookReaderTransitionPhase.Ready -> 1f
-                                                com.huangder.lumibooks.ui.animation.BookReaderTransitionPhase.Opening,
-                                                com.huangder.lumibooks.ui.animation.BookReaderTransitionPhase.ReaderLoading -> 0f
-                                                com.huangder.lumibooks.ui.animation.BookReaderTransitionPhase.Closing ->
-                                                    bookReaderTransition.readerExitAlphaSnapshot.value
-                                                else -> 1f
-                                            }
-                                            translationY = if (
-                                                transitionPhase ==
-                                                com.huangder.lumibooks.ui.animation.BookReaderTransitionPhase.Ready
-                                            ) {
-                                                bookReaderTransition.shellAlphaSnapshot.value * 6.dp.toPx()
-                                            } else {
-                                                0f
-                                            }
+                                            alpha = bookReaderTransition.readerLayerAlpha
+                                            translationY = 0f
                                             if (coverFlowReader) {
                                                 val p = bookReaderTransition.coverFlowProgressSnapshot.value
-                                                alpha = com.huangder.lumibooks.ui.animation.CoverFlowReaderMotion.readerAlpha(p)
                                                 scaleX = com.huangder.lumibooks.ui.animation.CoverFlowReaderMotion.readerScale(p)
                                                 scaleY = scaleX
                                                 translationY = 0f
@@ -1116,23 +1090,44 @@ fun MainNavGraph(
                     bookId = bookId,
                     onNavigateBack = {
                         if (bookReaderTransition.activeBookId == bookId) {
+                            val hasWindowHero = bookReaderTransition.presentation ==
+                                com.huangder.lumibooks.ui.animation.BookReaderPresentation.Window
                             if (!bookReaderTransition.startClose()) {
                                 bookReaderTransition.fallbackToLibrary()
+                                navController.popBackStack()
+                            } else if (!hasWindowHero) {
+                                navController.popBackStack()
                             }
+                        } else {
+                            navController.popBackStack()
                         }
                         showTransition = false
                         pendingBookId = null
                         ReaderOpenPerformance.cancel(bookId)
-                        navController.popBackStack()
                     },
                     onFirstContentDrawn = {
-                        ReaderOpenPerformance.markFirstContentDrawn(bookId)
-                        readerReady = true
-                        if (bookReaderTransition.activeBookId == bookId) {
-                            bookReaderTransition.markReaderReady()
+                        if (readerActive) {
+                            ReaderOpenPerformance.markFirstContentDrawn(bookId)
+                            readerReady = true
+                            if (bookReaderTransition.activeBookId == bookId) {
+                                bookReaderTransition.markReaderReady(openingSession)
+                            }
                         }
                     },
-                    onInteractive = { ReaderOpenPerformance.markInteractive(bookId) },
+                    onInteractive = {
+                        if (readerActive) ReaderOpenPerformance.markInteractive(bookId)
+                    },
+                    onReaderPaperColorChanged = { color ->
+                        if (readerActive && bookReaderTransition.activeBookId == bookId) {
+                            bookReaderTransition.updateReaderPaperColor(color, openingSession)
+                        }
+                    },
+                    windowReady = bookReaderTransition.activeBookId != bookId ||
+                        bookReaderTransition.phase != BookReaderTransitionPhase.Opening,
+                    readerActive = readerActive,
+                    openingComplete = if (bookReaderTransition.activeBookId == bookId) {
+                        bookReaderTransition.phase == BookReaderTransitionPhase.Reader
+                    } else !showTransition,
                     onOpenBook = { targetBookId ->
                         onBeforeOpenDifferentBook()
                         val target = homeUiState.books.firstOrNull { it.id == targetBookId }
@@ -1153,13 +1148,22 @@ fun MainNavGraph(
         }
 
 
-        // 浮动导航栏（渐隐渐显）
+        val heroTabTransition = bookReaderTransition.usesHeroTransition
+        val heroBackdropVisible = heroTabTransition &&
+            bookReaderTransition.phase != BookReaderTransitionPhase.Reader
+        // Keep the bar in the same full-screen backdrop transform; the moving window occludes it.
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .bookReaderWindowClip(bookReaderTransition, outside = true)
+                .bookReaderLibraryLayer(bookReaderTransition, blurEnabled = !eInkMode)
                 .graphicsLayer {
+                    if (bookReaderTransition.presentation == com.huangder.lumibooks.ui.animation.BookReaderPresentation.CoverFlow) {
+                        alpha = 1f - com.huangder.lumibooks.ui.animation.CoverFlowReaderMotion.readerAlpha(
+                            bookReaderTransition.coverFlowProgressSnapshot.value)
+                    }
                     renderEffect = if (
-                        !eInkMode &&
+                        !eInkMode && !reduceTransparency &&
                         bookshelfOverlayProgress > 0.01f &&
                         android.os.Build.VERSION.SDK_INT >= 31
                     ) {
@@ -1176,8 +1180,9 @@ fun MainNavGraph(
         // Keep the transition host composed so the bar animates out for context menus
         // and animates back in after the menu returns to Idle.
         AnimatedVisibility(
-            visible = tabBarVisible && !bookshelfContextMenuVisible,
-            enter = if (eInkMode) {
+            visible = (heroBackdropVisible || tabBarVisible) &&
+                !bookshelfContextMenuVisible && bookshelfOverlayProgress <= 0.01f,
+            enter = if (eInkMode || heroTabTransition) {
                 EnterTransition.None
             } else if (useMainReturnTabBarTransition) {
                 fadeIn(animationSpec = tween(300, easing = FastOutSlowInEasing)) +
@@ -1192,7 +1197,7 @@ fun MainNavGraph(
                         initialOffsetY = { it / 3 }
                     )
             },
-            exit = if (eInkMode) {
+            exit = if (eInkMode || heroTabTransition) {
                 ExitTransition.None
             } else {
                 fadeOut(animationSpec = tween(300)) +
@@ -1202,23 +1207,17 @@ fun MainNavGraph(
                     )
             },
             modifier = Modifier.align(Alignment.BottomCenter).coverFlowEntranceItem(6)
+                .then(if (heroTabTransition) Modifier.clearAndSetSemantics { } else Modifier)
+                .pointerInput(heroTabTransition) {
+                    if (heroTabTransition) awaitPointerEventScope {
+                        while (true) {
+                            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                        }
+                    }
+                }
         ) {
             val showLiquidImport = isLiquidGlass
-            val selectTab: (Int) -> Unit = { index ->
-                selectedTab = index
-                val route = when (index) {
-                    0 -> Screen.Home.route
-                    1 -> Screen.Bookshelf.route
-                    2 -> Screen.Discover.route
-                    else -> Screen.Home.route
-                }
-                navController.navigate(route) {
-                    popUpTo(mainStartDestination) { saveState = true }
-                    launchSingleTop = true
-                    restoreState = true
-                }
-            }
-            if (useMaterial3Navigation && !isLiquidGlass) {
+            if (useMaterial3Navigation) {
                 Material3BottomNavigationBar(
                     selectedIndex = selectedTab,
                     onTabSelected = selectTab,
@@ -1249,14 +1248,24 @@ fun MainNavGraph(
                             max = if (isLiquidGlass) 480.dp else 430.dp
                         )
                     ) {
+                        if (showLiquidImport) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                                    .padding(end = 24.dp, bottom = 10.dp)
+                            ) {
+                                LiquidGlassImportButton(
+                                    onClick = requestImport,
+                                    liquidGlassBackdrop = liquidGlassBackdrop
+                                )
+                            }
+                        }
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .navigationBarsPadding()
-                                .padding(
-                                    end = if (isLiquidGlass) 24.dp else 20.dp,
-                                    bottom = if (isLiquidGlass) 10.dp else 14.dp
-                                )
+                                .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                                .padding(end = 24.dp, bottom = 10.dp)
                         ) {
                             NavSettingsButton(
                                 onClick = {
@@ -1317,16 +1326,13 @@ fun MainNavGraph(
                     if (homeUiState.authorizedBookDirectories.isEmpty()) {
                         transientMessage = context.getString(R.string.import_no_authorized_directory)
                     } else {
-                        importPreparationGeneration++
-                        isPreparingImport = false
-                        selectedImportBooks = emptyList()
-                        selectedImportBookUris = emptySet()
-                        showImportActions = false
                         folderBooksLauncher.launch(
                             AuthorizedFolderBooksActivity.createIntent(context)
                         )
                     }
-                }
+                },
+                onImportWebdav = { openRemoteLibrary(com.huangder.lumibooks.data.remote.RemoteSourceType.WEBDAV) },
+                onImportOpds = { openRemoteLibrary(com.huangder.lumibooks.data.remote.RemoteSourceType.OPDS) }
             )
         }
 
@@ -1483,7 +1489,7 @@ fun MainNavGraph(
         }
 
         ReadingGoalSheet(
-            visible = homeGoalSheetVisible && currentRoute == Screen.Home.route,
+            visible = homeGoalSheetVisible && currentRoute == mainStartDestination && selectedTab == 0,
             todayReadingTime = homeUiState.todayReadingTime,
             dailyGoal = homeUiState.dailyGoal,
             currentBook = homeLastReadBook,
@@ -1533,11 +1539,11 @@ fun MainNavGraph(
                 onBack = { showTransition = false },
                 onTransitionComplete = {
                     showTransition = false
-                    transitionBookId?.let(ReaderOpenPerformance::markInteractive)
                     transitionBookId = null
                 }
             )
         }
+    }
     }
     }
 }

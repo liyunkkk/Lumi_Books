@@ -7,7 +7,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -39,8 +39,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items as lazyListItems
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -63,7 +65,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -80,6 +81,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.shadow
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuItem
 import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
@@ -170,7 +172,7 @@ private fun ImportDestinationButton(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 58.dp),
-        shape = RoundedCornerShape(16.dp),
+        shape = AppRoundedCornerShape(16.dp),
         tintedColor = if (primary) AppColors.Accent else AppColors.BgGray,
         prominentShadow = primary,
         contentColor = if (primary) AppColors.OnAccent else AppColors.TextPrimary
@@ -208,7 +210,9 @@ fun ImportBooksActionSheet(
     onDismiss: () -> Unit,
     onSelectFiles: () -> Unit,
     onAuthorizeDirectory: () -> Unit,
-    onOpenFolderBooks: () -> Unit
+    onOpenFolderBooks: () -> Unit,
+    onImportWebdav: () -> Unit,
+    onImportOpds: () -> Unit
 ) {
     ImportBooksContainer(
         expanded = false,
@@ -220,9 +224,20 @@ fun ImportBooksActionSheet(
             authorizedDirectoryUris = authorizedDirectoryUris,
             onSelectFiles = onSelectFiles,
             onAuthorizeDirectory = onAuthorizeDirectory,
-            onOpenFolderBooks = onOpenFolderBooks
+            onOpenFolderBooks = onOpenFolderBooks,
+            onImportWebdav = onImportWebdav,
+            onImportOpds = onImportOpds
         )
     }
+}
+
+/** Compact sheet in the import sheet's container, so follow-up choices match every theme. */
+@Composable
+fun ImportDestinationContainer(
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    ImportBooksContainer(expanded = false, onDismiss = onDismiss) { _ -> content() }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -263,7 +278,7 @@ private fun ImportBooksContainer(
     content: @Composable (floatingContainer: Boolean) -> Unit
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
-    val shape = RoundedCornerShape(
+    val shape = AppRoundedCornerShape(
         topStart = 28.dp,
         topEnd = 28.dp,
         bottomStart = if (isLiquidGlass) 28.dp else 0.dp,
@@ -321,53 +336,76 @@ private fun ImportActionsStage(
     authorizedDirectoryUris: List<String>,
     onSelectFiles: () -> Unit,
     onAuthorizeDirectory: () -> Unit,
-    onOpenFolderBooks: () -> Unit
+    onOpenFolderBooks: () -> Unit,
+    onImportWebdav: () -> Unit,
+    onImportOpds: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(
-                start = 28.dp,
-                end = 28.dp,
-                top = 34.dp,
-                bottom = if (floatingContainer) 28.dp else 24.dp
+                start = 24.dp,
+                end = 24.dp,
+                top = 22.dp,
+                bottom = if (floatingContainer) 20.dp else 16.dp
             )
     ) {
         Text(
             text = stringResource(R.string.import_books),
             color = AppColors.TextPrimary,
-            fontSize = 25.sp,
+            fontSize = 22.sp,
             fontWeight = FontWeight.Bold
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
-            text = stringResource(R.string.import_dialog_description),
+            text = stringResource(R.string.import_dialog_description) + "\n" +
+                stringResource(R.string.import_dialog_remote_description),
             color = AppColors.TextSecondary,
-            fontSize = 13.sp,
-            lineHeight = 19.sp
+            fontSize = 12.sp,
+            lineHeight = 17.sp
         )
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(16.dp))
         ImportActionButton(
             text = stringResource(R.string.import_select_files),
             onClick = onSelectFiles,
             primary = true,
             enabled = !isPreparing
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         ImportActionButton(
             text = stringResource(R.string.import_authorize_directory),
             onClick = onAuthorizeDirectory,
             enabled = !isPreparing
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
         ImportActionButton(
             text = stringResource(R.string.import_select_folder_books),
             onClick = onOpenFolderBooks,
             enabled = !isPreparing
         )
+        Spacer(Modifier.height(8.dp))
+        // Keep the half-width pair aligned with the tighter vertical button spacing.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ImportActionButton(
+                text = stringResource(R.string.import_webdav),
+                onClick = onImportWebdav,
+                enabled = !isPreparing,
+                modifier = Modifier.weight(1f)
+            )
+            ImportActionButton(
+                text = stringResource(R.string.import_opds),
+                onClick = onImportOpds,
+                enabled = !isPreparing,
+                modifier = Modifier.weight(1f)
+            )
+        }
         if (isPreparing) {
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
@@ -386,7 +424,7 @@ private fun ImportActionsStage(
                 )
             }
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(12.dp))
         val internalStorageLabel = stringResource(R.string.book_detail_internal_storage)
         val listSeparator = stringResource(R.string.list_separator)
         val authorizedDirectoryLabel = remember(authorizedDirectoryUris, internalStorageLabel, listSeparator) {
@@ -402,8 +440,8 @@ private fun ImportActionsStage(
                 stringResource(R.string.import_authorized_directories_current, authorizedDirectoryLabel)
             },
             color = AppColors.TextSecondary,
-            fontSize = 12.sp,
-            lineHeight = 17.sp
+            fontSize = 11.sp,
+            lineHeight = 15.sp
         )
     }
 }
@@ -428,11 +466,12 @@ private fun formatAuthorizedDirectory(uriString: String, internalStorageLabel: S
 private fun ImportActionButton(
     text: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     primary: Boolean = false,
     enabled: Boolean = true,
     floatingShadow: Boolean = false
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = AppRoundedCornerShape(16.dp)
     val activePrimary = primary && enabled
     val buttonColor = if (activePrimary) AppColors.Accent else AppColors.BgGray
     val labelColor = if (activePrimary) AppColors.OnAccent else if (enabled) {
@@ -443,15 +482,13 @@ private fun ImportActionButton(
     LiquidGlassButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(58.dp)
+            .heightIn(min = 48.dp)
             .then(
-                if (floatingShadow && enabled) {
+                if (floatingShadow && enabled && LocalAppTheme.current != "liquid_glass") {
                     Modifier.shadow(
-                        elevation = 28.dp,
-                        shape = shape,
-                        clip = false,
+                        elevation = 28.dp, shape = shape, clip = false,
                         ambientColor = Color.Black.copy(alpha = 0.10f),
                         spotColor = Color.Black.copy(alpha = 0.08f)
                     )
@@ -467,8 +504,11 @@ private fun ImportActionButton(
         Text(
             text = text,
             color = labelColor,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.SemiBold
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            softWrap = false,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
         )
     }
 }
@@ -531,8 +571,8 @@ private fun SelectedBooksStage(
                 Spacer(Modifier.width(10.dp))
                 LiquidGlassButton(
                     onClick = onSelectAll,
-                    modifier = Modifier.height(44.dp),
-                    shape = RoundedCornerShape(50),
+                    modifier = Modifier.heightIn(min = 44.dp),
+                    shape = AppRoundedCornerShape(50),
                     tintedColor = AppColors.Accent,
                     prominentShadow = false,
                     contentColor = AppColors.OnAccent
@@ -541,7 +581,10 @@ private fun SelectedBooksStage(
                         text = stringResource(R.string.import_select_all),
                         color = AppColors.OnAccent,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
             }
@@ -692,7 +735,7 @@ private fun SelectedBookPreview(
         animationSpec = tween(160),
         label = "importBookSelectionOutline"
     )
-    val selectionShape = RoundedCornerShape(if (compact) 20.dp else 24.dp)
+    val selectionShape = AppRoundedCornerShape(if (compact) 20.dp else 24.dp)
     val contentPadding = if (compact) 6.dp else 8.dp
 
     Column(
@@ -712,7 +755,7 @@ private fun SelectedBookPreview(
     ) {
         ImportBookCoverArt(
             book = book,
-            shape = RoundedCornerShape(if (compact) 16.dp else 20.dp),
+            shape = AppRoundedCornerShape(if (compact) 16.dp else 20.dp),
             placeholderFontSize = if (compact) 12.sp else 15.sp,
             modifier = Modifier
                 .fillMaxWidth()
@@ -753,6 +796,7 @@ private fun ImportLayoutSwitchButton(
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
     val layoutModeDescription = stringResource(R.string.import_layout_mode)
     LiquidGlassSurface(
+        controlEdge = true,
         shape = CircleShape,
         fallbackColor = if (isLiquidGlass) AppColors.CardBg else AppColors.Accent,
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.58f),
@@ -781,6 +825,7 @@ private fun ImportSearchField(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     LiquidGlassSurface(
+        controlEdge = true,
         shape = CircleShape,
         fallbackColor = AppColors.CardBg,
         contentScrimColor = AppColors.CardBg.copy(alpha = 0.72f),
@@ -920,7 +965,7 @@ private fun ImportSortButton(
                 expanded = sortExpanded,
                 onDismissRequest = { sortExpanded = false },
                 modifier = Modifier.width(176.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = AppRoundedCornerShape(16.dp),
                 containerColor = AppColors.WindowBg,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp
@@ -976,7 +1021,7 @@ private fun SelectedBookListRow(
         animationSpec = tween(160),
         label = "importBookListSelection"
     )
-    val shape = RoundedCornerShape(20.dp)
+    val shape = AppRoundedCornerShape(20.dp)
 
     Row(
         modifier = Modifier
@@ -998,7 +1043,7 @@ private fun SelectedBookListRow(
     ) {
         ImportBookCoverArt(
             book = book,
-            shape = RoundedCornerShape(14.dp),
+            shape = AppRoundedCornerShape(14.dp),
             placeholderFontSize = 11.sp,
             modifier = Modifier
                 .width(46.dp)
@@ -1056,7 +1101,7 @@ private fun SelectedBookListRow(
 @Composable
 internal fun ImportBookCoverArt(
     book: SelectedImportBook,
-    shape: RoundedCornerShape,
+    shape: androidx.compose.ui.graphics.Shape,
     placeholderFontSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
     coverPathOverride: String? = null

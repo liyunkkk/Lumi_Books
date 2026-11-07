@@ -14,6 +14,21 @@ interface BookmarkDao {
     @Query("SELECT * FROM bookmarks WHERE bookId = :bookId ORDER BY createdAt DESC")
     fun getBookmarksByBookId(bookId: String): Flow<List<BookmarkEntity>>
 
+    @Query("SELECT * FROM bookmarks")
+    suspend fun getAllBookmarks(): List<BookmarkEntity>
+
+    @Query("SELECT * FROM bookmarks ORDER BY createdAt DESC, id DESC")
+    fun observeAllBookmarks(): Flow<List<BookmarkEntity>>
+
+    @Query("SELECT * FROM bookmarks WHERE createdAt >= :startMs AND createdAt < :endMs")
+    fun observeBookmarksCreatedBetween(startMs: Long, endMs: Long): Flow<List<BookmarkEntity>>
+
+    @Query("SELECT tagsJson FROM bookmarks")
+    fun observeTagLists(): Flow<List<String>>
+
+    @Query("UPDATE bookmarks SET tagsJson = :tagsJson, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateTags(id: Long, tagsJson: String, updatedAt: Long)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBookmark(bookmark: BookmarkEntity)
 

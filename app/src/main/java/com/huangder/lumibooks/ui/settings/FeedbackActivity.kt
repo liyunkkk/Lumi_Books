@@ -1,6 +1,7 @@
 package com.huangder.lumibooks.ui.settings
 import com.huangder.lumibooks.ui.icons.AppIcons
 
+import com.huangder.lumibooks.ui.components.lumiCardSurface
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -32,7 +33,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -98,14 +99,16 @@ class FeedbackActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
+        val launchTheme = com.huangder.lumibooks.util.LaunchThemeController.themeSnapshot(this)
         setContent {
-            val appTheme by dataStoreManager.appTheme.collectAsState(initial = "lumi")
-            val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = DEFAULT_APP_ACCENT_HEX)
-            val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = "system")
-            val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = 0.55f)
-            val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = false)
-            val darkMode by dataStoreManager.darkMode.collectAsState(initial = "system")
-            val predictiveBackEnabled by dataStoreManager.predictiveBackEnabled.collectAsState(initial = true)
+            val appTheme by dataStoreManager.appTheme.collectAsState(initial = launchTheme.appTheme)
+            val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = launchTheme.appAccentColor)
+            val appFontSize by dataStoreManager.appFontSize.collectAsState(initial = launchTheme.appFontSize)
+            val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = launchTheme.globalFontMode)
+            val liquidGlassTransparency by dataStoreManager.liquidGlassTransparency.collectAsState(initial = launchTheme.liquidGlassTransparency)
+            val liquidGlassHdrHighlightEnabled by dataStoreManager.liquidGlassHdrHighlightEnabled.collectAsState(initial = launchTheme.liquidGlassHdrHighlightEnabled)
+            val darkMode by dataStoreManager.darkMode.collectAsState(initial = launchTheme.darkMode)
+            val predictiveBackEnabled by dataStoreManager.predictiveBackEnabled.collectAsState(initial = launchTheme.predictiveBackEnabled)
             val isDark = when (darkMode) {
                 "dark" -> true
                 "light" -> false
@@ -114,13 +117,27 @@ class FeedbackActivity : ComponentActivity() {
             val capability = rememberLiquidGlassCapability(view = LocalView.current)
             val resolvedAppTheme = effectiveAppTheme(appTheme, capability)
 
+            val eInkMode by dataStoreManager.eInkModeEnabled.collectAsState(initial = launchTheme.eInkModeEnabled)
+            val motion by dataStoreManager.motionPreference.collectAsState(initial = launchTheme.motionPreference)
+            val menuAnimationStyleValue by dataStoreManager.menuAnimationStyle.collectAsState(initial = launchTheme.menuAnimationStyle)
+            val liquidGlassStyle by dataStoreManager.liquidGlassStyle
+                .collectAsState(initial = launchTheme.liquidGlassStyle)
+            val reduceTransparencyEnabled by dataStoreManager.reduceTransparencyEnabled
+                .collectAsState(initial = launchTheme.reduceTransparencyEnabled)
             EBookReaderTheme(
+                liquidGlassStyle = liquidGlassStyle,
+                reduceTransparencyEnabled = reduceTransparencyEnabled,
+                menuAnimationStyle = com.huangder.lumibooks.domain.model.MenuAnimationStyle.fromStoredValue(menuAnimationStyleValue),
+                motionPreference = com.huangder.lumibooks.ui.theme.MotionPreference.fromStoredValue(motion),
+                eInkMode = eInkMode,
                 darkTheme = isDark,
                 dynamicColor = resolvedAppTheme == "material3",
-                appTheme = resolvedAppTheme,
+                appTheme = appTheme,
+                lumiBackgroundScene = com.huangder.lumibooks.ui.theme.LumiBackgroundScene.SECONDARY,
                 appAccentColor = appAccentColor,
                 liquidGlassTransparency = liquidGlassTransparency,
                 liquidGlassHdrHighlightEnabled = liquidGlassHdrHighlightEnabled,
+                appFontSize = appFontSize,
                 globalFontMode = globalFontMode
             ) {
                 com.huangder.lumibooks.ui.components.ConfigurableActivityBack(
@@ -145,17 +162,29 @@ private fun FeedbackOverviewPage(onBack: () -> Unit) {
             onClick = { context.startActivity(Intent(context, DiagnosticActivity::class.java)) }
         )
         Spacer(Modifier.height(AppSpace.lg))
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.lg).shadow(12.dp, RoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000)).clip(RoundedCornerShape(AppRadius.lg)).background(AppColors.CardBg).padding(AppSpace.lg), horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(painterResource(R.drawable.feedback_qr), stringResource(R.string.feedback_qr_desc), Modifier.size(220.dp).clip(RoundedCornerShape(AppRadius.md)), contentScale = ContentScale.Fit)
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpace.lg).shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000)).clip(AppRoundedCornerShape(AppRadius.lg)).lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg)).padding(AppSpace.lg), horizontalAlignment = Alignment.CenterHorizontally) {
+            Image(painterResource(R.drawable.feedback_qr), stringResource(R.string.feedback_qr_desc), Modifier.size(220.dp).clip(AppRoundedCornerShape(AppRadius.md)), contentScale = ContentScale.Fit)
             Spacer(Modifier.height(AppSpace.md))
             Text(stringResource(R.string.feedback_thanks), fontSize = AppType.Body, fontWeight = FontWeight.Medium, color = AppColors.TextPrimary, textAlign = TextAlign.Center)
         }
         Spacer(Modifier.height(AppSpace.lg))
-        FeedbackLinkSection(stringResource(R.string.feedback_website), "huangder.top") { openFeedbackUrl(context, "https://huangder.top") }
-        Spacer(Modifier.height(AppSpace.md))
-        FeedbackLinkSection(stringResource(R.string.feedback_github_issues), stringResource(R.string.feedback_github_issues_desc)) { openFeedbackUrl(context, "https://github.com/huangder/Lumi_Books/issues") }
-        Spacer(Modifier.height(AppSpace.md))
-        FeedbackLinkSection(stringResource(R.string.feedback_qq_channel), stringResource(R.string.feedback_qq_channel_desc)) { openFeedbackUrl(context, "https://pd.qq.com/s/29t6pms4a?b=9") }
+        FeedbackLinksCard(
+            links = listOf(
+                stringResource(R.string.feedback_website) to "huangder.top",
+                stringResource(R.string.feedback_github_issues) to stringResource(R.string.feedback_github_issues_desc),
+                stringResource(R.string.feedback_qq_channel) to stringResource(R.string.feedback_qq_channel_desc)
+            ),
+            onClick = { index ->
+                openFeedbackUrl(
+                    context,
+                    listOf(
+                        "https://huangder.top",
+                        "https://github.com/huangder/Lumi_Books/issues",
+                        "https://pd.qq.com/s/29t6pms4a?b=9"
+                    )[index]
+                )
+            }
+        )
     }
 }
 
@@ -378,20 +407,20 @@ fun DiagnosticPage(
                         },
                         tintedColor = AppColors.Accent,
                         contentColor = Color.White,
-                        shape = RoundedCornerShape(AppRadius.capsule),
-                        modifier = Modifier.height(52.dp)
+                        shape = AppRoundedCornerShape(AppRadius.capsule),
+                        modifier = Modifier.heightIn(min = 52.dp)
                     ) {
-                        Text(stringResource(R.string.diagnostic_consent_agree), color = Color.White)
+                        Text(stringResource(R.string.diagnostic_consent_agree), color = Color.White, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }
                 },
                 dismissButton = {
                     LiquidGlassButton(
                         onClick = { showConsent = false },
                         contentColor = AppColors.TextPrimary,
-                        shape = RoundedCornerShape(AppRadius.capsule),
-                        modifier = Modifier.height(52.dp)
+                        shape = AppRoundedCornerShape(AppRadius.capsule),
+                        modifier = Modifier.heightIn(min = 52.dp)
                     ) {
-                        Text(stringResource(R.string.diagnostic_consent_decline), color = AppColors.TextPrimary)
+                        Text(stringResource(R.string.diagnostic_consent_decline), color = AppColors.TextPrimary, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }
                 }
             )
@@ -441,8 +470,8 @@ private fun DiagnosticComposer(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(22.dp))
-                .background(AppColors.CardBg)
+                .clip(AppRoundedCornerShape(22.dp))
+                .lumiCardSurface(shape = AppRoundedCornerShape(22.dp))
                 .padding(AppSpace.md),
             verticalArrangement = Arrangement.spacedBy(AppSpace.md)
         ) {
@@ -489,7 +518,7 @@ private fun DiagnosticComposer(
             minLines = 3,
             maxLines = 6,
             singleLine = false,
-            shape = RoundedCornerShape(26.dp),
+            shape = AppRoundedCornerShape(26.dp),
             colors = TextFieldDefaults.colors(
                 focusedTextColor = AppColors.TextPrimary,
                 unfocusedTextColor = AppColors.TextPrimary,
@@ -514,12 +543,12 @@ private fun DiagnosticComposer(
             enabled = screenshotCount < 3 && !isGenerating,
             tintedColor = AppColors.BgGray,
             contentColor = AppColors.TextPrimary,
-            shape = RoundedCornerShape(AppRadius.capsule),
-            modifier = Modifier.fillMaxWidth().height(52.dp)
+            shape = AppRoundedCornerShape(AppRadius.capsule),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
         ) {
             Icon(AppIcons.ImageSquare, contentDescription = null)
             Spacer(Modifier.width(AppSpace.xs))
-            Text("${stringResource(R.string.diagnostic_add_screenshot)} ($screenshotCount/3)")
+            Text("${stringResource(R.string.diagnostic_add_screenshot)} ($screenshotCount/3)", maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
         if (hasPreviousCrash) Text(stringResource(R.string.diagnostic_previous_crash), fontSize = AppType.Caption, color = AppColors.TextSecondary)
         if (hasRecordingNote) Text(stringResource(R.string.diagnostic_recording_note), fontSize = AppType.Caption, color = AppColors.TextSecondary)
@@ -535,13 +564,13 @@ private fun DiagnosticComposer(
                     enabled = description.trim().isNotEmpty() && !isGenerating,
                     tintedColor = AppColors.Accent,
                     contentColor = Color.White,
-                    shape = RoundedCornerShape(AppRadius.capsule),
+                    shape = AppRoundedCornerShape(AppRadius.capsule),
                     prominentShadow = true,
-                    modifier = Modifier.fillMaxWidth().height(52.dp)
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                 ) {
                     Icon(AppIcons.Play, contentDescription = null, tint = Color.White)
                     Spacer(Modifier.width(AppSpace.xs))
-                    Text(stringResource(R.string.diagnostic_start), color = Color.White)
+                    Text(stringResource(R.string.diagnostic_start), color = Color.White, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
             } else {
                 LiquidGlassButton(
@@ -549,13 +578,13 @@ private fun DiagnosticComposer(
                     enabled = !isGenerating,
                     tintedColor = AppColors.Accent,
                     contentColor = Color.White,
-                    shape = RoundedCornerShape(AppRadius.capsule),
+                    shape = AppRoundedCornerShape(AppRadius.capsule),
                     prominentShadow = true,
-                    modifier = Modifier.fillMaxWidth().height(52.dp)
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                 ) {
                     Icon(AppIcons.Stop, contentDescription = null, tint = Color.White)
                     Spacer(Modifier.width(AppSpace.xs))
-                    Text(stringResource(R.string.diagnostic_stop), color = Color.White)
+                    Text(stringResource(R.string.diagnostic_stop), color = Color.White, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
             }
             if (hasPreviousCrash && !hasActiveSession) {
@@ -564,9 +593,9 @@ private fun DiagnosticComposer(
                     enabled = !isGenerating,
                     tintedColor = AppColors.BgGray,
                     contentColor = AppColors.TextPrimary,
-                    shape = RoundedCornerShape(AppRadius.capsule),
-                    modifier = Modifier.fillMaxWidth().height(52.dp)
-                ) { Text(stringResource(R.string.diagnostic_previous_crash)) }
+                    shape = AppRoundedCornerShape(AppRadius.capsule),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                ) { Text(stringResource(R.string.diagnostic_previous_crash), maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
             }
         }
         LiquidGlassButton(
@@ -574,10 +603,10 @@ private fun DiagnosticComposer(
             enabled = !isGenerating,
             tintedColor = AppColors.BgGray,
             contentColor = AppColors.TextPrimary,
-            shape = RoundedCornerShape(AppRadius.capsule),
-            modifier = Modifier.fillMaxWidth().height(52.dp)
+            shape = AppRoundedCornerShape(AppRadius.capsule),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
         ) {
-            Text(stringResource(R.string.diagnostic_export_recent))
+            Text(stringResource(R.string.diagnostic_export_recent), maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
         if (isGenerating) Text(stringResource(R.string.diagnostic_generating), color = AppColors.TextSecondary)
         if (hasGeneratedFile) {
@@ -587,10 +616,10 @@ private fun DiagnosticComposer(
             ) {
                 LiquidGlassButton(
                     onClick = onShare,
-                    modifier = Modifier.weight(1f).height(52.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 52.dp),
                     tintedColor = AppColors.BgGray,
                     contentColor = AppColors.TextPrimary,
-                    shape = RoundedCornerShape(AppRadius.capsule)
+                    shape = AppRoundedCornerShape(AppRadius.capsule)
                 ) {
                     Icon(AppIcons.ShareNetwork, contentDescription = null)
                     Spacer(Modifier.width(AppSpace.xs))
@@ -598,10 +627,10 @@ private fun DiagnosticComposer(
                 }
                 LiquidGlassButton(
                     onClick = onSave,
-                    modifier = Modifier.weight(1f).height(52.dp),
+                    modifier = Modifier.weight(1f).heightIn(min = 52.dp),
                     tintedColor = AppColors.BgGray,
                     contentColor = AppColors.TextPrimary,
-                    shape = RoundedCornerShape(AppRadius.capsule)
+                    shape = AppRoundedCornerShape(AppRadius.capsule)
                 ) {
                     Icon(AppIcons.DownloadSimple, contentDescription = null)
                     Spacer(Modifier.width(AppSpace.xs))
@@ -619,7 +648,7 @@ private fun DiagnosticIssueChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = AppRoundedCornerShape(16.dp)
     Box(
         modifier = modifier
             .heightIn(min = 48.dp)
@@ -659,15 +688,15 @@ private fun DiagnosticScreenshotPreview(uri: Uri) {
         Image(
             painter = BitmapPainter(bitmap),
             contentDescription = stringResource(R.string.diagnostic_screenshot_preview),
-            modifier = Modifier.size(72.dp).clip(RoundedCornerShape(AppRadius.sm)),
+            modifier = Modifier.size(72.dp).clip(AppRoundedCornerShape(AppRadius.sm)),
             contentScale = ContentScale.Crop
         )
     } else {
         Spacer(
             Modifier
                 .size(72.dp)
-                .clip(RoundedCornerShape(AppRadius.sm))
-                .background(AppColors.CardBg)
+                .clip(AppRoundedCornerShape(AppRadius.sm))
+                .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.sm))
         )
     }
 }
@@ -708,9 +737,9 @@ private fun FeedbackLinkSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(6.dp, RoundedCornerShape(AppRadius.md), ambientColor = Color(0x04000000), spotColor = Color(0x04000000))
-                .clip(RoundedCornerShape(AppRadius.md))
-                .background(AppColors.CardBg)
+                .shadow(6.dp, AppRoundedCornerShape(AppRadius.md), ambientColor = Color(0x04000000), spotColor = Color(0x04000000))
+                .clip(AppRoundedCornerShape(AppRadius.md))
+                .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
                 .clickable(onClick = onClick)
                 .padding(AppSpace.md),
             verticalAlignment = Alignment.CenterVertically
@@ -728,6 +757,41 @@ private fun FeedbackLinkSection(
                 tint = AppColors.TextSecondary,
                 modifier = Modifier.size(20.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun FeedbackLinksCard(
+    links: List<Pair<String, String>>,
+    onClick: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppSpace.lg)
+            .shadow(6.dp, AppRoundedCornerShape(AppRadius.md), ambientColor = Color(0x04000000), spotColor = Color(0x04000000))
+            .clip(AppRoundedCornerShape(AppRadius.md))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.md))
+    ) {
+        links.forEachIndexed { index, (label, title) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onClick(index) }
+                    .padding(AppSpace.md),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(label, fontSize = AppType.Caption, color = AppColors.TextSecondary)
+                    Text(title, fontSize = AppType.Body, color = AppColors.TextPrimary)
+                }
+                Spacer(Modifier.width(AppSpace.sm))
+                Icon(AppIcons.CaretRight, null, tint = AppColors.TextSecondary, modifier = Modifier.size(20.dp))
+            }
+            if (index != links.lastIndex) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = AppSpace.md).height(1.dp).background(AppColors.Divider))
+            }
         }
     }
 }

@@ -2,6 +2,7 @@ package com.huangder.lumibooks.ui.statistics
 import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 
+import com.huangder.lumibooks.ui.components.lumiCardSurface
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -9,7 +10,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,9 +42,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.IconButton
-
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
+import com.huangder.lumibooks.ui.theme.drawAppShape
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -57,7 +60,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -71,6 +73,10 @@ import coil.compose.AsyncImage
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.ui.animation.OverscrollBounce
 import com.huangder.lumibooks.ui.animation.cardPressEffect
+import com.huangder.lumibooks.ui.animation.pressEffect
+import com.huangder.lumibooks.ui.bookshelf.AnnotationFeedActivity
+import com.huangder.lumibooks.ui.bookshelf.BookDetailsActivity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.huangder.lumibooks.ui.components.StatusGradientOverlay
 import com.huangder.lumibooks.ui.components.LiquidGlassSegmentedControl
@@ -82,6 +88,7 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.Backdrop
 import com.huangder.lumibooks.ui.animation.PageEntranceItem
+import com.huangder.lumibooks.ui.animation.mainTabEntrance
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppRadius
 import com.huangder.lumibooks.ui.theme.AppSpace
@@ -110,6 +117,7 @@ fun StatisticsScreen(
         .asPaddingValues()
         .calculateBottomPadding() + AppSpace.lg
     val motionEnabled = LocalMotionEnabled.current
+    val context = LocalContext.current
     val chartAnimationsPlayed = remember { mutableStateListOf(false, false, false) }
     val selectedPeriod = uiState.selectedTab.coerceIn(0, 2)
     val playChartAnimation = remember(selectedPeriod) {
@@ -126,7 +134,7 @@ fun StatisticsScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(AppColors.WindowBg)) {
+    Box(modifier = Modifier.fillMaxSize().background(AppColors.PageBg)) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -134,7 +142,7 @@ fun StatisticsScreen(
                     if (isLiquidGlass) Modifier.layerBackdrop(segmentedControlBackdrop)
                     else Modifier
                 )
-                .background(AppColors.WindowBg)
+                .background(AppColors.PageBg)
         )
         OverscrollBounce(
             modifier = Modifier
@@ -217,7 +225,7 @@ fun StatisticsScreen(
                         },
                         label = "statisticsPeriod"
                     ) { period ->
-                        Column {
+                        Column(Modifier.mainTabEntrance()) {
                             when (period) {
                                 0 -> WeeklyOverview(
                                     uiState = uiState,
@@ -232,19 +240,34 @@ fun StatisticsScreen(
                     }
                 }
 
-                item(key = "most_read") {
+                item(key = "annotations") {
                     PageEntranceItem(play = playEntranceAnimation, index = 3) {
                         Column {
-                            MostReadBooks(uiState.mostReadBooks)
+                            AnnotationsOverview(
+                                summary = uiState.annotationSummary,
+                                onOpen = { AnnotationFeedActivity.start(context) }
+                            )
                             Spacer(Modifier.height(AppSpace.lg))
                         }
                     }
                 }
 
-                item(key = "completion") {
+                item(key = "most_read") {
                     PageEntranceItem(play = playEntranceAnimation, index = 4) {
                         Column {
-                            CompletionProgress(uiState)
+                            MostReadBooks(
+                                books = uiState.mostReadBooks,
+                                onOpen = { bookId -> BookDetailsActivity.start(context, bookId) }
+                            )
+                            Spacer(Modifier.height(AppSpace.lg))
+                        }
+                    }
+                }
+
+                item(key = "streak") {
+                    PageEntranceItem(play = playEntranceAnimation, index = 5) {
+                        Column {
+                            ReadingStreakCard(uiState)
                             Spacer(Modifier.height(bottomContentPadding))
                         }
                     }
@@ -286,7 +309,7 @@ private fun PeriodSegmentedControl(
     }
 
     val motionEnabled = LocalMotionEnabled.current
-    val shape = RoundedCornerShape(AppRadius.md)
+    val shape = AppRoundedCornerShape(AppRadius.md)
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -307,10 +330,10 @@ private fun PeriodSegmentedControl(
                 .offset(x = indicatorOffset)
                 .width(segmentWidth)
                 .fillMaxSize()
-                .shadow(3.dp, RoundedCornerShape(AppRadius.sm))
-                .cardOutline(RoundedCornerShape(AppRadius.sm))
-                .clip(RoundedCornerShape(AppRadius.sm))
-                .background(AppColors.CardBg)
+                .shadow(3.dp, AppRoundedCornerShape(AppRadius.sm))
+                .cardOutline(AppRoundedCornerShape(AppRadius.sm))
+                .clip(AppRoundedCornerShape(AppRadius.sm))
+                .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.sm))
         )
         Row(modifier = Modifier.fillMaxSize()) {
             labels.forEachIndexed { index, label ->
@@ -318,7 +341,7 @@ private fun PeriodSegmentedControl(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(AppRadius.sm))
+                        .clip(AppRoundedCornerShape(AppRadius.sm))
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() }
@@ -348,12 +371,15 @@ private fun StatisticsSummary(uiState: StatisticsUiState, selectedPeriod: Int) {
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60
     val activeDays = durations.count { it > 0L }
+    val hasGoal = uiState.dailyGoal > 0
+    val goalMs = uiState.dailyGoal * 60 * 1000L
+    val goalDays = durations.count { it >= goalMs }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg),
-        horizontalArrangement = Arrangement.spacedBy(AppSpace.xl)
+        horizontalArrangement = Arrangement.spacedBy(if (hasGoal) AppSpace.lg else AppSpace.xl)
     ) {
         StatisticValue(
             value = stringResource(R.string.statistics_duration_value, hours, minutes),
@@ -364,6 +390,12 @@ private fun StatisticsSummary(uiState: StatisticsUiState, selectedPeriod: Int) {
             value = stringResource(R.string.statistics_active_days_value, activeDays),
             label = stringResource(R.string.statistics_active_days)
         )
+        if (hasGoal) {
+            StatisticValue(
+                value = stringResource(R.string.statistics_active_days_value, goalDays),
+                label = stringResource(R.string.statistics_goal_days)
+            )
+        }
     }
 }
 
@@ -418,10 +450,10 @@ private fun WeeklyOverview(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg)
-            .shadow(12.dp, RoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
-            .cardOutline(RoundedCornerShape(AppRadius.lg))
-            .clip(RoundedCornerShape(AppRadius.lg))
-            .background(AppColors.CardBg)
+            .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
+            .cardOutline(AppRoundedCornerShape(AppRadius.lg))
+            .clip(AppRoundedCornerShape(AppRadius.lg))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
             .padding(AppSpace.md)
     ) {
         // 标题 + 导航箭头
@@ -440,7 +472,7 @@ private fun WeeklyOverview(
             Box(
                 modifier = Modifier
                     .size(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(AppRoundedCornerShape(6.dp))
                     .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { viewModel.previousWeek() },
                 contentAlignment = Alignment.Center
             ) {
@@ -455,7 +487,7 @@ private fun WeeklyOverview(
             Box(
                 modifier = Modifier
                     .size(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(AppRoundedCornerShape(6.dp))
                     .clickable(
                         enabled = !isCurrentWeek,
                         indication = null,
@@ -503,11 +535,11 @@ private fun WeeklyOverview(
         val accentArgb = android.graphics.Color.argb((accentColor.alpha * 255).toInt(), (accentColor.red * 255).toInt(), (accentColor.green * 255).toInt(), (accentColor.blue * 255).toInt())
         val textSecArgb2 = android.graphics.Color.argb((textSecColor.alpha * 255).toInt(), (textSecColor.red * 255).toInt(), (textSecColor.green * 255).toInt(), (textSecColor.blue * 255).toInt())
 
+        val barShape = AppRoundedCornerShape(4.dp)
         Canvas(modifier = Modifier.fillMaxWidth().height(128.dp)) {
             val labelHeight = labelSize.toPx() + 6.dp.toPx()
             val barAreaHeight = size.height - labelHeight
             val barWidth = size.width / (7 * 2 - 1)
-            val cornerRadius = 4.dp.toPx()
 
             // 柱体
             weeklyMinutes.forEachIndexed { index, value ->
@@ -517,11 +549,11 @@ private fun WeeklyOverview(
                 val isToday = index == todayIndex
                 val visibleHeight = if (value > 0f) maxOf(barHeight, 2.dp.toPx()) else 0f
 
-                drawRoundRect(
+                drawAppShape(
+                    shape = barShape,
                     color = if (isToday) accentColor else accentDim,
                     topLeft = Offset(x, barAreaHeight - visibleHeight),
-                    size = Size(barWidth, visibleHeight),
-                    cornerRadius = CornerRadius(cornerRadius, cornerRadius)
+                    size = Size(barWidth, visibleHeight)
                 )
             }
 
@@ -567,10 +599,10 @@ private fun MonthlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsView
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg)
-            .shadow(12.dp, RoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
-            .cardOutline(RoundedCornerShape(AppRadius.lg))
-            .clip(RoundedCornerShape(AppRadius.lg))
-            .background(AppColors.CardBg)
+            .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
+            .cardOutline(AppRoundedCornerShape(AppRadius.lg))
+            .clip(AppRoundedCornerShape(AppRadius.lg))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
             .padding(AppSpace.md)
     ) {
         // 月份标题 + 导航箭头
@@ -604,7 +636,7 @@ private fun MonthlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsView
             Box(
                 modifier = Modifier
                     .size(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(AppRoundedCornerShape(6.dp))
                     .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { viewModel.previousMonth() },
                 contentAlignment = Alignment.Center
             ) {
@@ -620,7 +652,7 @@ private fun MonthlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsView
             Box(
                 modifier = Modifier
                     .size(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(AppRoundedCornerShape(6.dp))
                     .clickable(
                         enabled = !isCurrentMonth,
                         indication = null,
@@ -693,10 +725,10 @@ private fun MonthlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsView
                                 .weight(1f)
                                 .aspectRatio(1f)
                                 .padding(2.dp)
-                                .clip(RoundedCornerShape(4.dp))
+                                .clip(AppRoundedCornerShape(4.dp))
                                 .background(color)
                                 .then(
-                                    if (isToday) Modifier.border(1.5.dp, AppColors.Accent, RoundedCornerShape(4.dp))
+                                    if (isToday) Modifier.border(1.5.dp, AppColors.Accent, AppRoundedCornerShape(4.dp))
                                     else Modifier
                                 ),
                             contentAlignment = Alignment.Center
@@ -767,10 +799,10 @@ private fun YearlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsViewM
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg)
-            .shadow(12.dp, RoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
-            .cardOutline(RoundedCornerShape(AppRadius.lg))
-            .clip(RoundedCornerShape(AppRadius.lg))
-            .background(AppColors.CardBg)
+            .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
+            .cardOutline(AppRoundedCornerShape(AppRadius.lg))
+            .clip(AppRoundedCornerShape(AppRadius.lg))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
             .padding(AppSpace.md)
     ) {
         // 标题 + 导航箭头
@@ -789,7 +821,7 @@ private fun YearlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsViewM
             Box(
                 modifier = Modifier
                     .size(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(AppRoundedCornerShape(6.dp))
                     .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { viewModel.previousYear() },
                 contentAlignment = Alignment.Center
             ) {
@@ -804,7 +836,7 @@ private fun YearlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsViewM
             Box(
                 modifier = Modifier
                     .size(28.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(AppRoundedCornerShape(6.dp))
                     .clickable(
                         enabled = !isCurrentYear,
                         indication = null,
@@ -848,6 +880,7 @@ private fun YearlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsViewM
         val gapDp = 2
         val gridWidth = (weeks * (cellSizeDp + gapDp)).dp
         val gridHeight = (14 + 7 * 12 + 2).dp
+        val cellShape = AppRoundedCornerShape(2.dp)
 
         Box(modifier = Modifier.horizontalScroll(rememberScrollState())) {
         Canvas(
@@ -858,7 +891,6 @@ private fun YearlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsViewM
             val cellSizePx = cellSizeDp.dp.toPx()
             val gapPx = gapDp.dp.toPx()
             val cellStepPx = cellSizePx + gapPx
-            val cornerRadius = 2.dp.toPx()
 
             // 月份标签
             var lastMonth = -1
@@ -913,11 +945,11 @@ private fun YearlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsViewM
                         }
                     }
 
-                    drawRoundRect(
+                    drawAppShape(
+                        shape = cellShape,
                         color = color,
                         topLeft = Offset(week * cellStepPx, gridTop + dayOfWeek * cellStepPx),
-                        size = Size(cellSizePx, cellSizePx),
-                        cornerRadius = CornerRadius(cornerRadius, cornerRadius)
+                        size = Size(cellSizePx, cellSizePx)
                     )
                 }
             }
@@ -939,7 +971,7 @@ private fun YearlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsViewM
                     modifier = Modifier
                         .size(10.dp)
                         .padding(1.dp)
-                        .clip(RoundedCornerShape(2.dp))
+                        .clip(AppRoundedCornerShape(2.dp))
                         .background(c)
                 )
             }
@@ -950,16 +982,15 @@ private fun YearlyHeatmap(uiState: StatisticsUiState, viewModel: StatisticsViewM
 }
 
 @Composable
-private fun MostReadBooks(books: List<MostReadBook>) {
+private fun MostReadBooks(books: List<MostReadBook>, onOpen: (String) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg)
-            .shadow(12.dp, RoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
-            .cardOutline(RoundedCornerShape(AppRadius.lg))
-            .clip(RoundedCornerShape(AppRadius.lg))
-            .background(AppColors.CardBg)
-            .cardPressEffect()
+            .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
+            .cardOutline(AppRoundedCornerShape(AppRadius.lg))
+            .clip(AppRoundedCornerShape(AppRadius.lg))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
             .padding(AppSpace.md)
     ) {
         Text(stringResource(R.string.most_read_books), fontSize = AppType.Section, fontWeight = FontWeight.Bold, fontFamily = resolveAppFontFamily(KaiTi), color = AppColors.TextPrimary)
@@ -973,7 +1004,14 @@ private fun MostReadBooks(books: List<MostReadBook>) {
                     Box(Modifier.fillMaxWidth().height(0.5.dp).background(AppColors.Divider))
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = AppSpace.md),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pressEffect()
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onOpen(book.bookId) }
+                        .padding(vertical = AppSpace.md),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // 封面
@@ -982,7 +1020,7 @@ private fun MostReadBooks(books: List<MostReadBook>) {
                         contentDescription = book.title,
                         modifier = Modifier
                             .size(40.dp, 53.dp)
-                            .clip(RoundedCornerShape(4.dp))
+                            .clip(AppRoundedCornerShape(4.dp))
                             .background(AppColors.BgGray),
                         contentScale = ContentScale.Crop
                     )
@@ -1000,6 +1038,13 @@ private fun MostReadBooks(books: List<MostReadBook>) {
                         color = AppColors.Accent,
                         fontWeight = FontWeight.SemiBold
                     )
+                    Spacer(Modifier.width(AppSpace.xs))
+                    Icon(
+                        imageVector = directionalIcon(AppIcons.CaretRight, AppIcons.CaretLeft),
+                        contentDescription = null,
+                        tint = AppColors.TextSecondary,
+                        modifier = Modifier.size(14.dp)
+                    )
                 }
             }
         }
@@ -1007,45 +1052,105 @@ private fun MostReadBooks(books: List<MostReadBook>) {
 }
 
 @Composable
-private fun CompletionProgress(uiState: StatisticsUiState) {
-    val totalMinutes = (uiState.todayReadingTime / 1000 / 60).toInt()
-    val goalMinutes = uiState.dailyGoal
-
+private fun ReadingStreakCard(uiState: StatisticsUiState) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AppSpace.lg)
-            .shadow(12.dp, RoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
-            .cardOutline(RoundedCornerShape(AppRadius.lg))
-            .clip(RoundedCornerShape(AppRadius.lg))
-            .background(AppColors.CardBg)
-            .cardPressEffect()
-            .padding(AppSpace.lg)
+            .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
+            .cardOutline(AppRoundedCornerShape(AppRadius.lg))
+            .clip(AppRoundedCornerShape(AppRadius.lg))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
+            .padding(AppSpace.md)
     ) {
-        Text(stringResource(R.string.today_goal), fontSize = AppType.Body, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
-        Spacer(Modifier.height(AppSpace.xs))
-        Text(
-            text = stringResource(R.string.goal_progress_format, totalMinutes, goalMinutes),
-            fontSize = AppType.BodySmall,
-            color = AppColors.TextSecondary
-        )
+        Text(stringResource(R.string.statistics_streak_title), fontSize = AppType.Section, fontWeight = FontWeight.Bold, fontFamily = resolveAppFontFamily(KaiTi), color = AppColors.TextPrimary)
+        Spacer(Modifier.height(AppSpace.md))
+        Row(horizontalArrangement = Arrangement.spacedBy(AppSpace.xl)) {
+            StatisticValue(
+                value = stringResource(R.string.streak_days, uiState.currentStreak),
+                label = stringResource(R.string.statistics_streak_current)
+            )
+            StatisticValue(
+                value = stringResource(R.string.streak_days, uiState.longestStreak),
+                label = stringResource(R.string.statistics_streak_longest)
+            )
+        }
         Spacer(Modifier.height(AppSpace.sm))
-        LinearProgressIndicator(
-            progress = { uiState.goalProgress },
-            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-            color = AppColors.Accent,
-            trackColor = AppColors.Divider
-        )
-
-        Spacer(Modifier.height(AppSpace.lg))
-
-        val monthlyHours = (uiState.monthlyReadingTime / 1000 / 60 / 60).toInt()
-        Text(stringResource(R.string.monthly_reading_label), fontSize = AppType.Body, fontWeight = FontWeight.SemiBold, color = AppColors.TextPrimary)
-        Spacer(Modifier.height(AppSpace.xs))
         Text(
-            text = stringResource(R.string.monthly_hours_format, monthlyHours),
-            fontSize = AppType.BodySmall,
+            text = if (uiState.dailyGoal > 0) stringResource(R.string.statistics_streak_goal_hint, uiState.dailyGoal)
+            else stringResource(R.string.statistics_streak_any_hint),
+            fontSize = AppType.Caption,
             color = AppColors.TextSecondary
         )
+    }
+}
+
+/** Marks made in the selected period; the whole card opens the cross-book feed. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AnnotationsOverview(summary: AnnotationPeriodSummary, onOpen: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = AppSpace.lg)
+            .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = Color(0x06000000), spotColor = Color(0x06000000))
+            .cardOutline(AppRoundedCornerShape(AppRadius.lg))
+            .clip(AppRoundedCornerShape(AppRadius.lg))
+            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
+            .cardPressEffect()
+            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }, onClick = onOpen)
+            .padding(AppSpace.md)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.statistics_annotations_title),
+                fontSize = AppType.Section, fontWeight = FontWeight.Bold,
+                fontFamily = resolveAppFontFamily(KaiTi), color = AppColors.TextPrimary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(stringResource(R.string.statistics_annotations_view_all), fontSize = AppType.Caption, color = AppColors.Accent)
+            Icon(
+                imageVector = directionalIcon(AppIcons.CaretRight, AppIcons.CaretLeft),
+                contentDescription = null,
+                tint = AppColors.Accent,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+        Spacer(Modifier.height(AppSpace.md))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            AnnotationCount(summary.highlights, stringResource(R.string.tab_highlights), Modifier.weight(1f))
+            AnnotationCount(summary.underlines, stringResource(R.string.tab_underline), Modifier.weight(1f))
+            AnnotationCount(summary.notes, stringResource(R.string.tab_notes), Modifier.weight(1f))
+            AnnotationCount(summary.bookmarks, stringResource(R.string.tab_bookmarks), Modifier.weight(1f))
+        }
+        if (summary.topTags.isNotEmpty()) {
+            Spacer(Modifier.height(AppSpace.md))
+            Text(stringResource(R.string.statistics_top_tags), fontSize = AppType.Caption, color = AppColors.TextSecondary)
+            Spacer(Modifier.height(AppSpace.xs))
+            val chipAlpha = if (LocalAppTheme.current == "liquid_glass") 0.14f else 0.08f
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                summary.topTags.forEach { (tag, count) ->
+                    Text(
+                        text = stringResource(R.string.statistics_tag_count, tag, count),
+                        fontSize = AppType.Caption, color = AppColors.TextPrimary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .widthIn(max = 200.dp)
+                            .clip(AppRoundedCornerShape(12.dp))
+                            .background(AppColors.Accent.copy(alpha = chipAlpha))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AnnotationCount(value: Int, label: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text("$value", fontSize = AppType.Title, fontWeight = FontWeight.Bold, color = AppColors.TextPrimary, maxLines = 1)
+        Text(label, fontSize = AppType.Caption, color = AppColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

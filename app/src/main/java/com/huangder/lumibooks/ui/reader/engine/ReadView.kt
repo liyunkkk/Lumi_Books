@@ -1,4 +1,7 @@
 package com.huangder.lumibooks.ui.reader.engine
+import com.huangder.lumibooks.domain.model.LongPressSelectionRange
+import com.huangder.lumibooks.domain.model.selectionRangeAt
+import com.huangder.lumibooks.domain.model.ReaderImageAdjustments
 
 import android.content.Context
 import android.animation.ValueAnimator
@@ -15,6 +18,8 @@ import android.view.ViewConfiguration
 import android.os.SystemClock
 import android.widget.FrameLayout
 import com.huangder.lumibooks.domain.model.Note
+import com.huangder.lumibooks.domain.model.HighlightRule
+import com.huangder.lumibooks.highlight.RuleStyleJson
 import com.huangder.lumibooks.util.performance.ReaderPageTurnPerformance
 import com.huangder.lumibooks.domain.model.ReaderEdgeTapAction
 import com.huangder.lumibooks.domain.model.ReaderEdgeTapMode
@@ -125,7 +130,11 @@ data class SelectionInfo(
     /** 章节级选区结束偏移（半开区间）。 */
     val endPosition: Int = chapterStartOffset + pageEnd,
     /** true 表示选区由 ReadView 自持（跨页），false 表示来自系统 TextView 选区。 */
-    val owned: Boolean = false
+    val owned: Boolean = false,
+    /** 普通单击命中已有标注时，仅显示该标注的颜色/删除操作。 */
+    val annotationOnly: Boolean = false,
+    /** 普通单击直接命中的完整标注，避免菜单层再次按可能已重定位的字符范围查找。 */
+    val annotation: Note? = null
 )
 
 data class ReaderTextAnchor(
@@ -196,6 +205,112 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
 
     // ── 外部回调 ──
     private var callbacks: ReadViewCallbacks? = null
+    private var lineGuideEnabled = false
+    private var lineGuideDimLevel = 2
+    private var lineGuideAnchor: Pair<Int, Int>? = null
+    private var lineGuidePreferLast = false
+    private var lineGuidePendingDirection = 0
+    private var lineGuideDownX = 0f
+    private var lineGuideDownY = 0f
+    private var lineGuideDownTime = 0L
+
+    fun setLineGuide(enabled: Boolean, dimLevel: Int) {
+        val wasEnabled = lineGuideEnabled
+        val safeLevel = dimLevel.coerceIn(0, 4)
+        if (wasEnabled == enabled && lineGuideDimLevel == safeLevel) return
+        lineGuideEnabled = enabled
+        lineGuideDimLevel = safeLevel
+        if (!enabled) {
+            lineGuideAnchor = null
+            lineGuidePendingDirection = 0
+        } else if (!wasEnabled) {
+            clearActiveTextSelection()
+            lineGuideAnchor = null
+            lineGuidePreferLast = false
+        }
+        invalidate()
+    }
+
+    private data class GuideTarget(val chapter: Int, val line: ReaderGuideLine)
+
+    private fun guideTargets(): List<GuideTarget> {
+        val slot = slotManager.getCurSlot()
+        val views = if (curPageRightView.visibility == View.VISIBLE) {
+            listOf(curPageView, curPageRightView)
+        } else listOf(curPageView)
+        val rootLocation = IntArray(2).also(::getLocationInWindow)
+        return views.flatMap { view ->
+            val viewLocation = IntArray(2).also(view::getLocationInWindow)
+            val dx = (viewLocation[0] - rootLocation[0]).toFloat()
+            val dy = (viewLocation[1] - rootLocation[1]).toFloat()
+            val chapter = chapterIndexForSpreadView(slot, view)
+            view.guideLines().map { line ->
+                GuideTarget(chapter, line.copy(bounds = android.graphics.RectF(line.bounds).apply {
+                    offset(dx, dy)
+                }))
+            }.filter { it.line.bounds.bottom > 0f && it.line.bounds.top < height }
+        }
+    }
+
+    private fun selectedGuideIndex(lines: List<GuideTarget>): Int {
+        if (lines.isEmpty()) return -1
+        val anchor = lineGuideAnchor
+        val found = lines.indexOfFirst { it.chapter == anchor?.first && it.line.startOffset == anchor.second }
+        if (found >= 0) return found
+        if (anchor != null) {
+            val nearby = lines.indexOfLast {
+                it.chapter == anchor.first && it.line.startOffset <= anchor.second
+            }
+            if (nearby >= 0) return nearby
+        }
+        return if (lineGuidePreferLast) lines.lastIndex else 0
+    }
+
+    private fun stepLineGuide(direction: Int) {
+        val lines = guideTargets()
+        val selected = selectedGuideIndex(lines)
+        if (selected < 0) return
+        val next = readerGuideStepIndex(selected, lines.size, direction)
+        if (next != null) {
+            lineGuideAnchor = lines[next].chapter to lines[next].line.startOffset
+            invalidate()
+        } else {
+            lineGuidePendingDirection = direction
+            val accepted = if (direction > 0) turnToNextPage() else turnToPreviousPage()
+            if (accepted) lineGuidePreferLast = direction < 0
+            else lineGuidePendingDirection = 0
+        }
+    }
+
+    private fun handleLineGuideTouch(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                lineGuideDownX = event.x
+                lineGuideDownY = event.y
+                lineGuideDownTime = event.eventTime
+            }
+            MotionEvent.ACTION_UP -> {
+                val dx = event.x - lineGuideDownX
+                val dy = event.y - lineGuideDownY
+                val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+                if (abs(dx) > maxOf(slop * 3f, 36f * resources.displayMetrics.density) && abs(dx) > abs(dy)) {
+                    val accepted = if (dx < 0f) turnToNextPage() else turnToPreviousPage()
+                    if (accepted) {
+                        lineGuideAnchor = null
+                        lineGuidePreferLast = dx > 0f
+                    }
+                } else if (abs(dx) < slop && abs(dy) < slop && event.eventTime - lineGuideDownTime < 500L) {
+                    val lines = guideTargets()
+                    val selected = selectedGuideIndex(lines)
+                    if (selected >= 0) {
+                        val center = lines[selected].line.bounds.centerY()
+                        stepLineGuide(if (lineGuideDownY < center) -1 else 1)
+                    }
+                }
+            }
+        }
+        return true
+    }
     private var bookmarkPullEnabled = true
     private var contentProvider: (suspend (Int) -> CharSequence?)? = null
 
@@ -286,6 +401,7 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
     private var fadeTransitionDurationMs = ReaderPageAnimationSettings.FADE_DEFAULT_MS
     private var curlTransitionDurationMs = ReaderPageAnimationSettings.CURL_DEFAULT_MS
     private var currentEdgeTapMode: ReaderEdgeTapMode = ReaderEdgeTapMode.LEFT_PREVIOUS_RIGHT_NEXT
+    private var selectionMenuVisible = false
     private var currentWritingMode: ReaderWritingMode = ReaderWritingMode.HORIZONTAL
     /** 双页开关（不含方向）：设备/设置允许时 true，是否启用由实测宽高决定 */
     private var currentTwoPageSpreadEnabled: Boolean = false
@@ -311,6 +427,12 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
     private var contentSelection: ReaderContentSelection? = null
     /** 越界后等待下一帧接管手势流（先让系统选区安全退场，再翻页）。 */
     private var contentSelectionHandoffPending = false
+    private data class InitialSelectionExtension(
+        val view: PageContentView,
+        val selection: ReaderContentSelection,
+        val localRange: Pair<Int, Int>
+    )
+    private var initialSelectionExtension: InitialSelectionExtension? = null
     private var contentSelectionHandoffStartHandle = false
     /** 手势流已经归 ReadView 所有，后续 MOVE/UP 由跨页选区逻辑处理。 */
     private var contentSelectionDragActive = false
@@ -482,6 +604,9 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
             prevPageRightView, curPageRightView, nextPageRightView
         )) {
             setupSelectionWatcher(pageView)
+            pageView.initialSelectionRangeProvider = { offset, line ->
+                resolveInitialSelectionRange(pageView, offset, line)
+            }
             pageView.suppressSystemToolbar()
             pageView.onReaderHandleDragBeyondEdge = { direction, draggingStartHandle ->
                 handleHandleDragBeyondEdge(direction, draggingStartHandle)
@@ -490,6 +615,11 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
 
         // 翻页后刷新高亮
         slotManager.onPageChangedCallback = { globalPage, chapterIdx, pageInChapter, chapterTotal ->
+            if (lineGuidePendingDirection != 0) {
+                lineGuideAnchor = null
+                lineGuidePreferLast = lineGuidePendingDirection < 0
+                lineGuidePendingDirection = 0
+            }
             curlPageGeneration++
             val origin = pendingPageChangeOrigin
             pendingPageChangeOrigin = TtsPageChangeOrigin.LAYOUT
@@ -498,8 +628,13 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
             configureCurrentPageView()
             invalidate()
         }
-        slotManager.onSpreadPageChangedCallback = { rightGlobalPage, rightChapterIdx, rightPage ->
-            callbacks?.onSpreadPageChanged(rightGlobalPage, rightChapterIdx, rightPage)
+        slotManager.onSpreadPageChangedCallback = { rightGlobalPage, rightChapterIdx, rightPage, rightChapterTotal ->
+            callbacks?.onSpreadPageChanged(
+                rightGlobalPage,
+                rightChapterIdx,
+                rightPage,
+                rightChapterTotal
+            )
         }
         slotManager.onSlotReadyCallback = {
             postOnAnimation {
@@ -515,7 +650,7 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
     /** 构建某章的高亮列表（savedNotes → Triple(start, end, color)） */
     private fun buildHighlights(chapterIndex: Int): List<Triple<Int, Int, Int>> {
         val savedHighlights = savedNotes
-            .filter { it.chapterIndex == chapterIndex }
+            .filter { it.chapterIndex == chapterIndex && !it.isGeneratedByHighlightRule }
             .map { note ->
                 if (note.type == "underline") {
                     val color = try {
@@ -523,7 +658,16 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
                     } catch (_: IllegalArgumentException) {
                         0xFF333333.toInt()
                     }
-                    Triple(note.startPosition, note.endPosition, (PageContentView.UNDERLINE_FLAG shl 24) or (color and 0x00FFFFFF))
+                    val mode = RuleStyleJson.decode(note.styleSnapshotJson)?.underlineMode
+                        ?.takeIf { it in 1..4 }
+                        ?: HighlightRule.UNDERLINE_WAVE
+                    val flag = when (mode) {
+                        HighlightRule.UNDERLINE_STRAIGHT -> PageContentView.STRAIGHT_UNDERLINE_FLAG
+                        HighlightRule.UNDERLINE_DOUBLE -> PageContentView.DOUBLE_UNDERLINE_FLAG
+                        HighlightRule.UNDERLINE_DASHED -> PageContentView.DASHED_UNDERLINE_FLAG
+                        else -> PageContentView.UNDERLINE_FLAG
+                    }
+                    Triple(note.startPosition, note.endPosition, (flag shl 24) or (color and 0x00FFFFFF))
                 } else {
                     val color = try {
                         android.graphics.Color.parseColor(note.color)
@@ -644,24 +788,35 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
                 writingMode = currentWritingMode,
                 boldText = resolvedTypeface.fakeBold
             )
-            left.setReaderBackground(
-                bgColor,
-                currentReaderBackgroundImagePath,
-                currentReaderBackgroundImageOpacity,
-                currentReaderBackgroundImageBlurDp
-            )
-            right.setReaderBackground(
-                bgColor,
-                currentReaderBackgroundImagePath,
-                currentReaderBackgroundImageOpacity,
-                currentReaderBackgroundImageBlurDp
-            )
         }
+        applyReaderBackgroundToPages(bgColor)
         setBackgroundColor(bgColor)
         prevGutterView.setBackgroundColor(bgColor)
         curGutterView.setBackgroundColor(bgColor)
         nextGutterView.setBackgroundColor(bgColor)
         this.bgColor = bgColor
+    }
+
+    private fun applyReaderBackgroundToPages(backgroundColor: Int) {
+        listOf(prevPageView, curPageView, nextPageView, prevPageRightView, curPageRightView, nextPageRightView)
+            .forEach { page ->
+                page.setReaderBackground(
+                    backgroundColor,
+                    currentReaderBackgroundImagePath,
+                    currentReaderBackgroundImageOpacity,
+                    currentReaderBackgroundImageBlurDp
+                )
+            }
+    }
+
+    private fun retryReaderBackgroundOnPages() {
+        listOf(prevPageView, curPageView, nextPageView, prevPageRightView, curPageRightView, nextPageRightView)
+            .forEach { it.retryReaderBackground() }
+    }
+
+    fun setImageAdjustments(settings: ReaderImageAdjustments) {
+        listOf(prevPageView, curPageView, nextPageView, prevPageRightView, curPageRightView, nextPageRightView)
+            .forEach { it.setImageAdjustments(settings) }
     }
 
     fun setReaderBackground(
@@ -676,7 +831,12 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
             currentReaderBackgroundImagePath == imagePath &&
             currentReaderBackgroundImageOpacity == imageOpacity &&
             currentReaderBackgroundImageBlurDp == imageBlurDp
-        ) return
+        ) {
+            // Keep successful/in-flight requests intact while allowing a failed
+            // background request to recover on the next preview update.
+            retryReaderBackgroundOnPages()
+            return
+        }
 
         animationController.abortAnim()
         currentReaderBackgroundColor = backgroundColor
@@ -692,6 +852,10 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
 
     fun setCallbacks(cbs: ReadViewCallbacks) {
         callbacks = cbs
+    }
+
+    fun setSelectionMenuVisible(visible: Boolean) {
+        selectionMenuVisible = visible
     }
 
     /**
@@ -711,6 +875,13 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
         if (!enabled) {
             val finish = bookmarkPullTracker.finish(cancelled = true)
             if (finish.wasActive) callbacks?.onBookmarkPullFinished(false)
+        }
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus && bookmarkPullTracker.finish(cancelled = true).wasActive) {
+            callbacks?.onBookmarkPullFinished(false)
         }
     }
 
@@ -827,7 +998,7 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
         // 槽位在异步加载中（isLoaded=false）时 chapterIndex/pageIndex 仍是本次目标位置，
         // 必须继续作为锚点；否则连续 resize 期间会回退到 startChapter/pendingStartChapter
         // （初始化早期可能为 0），把阅读进度清零。
-        val relayoutToCurrent = sizeChanged || spreadModeChanged
+        val relayoutToCurrent = sizeChanged || spreadModeChanged || marginChanged
         val curSlotForRelayout = slotManager.getCurSlot()
         val hasCurrentAnchor = curSlotForRelayout.chapterIndex >= 0
         val effectiveStartChapter = if (relayoutToCurrent && hasCurrentAnchor) {
@@ -876,6 +1047,7 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
         currentWritingMode = writingMode
         currentTwoPageSpreadEnabled = twoPageSpread
         currentTwoPageSpread = resolvedSpread
+        updatePaginationLayoutIdentity()
         // 双页对开/竖排不在自持跨页选择的支持范围内：切换过去时直接结束自持选区，
         // 否则手柄与翻页语义都会对不上。
         if (!isContentSelectionSupported()) clearReaderSelection()
@@ -949,7 +1121,9 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
             chapterCount = chapterCount,
             useDisplayDensityForSpans = useDisplayDensityForSpans,
             textAlignment = textAlignment,
-            writingMode = writingMode
+            writingMode = writingMode,
+            fontIdentity = com.huangder.lumibooks.ui.reader.readerPaginationFontKey(
+                context, fontType, customFontPath, currentBodyFontWeight)
         )
 
         configureCurrentPageView(height)
@@ -982,12 +1156,19 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
                         primaryOffset.takeIf { it >= 0 } ?: curSlot.contentView.chapterStartOffset
                 }
             }
-            layoutEngine.invalidateAll()
+            // Metric changes were invalidated by configure/identity; a theme refresh
+            // only evicts the styled layouts, keeping the independent book index.
+            layoutEngine.refreshLayouts()
         }
 
         if (!isConfigured || needsRelayout) {
             slotManager.setChapterCount(chapterCount)
-            slotManager.initialize(effectiveStartChapter, effectiveStartPage)
+            slotManager.initialize(
+                effectiveStartChapter,
+                effectiveStartPage,
+                preserveCurrentContent = isConfigured && marginChanged &&
+                    !chapterCountChanged && !writingModeChanged && !spreadModeChanged
+            )
             isConfigured = true
         }
     }
@@ -1012,7 +1193,7 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
                 primaryOffset.takeIf { it >= 0 } ?: current.contentView.chapterStartOffset
         }
         slotManager.clearContentCache()
-        layoutEngine.invalidateAll()
+        layoutEngine.refreshLayouts()
         if (current.chapterIndex >= 0) {
             slotManager.initialize(current.chapterIndex, current.pageIndex.coerceAtLeast(0))
         }
@@ -1056,7 +1237,9 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
     }
 
     /** 跳转到章节内包含指定字符偏移的页面。 */
-    fun jumpToCharacter(chapterIndex: Int, characterOffset: Int) {
+    fun jumpToCharacter(chapterIndex: Int, characterOffset: Int,
+        origin: TtsPageChangeOrigin = TtsPageChangeOrigin.USER) {
+        pendingPageChangeOrigin = origin
         val targetOffset = characterOffset.coerceAtLeast(0)
         val cachedLayout = layoutEngine.getChapterLayout(chapterIndex)
         val cachedPage = cachedLayout?.pages?.indexOfFirst { page ->
@@ -1069,7 +1252,6 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
             jumpToChapterInternal(chapterIndex, cachedPage)
         } else {
             slotManager.pendingStartCharOffset = targetOffset
-            layoutEngine.invalidateChapter(chapterIndex)
             jumpToChapterInternal(chapterIndex, 0)
         }
     }
@@ -1130,6 +1312,7 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
     fun setChineseMode(mode: String) {
         if (currentChineseMode == mode) return
         currentChineseMode = mode
+        updatePaginationLayoutIdentity()
         for (pageView in listOf(
             prevPageView, curPageView, nextPageView,
             prevPageRightView, curPageRightView, nextPageRightView
@@ -1144,10 +1327,52 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
         setBodyFontWeight(if (enabled) 700 else 400)
     }
 
+    fun setLongPressSelectionRange(range: LongPressSelectionRange) {
+        contentSelectionViews().forEach { it.longPressSelectionRange = range }
+    }
+
+    private fun resolveInitialSelectionRange(view: PageContentView, offset: Int, line: IntRange): IntRange? {
+        if (!isContentSelectionSupported()) return null
+        val slot = slotManager.getSlotForView(view) ?: return null
+        val chapterIndex = chapterIndexForSpreadView(slot, view)
+        val chapterText = slotManager.cachedChapterText(chapterIndex) ?: return null
+        val pageStart = view.chapterStartOffset
+        val length = view.textView.text?.length ?: return null
+        val range = chapterText.selectionRangeAt(pageStart + offset, view.longPressSelectionRange,
+            pageStart + line.first..pageStart + line.last) ?: return null
+        val localStart = (range.first - pageStart).coerceIn(0, length)
+        val localEnd = (range.last + 1 - pageStart).coerceIn(localStart, length)
+        if (localEnd <= localStart) return null
+        initialSelectionExtension = if (range.first < pageStart || range.last + 1 > pageStart + length) {
+            InitialSelectionExtension(view, ReaderContentSelection(chapterIndex, chapterText.length,
+                range.first, range.last + 1), localStart to localEnd)
+        } else null
+        return localStart until localEnd
+    }
+
+    private fun finishInitialSelectionExtension() {
+        val pending = initialSelectionExtension ?: return
+        initialSelectionExtension = null
+        // Dragging after the long press deliberately changes the initial range.
+        if (pending.view.getSelectionRange() != pending.localRange) return
+        endNativeSelectionOnAllPages()
+        contentSelection = pending.selection
+        applyReaderSelectionToPages()
+        notifyReaderSelectionChanged()
+        invalidate()
+    }
+
     fun applyRenderConfig(config: ReaderRenderConfig) {
         val previous = lastRenderConfig
-        if (previous == config) return
+        if (previous == config) {
+            // A cached Compose configuration does not mean asynchronous image
+            // loading succeeded. Recover failed requests without reopening the book.
+            retryReaderBackgroundOnPages()
+            return
+        }
         lastRenderConfig = config
+
+        layoutEngine.setPaginationIdentity(config.paginationContentIdentity)
 
         if (previous?.layout != config.layout) {
             with(config.layout) {
@@ -1182,8 +1407,12 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
             with(config.background) {
                 setReaderBackground(color, textColor, imagePath, imageOpacity, imageBlurDp)
             }
+        } else {
+            retryReaderBackgroundOnPages()
         }
         if (previous?.chineseMode != config.chineseMode) setChineseMode(config.chineseMode)
+        if (previous != null && previous.layout == config.layout &&
+            previous.paginationContentIdentity != config.paginationContentIdentity) forceRelayout()
         if (previous?.pageTransitionDurationMs != config.pageTransitionDurationMs ||
             previous.pageTransition != config.pageTransition
         ) {
@@ -1197,8 +1426,18 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
         val normalized = weight.coerceIn(100, 900)
         if (currentBodyFontWeight == normalized) return
         currentBodyFontWeight = normalized
+        updatePaginationLayoutIdentity()
         configureCurrentPageView()
         forceRelayout()
+    }
+
+    private fun updatePaginationLayoutIdentity() {
+        layoutEngine.setPaginationLayoutIdentity(listOf(
+            com.huangder.lumibooks.ui.reader.readerPaginationFontKey(context, currentFontType,
+                currentCustomFontPath, currentBodyFontWeight),
+            currentParagraphSpacingDp, currentFirstLineIndent, currentBionicReadingEnabled,
+            currentTwoPageSpreadEnabled, currentChineseMode
+        ).joinToString("|"))
     }
 
     /** 设置翻页动画类型 */
@@ -1249,7 +1488,7 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
 
     /** Updates the selected transition's timing without restarting an in-flight turn. */
     fun setPageTransitionTiming(mode: String, durationMs: Int) {
-        val sanitized = ReaderPageAnimationSettings.sanitizeDuration(mode, durationMs)
+        val sanitized = ReaderPageAnimationSettings.sanitizeRuntimeDuration(mode, durationMs)
         when (mode) {
             ReaderPageAnimationSettings.MODE_SCROLL -> scrollTransitionDurationMs = sanitized
             ReaderPageAnimationSettings.MODE_FADE -> fadeTransitionDurationMs = sanitized
@@ -1409,6 +1648,10 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
      * - 长按（非卷曲模式 >500ms 或无明显移动）→ 不拦截，TextView 原生触发选词
      */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+            initialSelectionExtension = null
+        }
+        if (lineGuideEnabled) return handleLineGuideTouch(ev)
         // ── 自持跨页选区：整段手势（含交接帧）直接在 ReadView 处理 ──
         // 不依赖 ViewGroup 拦截：拦截会吞掉触发帧、还要等下一帧才生效，
         // 表现为「翻页后手柄停在第一个字，必须松手再重新抓手柄」。
@@ -1515,7 +1758,11 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
                         !animationController.isDragging &&
                         !isJumpSettling,
                     startRegionY = ev.y,
-                    gestureRegionHeight = height.toFloat()
+                    gestureRegionHeight = height.toFloat(),
+                    topExclusionPx = maxOf(32f * resources.displayMetrics.density,
+                        rootWindowInsets?.systemWindowInsetTop?.toFloat() ?: 0f,
+                        if (android.os.Build.VERSION.SDK_INT >= 28)
+                            rootWindowInsets?.displayCutout?.safeInsetTop?.toFloat() ?: 0f else 0f)
                 )
                 rvImageLongPressHandled = false
                 val hitView = pageViewAt(ev.x, ev.y)
@@ -1759,6 +2006,7 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
      */
     private fun dispatchTouchToChildren(ev: MotionEvent): Boolean {
         val handled = super.dispatchTouchEvent(ev)
+        if (ev.actionMasked == MotionEvent.ACTION_UP) finishInitialSelectionExtension()
         if (contentSelectionHandoffPending) {
             beginContentSelectionTakeover(ev)
         }
@@ -1772,7 +2020,11 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
     private fun handleShortTapGesture(ev: MotionEvent): Boolean {
         val x = rvTouchStartX
         val y = rvTouchStartY
-        val action = captureShortTapAction(x, y)
+        // Snapshot before cancelling the child stream: TextView may clear its
+        // native selection on ACTION_CANCEL while the selection menu is still
+        // visible or Compose has not yet synchronized its visibility flag.
+        val dismissSelection = selectionMenuVisible || hasActiveTextSelection() || contentSelection != null
+        val action = captureShortTapAction(x, y, dismissSelection)
         abortChildTouchStream(ev)
         if (!ttsSentenceJumpEnabled) {
             rvSentenceJumpGate.reset()
@@ -1803,15 +2055,29 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = false
 
     /** 短按（未移动）的既有行为：链接、图片、边缘翻页、中间切换菜单。 */
-    private fun captureShortTapAction(x: Float, y: Float): () -> Unit {
+    private fun captureShortTapAction(
+        x: Float,
+        y: Float,
+        dismissSelection: Boolean
+    ): () -> Unit {
         val location = getCurrentLocation()
         val edgeTouch = rvIsEdgeTouch
         val hitView = pageViewAt(x, y) ?: curPageView
         val link = hitView.getLinkAt(x - hitView.left, y - hitView.top)
         val image = hitView.getImageAt(x - hitView.left, y - hitView.top)
+        val annotation = annotationSelectionAt(x, y)
         return tap@{
             // Deferred TTS single taps belong to the page and hit geometry at UP.
             if (getCurrentLocation() != location) return@tap
+            if (dismissSelection || selectionMenuVisible || hasActiveTextSelection() || contentSelection != null) {
+                callbacks?.onSelectionMenuDismiss()
+                return@tap
+            }
+            if (annotation != null) {
+                clearCurrentSelection()
+                callbacks?.onReaderSelectionChanged(annotation.copy(annotationOnly = true))
+                return@tap
+            }
             if (applyContentSelectionTapTarget(x, y)) return@tap
             val href = link ?: image?.link
             if (href != null) {
@@ -1834,6 +2100,74 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
                 animationController.onTapRight?.invoke()
             }
         }
+    }
+
+    /**
+     * Resolve a short tap inside a saved highlight/underline to the complete
+     * annotation range. The returned bounds are clipped to the visible page,
+     * while startPosition/endPosition retain the chapter-level full range.
+     */
+    private fun annotationSelectionAt(x: Float, y: Float): SelectionInfo? {
+        val pageView = pageViewAt(x, y) ?: return null
+        val offset = pageView.characterOffsetAt(x - pageView.left, y - pageView.top) ?: return null
+        val slot = slotManager.getSlotForView(pageView) ?: return null
+        val chapterIndex = chapterIndexForSpreadView(slot, pageView)
+        val note = savedNotes
+            .asSequence()
+            .filter { it.chapterIndex == chapterIndex && it.type == "highlight" ||
+                it.chapterIndex == chapterIndex && it.type == "underline" }
+            .filter { offset >= it.startPosition && offset < it.endPosition }
+            .minByOrNull { it.endPosition - it.startPosition }
+            ?: return null
+        val text = pageView.textView.text ?: return null
+        val localStart = (note.startPosition - pageView.chapterStartOffset).coerceIn(0, text.length)
+        val localEnd = (note.endPosition - pageView.chapterStartOffset).coerceIn(0, text.length)
+        if (localEnd <= localStart) return null
+        val layout = pageView.textView.layout ?: return null
+        if (currentWritingMode.isVertical) {
+            return SelectionInfo(
+                selectedText = note.selectedText,
+                chapterIndex = chapterIndex,
+                chapterStartOffset = pageView.chapterStartOffset,
+                pageStart = localStart,
+                pageEnd = localEnd,
+                selTopY = y - 1f,
+                selBottomY = y + 1f,
+                selStartX = x - 1f,
+                selEndX = x + 1f,
+                startPosition = note.startPosition,
+                endPosition = note.endPosition,
+                annotation = note
+            )
+        }
+        val startLine = layout.getLineForOffset(localStart)
+        val endLine = layout.getLineForOffset((localEnd - 1).coerceAtLeast(localStart))
+        val topY = (pageView.top + pageView.textView.top + pageView.textView.paddingTop +
+            layout.getLineTop(startLine)).toFloat()
+        val bottomY = (pageView.top + pageView.textView.top + pageView.textView.paddingTop +
+            layout.getLineBottom(endLine)).toFloat()
+        val startHorizontal = (pageView.textView as? RoundedHighlightTextView)
+            ?.readerHorizontalPosition(localStart) ?: layout.getPrimaryHorizontal(localStart)
+        val endHorizontal = (pageView.textView as? RoundedHighlightTextView)
+            ?.readerHorizontalPosition(localEnd, trailing = true)
+            ?: layout.getPrimaryHorizontal(localEnd.coerceAtMost(text.length - 1))
+        val viewOffsetX = pageView.left.toFloat()
+        val startX = pageView.textView.left + pageView.textView.paddingLeft + startHorizontal + viewOffsetX
+        val endX = pageView.textView.left + pageView.textView.paddingLeft + endHorizontal + viewOffsetX
+        return SelectionInfo(
+            selectedText = note.selectedText,
+            chapterIndex = chapterIndex,
+            chapterStartOffset = pageView.chapterStartOffset,
+            pageStart = localStart,
+            pageEnd = localEnd,
+            selTopY = topY,
+            selBottomY = bottomY,
+            selStartX = minOf(startX, endX),
+            selEndX = maxOf(startX, endX),
+            startPosition = note.startPosition,
+            endPosition = note.endPosition,
+            annotation = note
+        )
     }
 
     private fun scheduleReaderTap(action: () -> Unit) {
@@ -1995,6 +2329,26 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
         }
         // 自持跨页选区的手柄画在所有页面内容之上
         drawContentSelectionHandles(canvas)
+        if (lineGuideEnabled) {
+            drawLineGuide(canvas)
+        }
+    }
+
+    private fun drawLineGuide(canvas: android.graphics.Canvas) {
+        val (themeBackground, _, _) = getThemeColors(currentTheme)
+        val shadeColor = readerGuideShadeColor(currentReaderBackgroundColor ?: themeBackground,
+            lineGuideDimLevel)
+        if (animationController.isRunning || animationController.isDragging) {
+            canvas.drawColor(shadeColor)
+            return
+        }
+        val lines = guideTargets()
+        val selected = selectedGuideIndex(lines)
+        if (selected < 0) return
+        val target = lines[selected]
+        lineGuideAnchor = target.chapter to target.line.startOffset
+        drawReaderGuideOverlay(canvas, width.toFloat(), height.toFloat(), target.line.bounds,
+            shadeColor, resources.displayMetrics.density)
     }
 
     // ── 生命周期 ──
@@ -2472,7 +2826,7 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
         if (highlight.chapterIndex != chapterIndex || searchHighlightAnimator?.isRunning == true) return
 
         searchHighlightAnimator = ValueAnimator.ofInt(0, 180, 0, 180, 0).apply {
-            duration = 2_000L
+            duration = com.huangder.lumibooks.ui.animation.VisualMotion.durationMillis(2_000L)
             addUpdateListener { animator ->
                 val alpha = animator.animatedValue as Int
                 listOf(
@@ -2623,6 +2977,7 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
 
     /** 清除自持跨页选区（含瞬态高亮），并通知上层收起选区菜单。 */
     fun clearReaderSelection() {
+        initialSelectionExtension = null
         if (contentSelection == null && !contentSelectionHandoffPending && !contentSelectionDragActive) {
             pendingContentSelectionTurn = null
             return
@@ -2635,6 +2990,13 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
         pendingContentSelectionTurn = null
         applyReaderSelectionToPages()
         callbacks?.onReaderSelectionCleared()
+        invalidate()
+    }
+
+    /** Clear native text selections on every page slot and any cross-page selection. */
+    fun clearActiveTextSelection() {
+        clearReaderSelection()
+        contentSelectionViews().forEach(PageContentView::clearSelection)
         invalidate()
     }
 

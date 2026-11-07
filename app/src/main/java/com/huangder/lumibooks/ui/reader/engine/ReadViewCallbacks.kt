@@ -24,11 +24,15 @@ interface ReadViewCallbacks {
     fun onSpreadPageChanged(
         rightGlobalPage: Int,
         rightChapterIndex: Int,
-        rightPageInChapter: Int
+        rightPageInChapter: Int,
+        rightChapterTotalPages: Int
     ) {}
 
     /** 点击中间区域，切换菜单 */
     fun onMenuToggle()
+
+    /** 左右边缘短按发生在选区菜单打开期间时，关闭选区菜单而不翻页。 */
+    fun onSelectionMenuDismiss() {}
 
     /** 顶部下拉书签手势开始接管正文触摸。 */
     fun onBookmarkPullStart() {}

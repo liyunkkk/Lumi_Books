@@ -1,11 +1,12 @@
 package com.huangder.lumibooks.ui.bookshelf
 
+import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -56,7 +57,6 @@ import com.huangder.lumibooks.ui.animation.LocalCoverFlowEntrance
 import com.huangder.lumibooks.ui.animation.LocalBookReaderAnchorScope
 import com.huangder.lumibooks.ui.animation.bookCoverMemoryCacheKey
 import com.huangder.lumibooks.ui.animation.bookCoverTransitionAnchor
-import com.huangder.lumibooks.ui.components.BookCoverProgressOverlay
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.LocalEInkMode
 import kotlinx.coroutines.CoroutineScope
@@ -115,6 +115,7 @@ internal fun CoverFlowScene(
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
+    val reduceTransparency = LocalReduceTransparency.current
     val eInk = LocalEInkMode.current
     val entrance = LocalCoverFlowEntrance.current
     val coversLayer = rememberGraphicsLayer()
@@ -129,7 +130,7 @@ internal fun CoverFlowScene(
     val menuLabel = stringResource(R.string.more_options)
     val menuRetreat by androidx.compose.animation.core.animateFloatAsState(
         if (state.menuBookId != null) 1f else 0f,
-        animationSpec = androidx.compose.animation.core.tween(if (motionEnabled) 320 else 80,
+        animationSpec = com.huangder.lumibooks.ui.animation.VisualMotion.tween(if (motionEnabled) 320 else 80,
             easing = androidx.compose.animation.core.FastOutSlowInEasing), label = "coverFlowMenuRetreat")
     var retainedMenuId by remember { mutableStateOf<String?>(null) }
     SideEffect { state.menuBookId?.let { retainedMenuId = it } }
@@ -156,8 +157,8 @@ internal fun CoverFlowScene(
         }
         val range = remember(center, books.size) { CoverFlowPhysics.visibleRange(center.toFloat(), books.size) }
         val order = remember(range, orderBucket) { range.sortedByDescending { abs(it - (orderBucket / 2f + 0.25f)) } }
-        val blurEffects = remember(density, motionEnabled) {
-            if (Build.VERSION.SDK_INT >= 31 && motionEnabled) {
+        val blurEffects = remember(density, motionEnabled, reduceTransparency) {
+            if (Build.VERSION.SDK_INT >= 31 && motionEnabled && !reduceTransparency) {
                 List(13) { step ->
                     if (step == 0) null else android.graphics.RenderEffect.createBlurEffect(
                         step * 0.25f * density.density, step * 0.25f * density.density,
@@ -224,7 +225,7 @@ internal fun CoverFlowScene(
                     DisposableEffect(book.id) { onDispose { layout.covers.remove(book.id) } }
                     val deletionAlpha by androidx.compose.animation.core.animateFloatAsState(
                         if (book.id in deletingIds) 0f else 1f,
-                        androidx.compose.animation.core.tween(if (motionEnabled) 220 else 0), label = "coverFlowDelete")
+                        com.huangder.lumibooks.ui.animation.VisualMotion.tween(if (motionEnabled) 220 else 0), label = "coverFlowDelete")
                     // Keep anchors stable while the focus crosses books. Adding/removing a
                     // position callback at each crossing can miss a layout-only registration.
                     val anchor = Modifier.bookCoverTransitionAnchor(
@@ -260,7 +261,7 @@ internal fun CoverFlowScene(
                             .onGloballyPositioned { layout.covers[book.id] = it }
                             .clearAndSetSemantics { }
                     ) {
-                        CoverFlowCover(book, downloadStates[book.id], Modifier.fillMaxSize())
+                        CoverFlowCover(book, Modifier.fillMaxSize())
                     }
                 }
             }
@@ -269,9 +270,9 @@ internal fun CoverFlowScene(
 }
 
 @Composable
-internal fun CoverFlowCover(book: Book, downloadState: BookDownloadState?, modifier: Modifier = Modifier) {
+internal fun CoverFlowCover(book: Book, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val shape = RoundedCornerShape(2.dp)
+    val shape = AppRoundedCornerShape(2.dp)
     val request = remember(book.id, book.coverPath, context) {
         ImageRequest.Builder(context).data(book.coverPath)
             .memoryCacheKey(bookCoverMemoryCacheKey(book.id, book.coverPath)).build()
@@ -285,7 +286,7 @@ internal fun CoverFlowCover(book: Book, downloadState: BookDownloadState?, modif
             overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(12.dp))
         if (book.coverPath != null) AsyncImage(request, contentDescription = null,
             modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        BookCoverProgressOverlay(book, downloadState, showReadingProgress = false)
+        com.huangder.lumibooks.ui.components.BookCoverReadingProgress(book, compact = true)
     }
 }
 

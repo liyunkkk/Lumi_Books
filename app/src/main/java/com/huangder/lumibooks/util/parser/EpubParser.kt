@@ -18,7 +18,8 @@ import com.huangder.lumibooks.R
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
-import java.lang.ref.WeakReference
+import java.io.ByteArrayInputStream
+import java.io.InputStreamReader
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.ZipEntry
@@ -26,9 +27,13 @@ import java.util.zip.ZipException
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 import kotlin.text.RegexOption
 import com.huangder.lumibooks.util.BookFileAccess
 import com.huangder.lumibooks.util.SeekableBookSource
+import com.huangder.lumibooks.util.cache.BookFingerprint
+import com.huangder.lumibooks.util.cache.ReaderCacheStore
 import com.huangder.lumibooks.util.epub.EpubPackage
 import com.huangder.lumibooks.util.epub.EpubPackageReader
 import com.huangder.lumibooks.util.epub.EpubPathResolver
@@ -40,6 +45,7 @@ import com.huangder.lumibooks.util.epub.EpubSearchMatch
 import com.huangder.lumibooks.util.epub.EpubTextSearch
 import com.huangder.lumibooks.util.epub.CachedEpubMetadata
 import com.huangder.lumibooks.util.epub.EpubMetadataCache
+import com.huangder.lumibooks.util.epub.EpubCoverCandidates
 import com.huangder.lumibooks.util.cache.WeightedLruCache
 
 /**
@@ -63,6 +69,9 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
         private const val MAX_VECTOR_BITMAP_HEIGHT = 4096
         private const val JPEG_HEADER_READ_LIMIT = 256 * 1024
         private const val SIMPLE_IMAGE_HEADER_READ_LIMIT = 64
+        private const val CONTINUOUS_PREVIEW_CHARS = 6_000
+        private const val PERSISTED_CHAPTER_CACHE_VERSION = 3
+        private const val PERSISTED_CHAPTER_CACHE_MAX_CHARS = 2_000_000
         private val hrefRegex = Regex("""href\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val IMAGE_RESOURCE_EXTENSIONS =
             setOf("jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "svg")
@@ -85,7 +94,7 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
         // 多看/掌阅等导出器会把注释锚点拼成 footnotebookmark，单词边界
         // 不在 footnote 后面，因此不能只依赖上面的通用边界表达式。
         private val COMPOUND_FOOTNOTE_HINT_REGEX = Regex(
-            """(?:footnotebookmark|duokan[-_]footnote)""",
+            """(?:footnotebookmark|duokan[-_]footnote|jzyy_[A-Za-z0-9_-]+)""",
             RegexOption.IGNORE_CASE
         )
         private val FOOTNOTE_BACKLINK_HINT_REGEX = Regex(
@@ -138,6 +147,10 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
             if (fragment.isBlank()) return false
             // 多看注释正文中的链接指回正文锚点（*_start_*），它不是新的注释引用。
             if (FOOTNOTE_BACKLINK_HINT_REGEX.containsMatchIn(fragment)) return false
+            val sourceId = tagAttribute(openTag, "id").orEmpty()
+            if (sourceId.matches(Regex("""jz_[A-Za-z0-9_-]+""", RegexOption.IGNORE_CASE)) &&
+                fragment.matches(Regex("""jzyy_[A-Za-z0-9_-]+""", RegexOption.IGNORE_CASE))
+            ) return false
 
             val semantics = listOf("epub:type", "role", "rel")
                 .mapNotNull { tagAttribute(openTag, it) }
@@ -212,6 +225,14 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
             """^(?:[\s\u00A0]|&nbsp;|&#160;|&#xa0;)+|(?:[\s\u00A0]|&nbsp;|&#160;|&#xa0;)+$""",
             RegexOption.IGNORE_CASE
         )
+        private val FOOTNOTE_SUP_SUB_TAG_REGEX = Regex(
+            """</?\s*(?:sup|sub)\b[^>]*>""",
+            RegexOption.IGNORE_CASE
+        )
+        private val FOOTNOTE_SUP_SUB_WRAPPER_REGEX = Regex(
+            """<\s*(sup|sub)\b[^>]*>\s*(<a\b[^>]*>.*?</a>)\s*</\s*\1\s*>""",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
+        )
 
         internal fun inlineImagePlaceholder(index: Int): String =
             INLINE_IMAGE_PLACEHOLDER_PREFIX + index + INLINE_IMAGE_PLACEHOLDER_SUFFIX
@@ -219,6 +240,86 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
         /** 去掉注释引用锚点两端的空白，标记本身保持原有顺序与行内形态。 */
         internal fun trimFootnoteMarkerPadding(innerHtml: String): String =
             innerHtml.replace(FOOTNOTE_MARKER_PADDING_REGEX, "")
+
+        /**
+         * 注释编号有时被出版方包在 `<sup>`/`<sub>` 中。阅读器排版把 HTML
+         * 转成 Spanned 后会真的应用上下标基线偏移，导致编号和正文不在同一水平线；
+         * 注释符号应作为行内标记与正文对齐。只处理已识别的注释引用锚点，保留正文上下标。
+         */
+        internal fun normalizeFootnoteMarkerBaseline(html: String): String {
+            var result = html
+            // 先去掉锚点内部的上下标，再多轮处理外层包裹，兼容 sup/sub 嵌套。
+            repeat(4) {
+                val before = result
+                result = ANCHOR_TAG_REGEX.replace(result) { match ->
+                    val anchor = match.value
+                    val openTagEnd = anchor.indexOf('>')
+                    val closeTagStart = anchor.length - "</a>".length
+                    if (openTagEnd < 0 || closeTagStart <= openTagEnd) return@replace anchor
+                    val openTag = anchor.substring(0, openTagEnd + 1)
+                    val innerHtml = anchor.substring(openTagEnd + 1, closeTagStart)
+                    if (!isFootnoteAnchorTag(openTag, innerHtml)) return@replace anchor
+                    openTag + FOOTNOTE_SUP_SUB_TAG_REGEX.replace(innerHtml, "") + "</a>"
+                }
+                result = FOOTNOTE_SUP_SUB_WRAPPER_REGEX.replace(result) { match ->
+                    val anchor = match.groupValues[2]
+                    val openTagEnd = anchor.indexOf('>')
+                    val closeTagStart = anchor.length - "</a>".length
+                    if (openTagEnd < 0 || closeTagStart <= openTagEnd) return@replace match.value
+                    val openTag = anchor.substring(0, openTagEnd + 1)
+                    val innerHtml = anchor.substring(openTagEnd + 1, closeTagStart)
+                    if (isFootnoteAnchorTag(openTag, innerHtml)) anchor else match.value
+                }
+                if (result == before) return result
+            }
+            return result
+        }
+
+        /**
+         * HTML.fromHtml may still produce SuperscriptSpan/SubscriptSpan around a reference,
+         * and always creates inline images with ALIGN_BOTTOM. Normalize the final Spanned
+         * representation as the source of truth so publisher markup variations cannot leave
+         * a footnote marker below the surrounding text.
+         */
+        internal fun normalizeFootnoteReferenceSpans(
+            text: Spannable,
+            footnoteHrefs: Set<String>
+        ) {
+            if (text.isEmpty() || footnoteHrefs.isEmpty()) return
+            val normalizedHrefs = footnoteHrefs.mapTo(mutableSetOf()) { it.trim() }
+            text.getSpans(0, text.length, android.text.style.URLSpan::class.java)
+                .filter { it.url.trim() in normalizedHrefs }
+                .forEach { link ->
+                    val start = text.getSpanStart(link).coerceAtLeast(0)
+                    val end = text.getSpanEnd(link).coerceAtLeast(start)
+                    text.getSpans(start, end, android.text.style.SuperscriptSpan::class.java)
+                        .forEach(text::removeSpan)
+                    text.getSpans(start, end, android.text.style.SubscriptSpan::class.java)
+                        .forEach(text::removeSpan)
+                    text.getSpans(start, end, android.text.style.ImageSpan::class.java)
+                        .filter { image ->
+                            (image.drawable as? InlineFootnoteMarkerDrawable)
+                                ?.isInlineFootnoteMarker == true &&
+                                image.verticalAlignment != android.text.style.DynamicDrawableSpan.ALIGN_BASELINE
+                        }
+                        .forEach { image ->
+                            val imageStart = text.getSpanStart(image)
+                            val imageEnd = text.getSpanEnd(image)
+                            val flags = text.getSpanFlags(image)
+                            text.removeSpan(image)
+                            text.setSpan(
+                                android.text.style.ImageSpan(
+                                    image.drawable,
+                                    image.source.orEmpty(),
+                                    android.text.style.DynamicDrawableSpan.ALIGN_BASELINE
+                                ),
+                                imageStart,
+                                imageEnd,
+                                flags
+                            )
+                        }
+                }
+        }
 
         /**
          * 注释引用图标（注释链接内的 `<img>`，如多看/掌阅导出的"注"字小图）是行内标记，
@@ -277,7 +378,7 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
         /** 语义上明确是注释正文的块（`epub:type="footnote"`、`class="...footnote..."` 等）。 */
         private val FOOTNOTE_SEMANTIC_BODY_REGEX = Regex(
             """<($FOOTNOTE_BLOCK_TAGS)\b[^>]*(?:epub:type|role|class)\s*=\s*["'][^"']*""" +
-                """(?:footnote|endnote|rearnote)[^"']*["'][^>]*>""",
+                """(?:footnote|endnote|rearnote|fnContent)[^"']*["'][^>]*>""",
             RegexOption.IGNORE_CASE
         )
 
@@ -347,7 +448,7 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
          */
         internal fun alignFootnoteReferences(html: String, idPrefix: String): FootnoteAlignment {
             // 绝大多数章节没有注释，先做一次廉价判断，避免整章多次正则扫描。
-            val mentionsNotes = listOf("footnote", "noteref", "endnote", "rearnote", "epub:type")
+            val mentionsNotes = listOf("footnote", "noteref", "endnote", "rearnote", "epub:type", "jzyy_")
                 .any { html.contains(it, ignoreCase = true) }
             if (!mentionsNotes) {
                 return FootnoteAlignment(html, emptySet(), emptyMap())
@@ -637,6 +738,10 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
     private var bookAuthor: String = ""
     private var basePath: String = ""
     private var epubFilePath: String = ""
+    /** Original URI/path used for the stable ReaderCacheStore fingerprint. */
+    private var sourceLocation: String = ""
+    @Volatile
+    private var lastPersistedChapterCacheHit: Boolean? = null
     private var parsedPackage: EpubPackage? = null
     private var sourceLease: SeekableBookSource? = null
     private var sessionZipFile: ZipFile? = null
@@ -669,7 +774,15 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
         val chapterIndex: Int,
         val optimizeLayout: Boolean
     )
-    private data class ContentLoadKey(val revision: Long, val chapterIndex: Int)
+    private data class ContentLoadKey(
+        val revision: Long,
+        val chapterIndex: Int,
+        val width: Int,
+        val height: Int,
+        /** 0 is the complete chapter; positive values identify a preview cache entry. */
+        val maxChars: Int = 0
+    )
+    data class ChapterContentPreview(val text: CharSequence, val isComplete: Boolean)
     private data class AnchoredChapter(
         val text: SpannableStringBuilder,
         val offsets: Map<String, Int>
@@ -680,6 +793,7 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
     private val contentCache = WeightedLruCache<ContentLoadKey, CharSequence>(16L * 1024L * 1024L) {
         it.length.toLong() * Char.SIZE_BYTES
     }
+    private val previewCompleteness = ConcurrentHashMap<ContentLoadKey, Boolean>()
     /** Keep only a small set of decoded images; individual spans reload on demand after eviction. */
     private val imageBitmapCache = WeightedLruCache<String, Bitmap>(IMAGE_BITMAP_CACHE_BYTES) {
         it.allocationByteCount.toLong().coerceAtLeast(0L)
@@ -698,6 +812,7 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
 
     override fun parse(filePath: String): BookContent {
         close()
+        sourceLocation = filePath
         android.util.Log.i("EpubParser", "parse: start path=$filePath")
         val lease = context?.let { BookFileAccess.openSeekable(it, filePath) }
         sourceLease = lease
@@ -1369,6 +1484,7 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
      * @param optimizeLayout true=使用优化排版（包裹自定义CSS），false=保留EPUB自带排版
      */
     override fun getChapterHtml(chapterIndex: Int, optimizeLayout: Boolean): String {
+        lastPersistedChapterCacheHit = false
         val revision = contentRevision.get()
         val cacheKey = HtmlCacheKey(revision, chapterIndex, optimizeLayout)
         htmlCache[cacheKey]?.let { return it }
@@ -1377,16 +1493,24 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
         val source = chapterSources.getOrNull(chapterIndex) ?: return ""
         val path = source.path
         return try {
-            val sourcePath = synchronized(zipLock) {
-                if (sessionZipFile == null || contentRevision.get() != revision) return ""
-                epubFilePath
+            readPersistedChapterHtml(chapterIndex, processed = true, optimizeLayout = optimizeLayout)?.let { cached ->
+                if (contentRevision.get() == revision) htmlCache.put(cacheKey, cached)
+                return cached
             }
-            val processed = ZipFile(sourcePath).use { zipFile ->
-                val zipEntry = findEntry(zipFile, path) ?: return ""
-                val rawHtml = zipFile.getInputStream(zipEntry).bufferedReader().use { it.readText() }
-                    .let { sliceLogicalChapterHtml(it, source) }
-                processHtml(zipFile, rawHtml, optimizeLayout, chapterPath = path)
-            }
+            val activeZip = synchronized(zipLock) {
+                if (contentRevision.get() != revision) return ""
+                sessionZipFile
+            } ?: return ""
+            val rawHtml = readPersistedChapterHtml(chapterIndex, processed = false, optimizeLayout = false)
+                ?: synchronized(zipLock) {
+                    if (contentRevision.get() != revision || sessionZipFile !== activeZip) return@synchronized null
+                    val zipEntry = findEntry(activeZip, path) ?: return@synchronized null
+                    activeZip.getInputStream(zipEntry).bufferedReader().use { it.readText() }
+                        .let { sliceLogicalChapterHtml(it, source) }
+                }?.also { writePersistedChapterHtml(chapterIndex, processed = false, optimizeLayout = false, html = it) }
+                ?: return ""
+            val processed = processHtml(activeZip, rawHtml, optimizeLayout, chapterPath = path)
+            writePersistedChapterHtml(chapterIndex, processed = true, optimizeLayout = optimizeLayout, html = processed)
             if (contentRevision.get() == revision) {
                 processed.also {
                     htmlCache.put(cacheKey, it)
@@ -1401,45 +1525,192 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
     }
 
     /**
+     * Persist the expensive chapter preparation result between reader sessions. The cache uses
+     * compressed text rather than Android spans because drawables and parser spans are tied to
+     * the current EPUB session and must be rebuilt against the current ZipFile.
+     */
+    private fun persistedChapterNamespace(chapterIndex: Int, processed: Boolean, optimizeLayout: Boolean): String {
+        val layoutToken = if (!processed) {
+            "source"
+        } else {
+            // Processed HTML embeds CSS/background decisions, while source HTML is layout-neutral.
+            listOf(
+                if (optimizeLayout) 1 else 0,
+                if (useEpubCss) 1 else 0,
+                if (preserveEpubBackground) 1 else 0,
+                paragraphSpacingDp,
+                firstLineIndentChars,
+                contentWidth.coerceAtLeast(0)
+            ).joinToString("_")
+        }
+        return "epub_chapter_v${PERSISTED_CHAPTER_CACHE_VERSION}_${chapterIndex}_$layoutToken"
+    }
+
+    private fun readPersistedChapterHtml(
+        chapterIndex: Int,
+        processed: Boolean,
+        optimizeLayout: Boolean
+    ): String? {
+        val ctx = context ?: return null
+        if (sourceLocation.isBlank()) return null
+        val fingerprint = BookFingerprint.resolve(ctx, sourceLocation)
+        if (!fingerprint.reliable) return null
+        val namespace = persistedChapterNamespace(chapterIndex, processed, optimizeLayout)
+        val store = ReaderCacheStore.get(ctx)
+        val payload = store.readMetadata(namespace, fingerprint) ?: return null
+        if (payload.optInt("formatVersion") != PERSISTED_CHAPTER_CACHE_VERSION) {
+            store.deleteMetadata(namespace, fingerprint)
+            return null
+        }
+        val encoded = payload.optString("gzipBase64").takeIf { it.isNotBlank() } ?: return null
+        val decoded = runCatching {
+            val compressed = Base64.decode(encoded, Base64.DEFAULT)
+            GZIPInputStream(ByteArrayInputStream(compressed)).use { input ->
+                InputStreamReader(input, Charsets.UTF_8).use { reader -> reader.readText() }
+            }
+        }.getOrNull()
+        val valid = decoded?.takeIf {
+            it.isNotEmpty() && it.length <= PERSISTED_CHAPTER_CACHE_MAX_CHARS &&
+                payload.optInt("charCount", it.length) == it.length
+        }
+        if (valid != null) lastPersistedChapterCacheHit = true
+        if (valid == null) store.deleteMetadata(namespace, fingerprint)
+        return valid
+    }
+
+    private fun writePersistedChapterHtml(
+        chapterIndex: Int,
+        processed: Boolean,
+        optimizeLayout: Boolean,
+        html: String
+    ) {
+        val ctx = context ?: return
+        if (sourceLocation.isBlank() || html.isEmpty() || html.length > PERSISTED_CHAPTER_CACHE_MAX_CHARS) return
+        val fingerprint = BookFingerprint.resolve(ctx, sourceLocation)
+        if (!fingerprint.reliable) return
+        runCatching {
+            val compressed = ByteArrayOutputStream(html.length.coerceAtMost(64 * 1024)).use { output ->
+                GZIPOutputStream(output).use { gzip -> gzip.write(html.toByteArray(Charsets.UTF_8)) }
+                output.toByteArray()
+            }
+            val payload = org.json.JSONObject()
+                .put("formatVersion", PERSISTED_CHAPTER_CACHE_VERSION)
+                .put("processed", processed)
+                .put("optimizeLayout", optimizeLayout)
+                .put("charCount", html.length)
+                .put("gzipBase64", Base64.encodeToString(compressed, Base64.NO_WRAP))
+            ReaderCacheStore.get(ctx).writeMetadata(
+                persistedChapterNamespace(chapterIndex, processed, optimizeLayout), fingerprint, payload
+            )
+        }
+    }
+
+    /** Returns and clears the result of the most recent persistent chapter lookup. */
+    internal fun consumeLastPersistedChapterCacheHit(): Boolean? =
+        lastPersistedChapterCacheHit.also { lastPersistedChapterCacheHit = null }
+
+    /**
      * 按需加载单个章节的 Spanned，带缓存
      */
-    override fun getChapterContent(chapterIndex: Int): CharSequence {
+    override fun getChapterContent(chapterIndex: Int): CharSequence =
+        getChapterContent(chapterIndex, contentWidth, contentHeight)
+
+    /** Request-local geometry: preview/paged/continuous layouts must not resize one another. */
+    fun getChapterContent(chapterIndex: Int, width: Int, height: Int): CharSequence =
+        getChapterContentPreview(chapterIndex, width, height, 0).text
+
+    /** Whole-book counting must not evict the chapter text retained for reading. */
+    internal fun getChapterContentForPagination(chapterIndex: Int): CharSequence =
+        getChapterContentPreviewInternal(chapterIndex, contentWidth, contentHeight, 0, retainCache = false).text
+
+    /**
+     * Decode only the first part of a long chapter for continuous scrolling. The returned
+     * preview has its own cache key and never replaces the complete chapter cache.
+     */
+    fun getChapterContentPreview(
+        chapterIndex: Int,
+        width: Int,
+        height: Int,
+        maxChars: Int = CONTINUOUS_PREVIEW_CHARS
+    ): ChapterContentPreview = getChapterContentPreviewInternal(
+        chapterIndex,
+        width,
+        height,
+        maxChars.coerceAtLeast(0)
+    )
+
+    private fun getChapterContentPreviewInternal(
+        chapterIndex: Int,
+        width: Int,
+        height: Int,
+        maxChars: Int,
+        retainCache: Boolean = true
+    ): ChapterContentPreview {
+        lastPersistedChapterCacheHit = false
         if (chapterIndex !in chapterPaths.indices) {
             android.util.Log.w("EpubParser", "getChapterContent: idx=$chapterIndex out of range (chapterPaths.size=${chapterPaths.size})")
-            return ""
+            return ChapterContentPreview("", true)
         }
 
         val revision = contentRevision.get()
-        val loadKey = ContentLoadKey(revision, chapterIndex)
+        val loadKey = ContentLoadKey(revision, chapterIndex, width, height, maxChars)
         contentCache[loadKey]?.let {
             android.util.Log.d("EpubParser", "getChapterContent: idx=$chapterIndex from cache, length=${it.length}")
-            return it
+            return ChapterContentPreview(it, maxChars <= 0 || previewCompleteness[loadKey] == true)
         }
         val loadLock = contentLoadLocks.getOrPut(loadKey) { Any() }
         try {
             return synchronized(loadLock) chapterLoad@{
                 contentCache[loadKey]?.let {
-                    if (contentRevision.get() == revision) return@chapterLoad it
+                    if (contentRevision.get() == revision) {
+                        return@chapterLoad ChapterContentPreview(
+                            it,
+                            maxChars <= 0 || previewCompleteness[loadKey] == true
+                        )
+                    }
                 }
 
-                val source = chapterSources.getOrNull(chapterIndex) ?: return@chapterLoad ""
+                val source = chapterSources.getOrNull(chapterIndex)
+                    ?: return@chapterLoad ChapterContentPreview("", true)
                 val path = source.path
                 android.util.Log.d("EpubParser", "getChapterContent: idx=$chapterIndex path=$path")
-                val chapterSource = synchronized(zipLock) sourceRead@{
-                    if (contentRevision.get() != revision) return@sourceRead null
-                    val activeZip = sessionZipFile ?: return@sourceRead null
-                    val zipEntry = findEntry(activeZip, path) ?: return@sourceRead null
-                    activeZip to activeZip.getInputStream(zipEntry).bufferedReader().use { reader ->
+                val zipFile = synchronized(zipLock) {
+                    if (contentRevision.get() != revision) null else sessionZipFile
+                } ?: return@chapterLoad ChapterContentPreview("", true)
+                val cachedRawHtml = readPersistedChapterHtml(
+                    chapterIndex,
+                    processed = false,
+                    optimizeLayout = false
+                )
+                val rawHtml = cachedRawHtml ?: synchronized(zipLock) sourceRead@{
+                    if (contentRevision.get() != revision || sessionZipFile !== zipFile) return@sourceRead null
+                    val zipEntry = findEntry(zipFile, path) ?: return@sourceRead null
+                    zipFile.getInputStream(zipEntry).bufferedReader().use { reader ->
                         sliceLogicalChapterHtml(reader.readText(), source)
                     }
-                } ?: return@chapterLoad ""
-                val (zipFile, rawHtml) = chapterSource
-                android.util.Log.d("EpubParser", "getChapterContent: idx=$chapterIndex rawHtml.length=${rawHtml.length}")
+                }?.also {
+                    writePersistedChapterHtml(
+                        chapterIndex,
+                        processed = false,
+                        optimizeLayout = false,
+                        html = it
+                    )
+                } ?: return@chapterLoad ChapterContentPreview("", true)
+                val previewHtml = if (maxChars > 0) {
+                    truncateHtmlForPreview(rawHtml, maxChars)
+                } else {
+                    HtmlPreviewSlice(rawHtml, true)
+                }
+                android.util.Log.d(
+                    "EpubParser",
+                    "getChapterContent: idx=$chapterIndex rawHtml.length=${rawHtml.length} " +
+                        "preview=${previewHtml.html.length} complete=${previewHtml.isComplete}"
+                )
 
                 val parseStartedAt = android.os.SystemClock.elapsedRealtime()
-                val spanned = htmlToSpanned(chapterIndex, rawHtml, zipFile)
+                val spanned = htmlToSpanned(chapterIndex, previewHtml.html, zipFile, width, height)
                 val htmlParsedAt = android.os.SystemClock.elapsedRealtime()
-                if (!isActiveRevision(revision, zipFile)) return@chapterLoad ""
+                if (!isActiveRevision(revision, zipFile)) return@chapterLoad ChapterContentPreview("", true)
 
                 // 应用段间距和首行缩进（Canvas 引擎需要在 Spanned 层面处理）
                 val formatted = applyParagraphFormatting(
@@ -1462,25 +1733,95 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
                 val stored = synchronized(zipLock) storeResult@{
                     if (!isActiveRevisionLocked(revision, zipFile)) return@storeResult false
                     anchorOffsets[chapterIndex] = anchored.offsets
-                    contentCache.put(loadKey, result)
+                    if (retainCache) {
+                        contentCache.put(loadKey, result)
+                        previewCompleteness[loadKey] = previewHtml.isComplete
+                    }
+                    // A short chapter was already decoded in full. Publish the same result
+                    // under the complete key so the follow-up promotion is a cache hit.
+                    if (retainCache && maxChars > 0 && previewHtml.isComplete) {
+                        val completeKey = ContentLoadKey(revision, chapterIndex, width, height, 0)
+                        contentCache.put(completeKey, result)
+                        previewCompleteness[completeKey] = true
+                    }
                     true
                 }
-                if (!stored) return@chapterLoad ""
+                if (!stored) return@chapterLoad ChapterContentPreview("", true)
                 android.util.Log.d(
                     "EpubParser",
                     "getChapterContent: idx=$chapterIndex result.length=${result.length} " +
                         "html=${htmlParsedAt - parseStartedAt}ms format=${formattedAt - htmlParsedAt}ms " +
                         "anchors=${anchoredAt - formattedAt}ms total=${anchoredAt - parseStartedAt}ms"
                 )
-                result
+                ChapterContentPreview(result, previewHtml.isComplete)
             }
         } catch (e: Exception) {
+            if (!retainCache) throw e
             android.util.Log.e("EpubParser", "getChapterContent: exception for idx=$chapterIndex", e)
             e.printStackTrace()
-            return ""
+            return ChapterContentPreview("", true)
         } finally {
             contentLoadLocks.remove(loadKey, loadLock)
         }
+    }
+
+    private data class HtmlPreviewSlice(val html: String, val isComplete: Boolean)
+
+    /**
+     * Keep the source HTML intact up to a text boundary. Reading the source is cheap compared
+     * with Html.fromHtml and image span construction, so the expensive part is bounded to the
+     * first few thousand visible characters. A block close is preferred; otherwise the cut is
+     * moved back to whitespace and the original body is closed for extractBody().
+     */
+    private fun truncateHtmlForPreview(html: String, maxChars: Int): HtmlPreviewSlice {
+        if (maxChars <= 0 || html.isEmpty()) return HtmlPreviewSlice(html, true)
+        var index = 0
+        var visibleChars = 0
+        var lastWhitespace = -1
+        var lastBlockBoundary = -1
+        var reachedTarget = false
+        var targetIndex = -1
+        val scanLimitAfterTarget = 32 * 1024
+        while (index < html.length) {
+            if (html[index] == '<') {
+                val tagEnd = html.indexOf('>', index + 1)
+                if (tagEnd < 0) break
+                val tag = html.substring(index, tagEnd + 1)
+                if (Regex("</(?:p|div|blockquote|li|dd|dt|h[1-6])\\s*>", RegexOption.IGNORE_CASE)
+                        .matches(tag)
+                ) {
+                    lastBlockBoundary = tagEnd + 1
+                }
+                index = tagEnd + 1
+            } else if (html[index] == '&') {
+                val entityEnd = html.indexOf(';', index + 1).takeIf { it in (index + 1)..(index + 16) }
+                if (entityEnd != null) {
+                    visibleChars++
+                    index = entityEnd + 1
+                } else {
+                    visibleChars++
+                    index++
+                }
+            } else {
+                if (html[index].isWhitespace()) lastWhitespace = index + 1
+                visibleChars++
+                index++
+            }
+            if (!reachedTarget && visibleChars >= maxChars) {
+                reachedTarget = true
+                targetIndex = index
+            }
+            if (reachedTarget &&
+                (lastBlockBoundary >= targetIndex || index >= targetIndex + scanLimitAfterTarget)
+            ) break
+        }
+        if (!reachedTarget || index >= html.length) return HtmlPreviewSlice(html, true)
+        val boundary = (lastBlockBoundary.takeIf { it in targetIndex..index } ?: lastWhitespace)
+            .takeIf { it > 0 }
+            ?: targetIndex.coerceIn(1, html.length)
+        val bodyClosed = Regex("<body\\b", RegexOption.IGNORE_CASE).containsMatchIn(html)
+        val suffix = if (bodyClosed) "</body></html>" else ""
+        return HtmlPreviewSlice(html.substring(0, boundary) + suffix, false)
     }
 
     private fun isActiveRevision(revision: Long, zipFile: ZipFile): Boolean = synchronized(zipLock) {
@@ -1555,6 +1896,7 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
         contentRevision.incrementAndGet()
         htmlCache.clear()
         contentCache.clear()  // 段间距/首行缩进变更时也需要清空内容缓存
+        previewCompleteness.clear()
         clearDecodedImageCache()
         synchronized(zipLock) {
             anchorOffsets.clear()
@@ -1569,9 +1911,8 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
 
     private fun clearDecodedImageCache() {
         synchronized(zipLock) {
-            imageBitmapCache.values.toSet().forEach { bitmap ->
-                if (!bitmap.isRecycled) bitmap.recycle()
-            }
+            // A visible drawable or a sharpening job can still own these pixels.
+            // Eviction releases cache ownership; Bitmap lifetime belongs to its consumers.
             imageBitmapCache.clear()
         }
     }
@@ -1667,9 +2008,19 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
         // Build paragraph separators once. Repeated insert/delete on a 400K+ Spanned
         // relocates every following character and span thousands of times.
         val ssb = rebuildParagraphBreaks(text, spacingPx)
-        if (indentPx <= 0) return ssb
 
-        // ── 首行缩进：给每个段落添加 LeadingMarginSpan ──
+        // EPUB 正文常把首行缩进直接写成全角空格或 nbsp。先移除这些源文本空白，
+        // 否则它会和用户设置的 LeadingMarginSpan 叠加，造成固定多出两格左右。
+        data class ParagraphInfo(
+            val start: Int,
+            val end: Int,
+            val leadingWhitespaceEnd: Int,
+            val hasImage: Boolean,
+            val isHeading: Boolean,
+            val isChapterTitle: Boolean
+        )
+
+        val paragraphs = mutableListOf<ParagraphInfo>()
         val imageRanges = ssb.getSpans(
             0,
             ssb.length,
@@ -1686,6 +2037,7 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
             val isNewline = !isEnd && ssb[j] == '\n'
             if (isEnd || isNewline) {
                 if (paraStart < j) {
+                    val leadingWhitespaceEnd = buildLeadingWhitespaceEnd(ssb, paraStart, j)
                     while (imageRangeIndex < imageRanges.size &&
                         imageRanges[imageRangeIndex].last < paraStart
                     ) {
@@ -1701,17 +2053,41 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
                             ssb.subSequence(paraStart, j),
                             normalizedChapterTitle
                         )
-                    if (!hasImage) firstContentParagraphSeen = true
-                    if (!hasImage && !isHeading && !isChapterTitle) {
-                        ssb.setSpan(
-                            android.text.style.LeadingMarginSpan.Standard(indentPx, 0),
-                            paraStart, j,
-                            android.text.Spannable.SPAN_INCLUSIVE_INCLUSIVE
-                        )
-                        indentCount++
-                    }
+                    if (!hasImage && leadingWhitespaceEnd < j) firstContentParagraphSeen = true
+                    paragraphs += ParagraphInfo(
+                        start = paraStart,
+                        end = j,
+                        leadingWhitespaceEnd = leadingWhitespaceEnd,
+                        hasImage = hasImage,
+                        isHeading = isHeading,
+                        isChapterTitle = isChapterTitle
+                    )
                 }
                 paraStart = j + 1
+            }
+        }
+
+        // 倒序删除，保持尚未处理段落的索引有效。即使用户把缩进设为 0，
+        // 也必须执行这一步，才能清掉 EPUB 自带的段首空白。
+        paragraphs.asReversed().forEach { paragraph ->
+            val isBodyParagraph = !paragraph.hasImage &&
+                !paragraph.isHeading && !paragraph.isChapterTitle &&
+                paragraph.leadingWhitespaceEnd < paragraph.end
+            if (!isBodyParagraph) return@forEach
+
+            val whitespaceLength = paragraph.leadingWhitespaceEnd - paragraph.start
+            if (whitespaceLength > 0) {
+                ssb.delete(paragraph.start, paragraph.leadingWhitespaceEnd)
+            }
+
+            if (indentPx > 0) {
+                ssb.setSpan(
+                    android.text.style.LeadingMarginSpan.Standard(indentPx, 0),
+                    paragraph.start,
+                    paragraph.end - whitespaceLength,
+                    android.text.Spannable.SPAN_INCLUSIVE_INCLUSIVE
+                )
+                indentCount++
             }
         }
 
@@ -1722,6 +2098,25 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
 
         return ssb
     }
+
+    /** Test hook for the Canvas paragraph formatter; no parser/file state is required. */
+    internal fun formatParagraphFormattingForTest(
+        text: CharSequence,
+        chapterTitle: String = ""
+    ): CharSequence = applyParagraphFormatting(text, chapterTitle)
+
+    private fun buildLeadingWhitespaceEnd(
+        text: CharSequence,
+        start: Int,
+        end: Int
+    ): Int {
+        var index = start
+        while (index < end && text[index].isParagraphIndentWhitespace()) index++
+        return index
+    }
+
+    private fun Char.isParagraphIndentWhitespace(): Boolean =
+        this == ' ' || this == '\t' || this == '\u00A0' || this == '\u3000'
 
     private fun rebuildParagraphBreaks(
         text: CharSequence,
@@ -2378,7 +2773,10 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
             ((bytes[offset + 1].toInt() and 0xFF) shl 8) or
             ((bytes[offset + 2].toInt() and 0xFF) shl 16)
 
-    private fun htmlToSpanned(chapterIndex: Int, html: String, zipFile: ZipFile): Spanned {
+    private fun htmlToSpanned(
+        chapterIndex: Int, html: String, zipFile: ZipFile,
+        contentWidth: Int = this.contentWidth, contentHeight: Int = this.contentHeight
+    ): Spanned {
         val bodyContent = extractBody(html) ?: html
 
         // 出版社用 CSS/内联背景图做的装饰在阅读器排版里没有渲染路径，先把它还原成图片；
@@ -2411,7 +2809,8 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
         val withoutFootnoteBodies = stripReferencedFootnoteBodies(chapterIndex, alignment.html)
 
         // 注释引用图标（注释链接里的 <img>）是行内标记，必须保持行内。
-        val (inlineProtected, inlineImages) = protectInlineFootnoteImages(withoutFootnoteBodies)
+        val baselineNormalized = normalizeFootnoteMarkerBaseline(withoutFootnoteBodies)
+        val (inlineProtected, inlineImages) = protectInlineFootnoteImages(baselineNormalized)
 
         // Html.fromHtml 会丢弃 id/name。先插入不可见占位，转成 Spanned 后再移除并记录偏移。
         val withAnchorMarkers = insertAnchorMarkers(inlineProtected)
@@ -2455,6 +2854,10 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
             parsed
         }
         val fullPage = android.text.SpannableStringBuilder(pageContent)
+        normalizeFootnoteReferenceSpans(
+            fullPage,
+            synchronized(zipLock) { footnoteHrefs[chapterIndex].orEmpty().toSet() }
+        )
         val images = fullPage.getSpans(0, fullPage.length, android.text.style.ImageSpan::class.java)
         val hasVisibleText = fullPage.any { character ->
             !character.isWhitespace() && character != '\uFFFC'
@@ -2668,34 +3071,51 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
         override val isInlineFootnoteMarker: Boolean = false,
         /** 矢量图源码：非空时按 [drawWidth] × [drawHeight] 光栅化，而不是解码位图。 */
         private val vectorSource: ByteArray? = null
-    ) : Drawable(), InlineFootnoteMarkerDrawable {
+    ) : Drawable(), InlineFootnoteMarkerDrawable, ReaderImageTransparencyInfo, ReaderImagePixelSource {
+        override val hasAlphaChannel: Boolean by lazy {
+            val sourceEntry = entry
+            sourceEntry != null && runCatching {
+                synchronized(zipLock) {
+                    zipFile.getInputStream(sourceEntry).use(::pngHasAlphaChannel)
+                }
+            }.getOrDefault(false)
+        }
+
         private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
-        private var bitmapRef: WeakReference<Bitmap>? = null
-        private var decodeFailed = false
+        // Parser spans live in the chapter cache. Only a displayed image wrapper should
+        // pin pixels; otherwise every previously visited illustration stays resident.
+        private var bitmap: java.lang.ref.WeakReference<Bitmap>? = null
+        private var lastDecodeFailureNanos = 0L
 
         override fun draw(canvas: android.graphics.Canvas) {
-            val bitmap = bitmapRef?.get()
-                ?: imageBitmapCache[cacheKey]?.also { bitmapRef = WeakReference(it) }
+            val pixels = acquireReaderBitmap()
+            if (pixels != null) canvas.drawBitmap(pixels, null, bounds, paint)
+            else drawFailurePlaceholder(canvas)
+        }
+
+        override fun acquireReaderBitmap(): Bitmap? = synchronized(zipLock) {
+            bitmap?.get()?.takeUnless { it.isRecycled }
+                ?: imageBitmapCache[cacheKey]?.takeUnless { it.isRecycled }?.also {
+                    bitmap = java.lang.ref.WeakReference(it)
+                }
                 ?: loadBitmap()?.also {
-                    bitmapRef = WeakReference(it)
+                    bitmap = java.lang.ref.WeakReference(it)
                     if (it.allocationByteCount.toLong() <= IMAGE_BITMAP_CACHE_BYTES) {
                         imageBitmapCache.put(cacheKey, it)
                     }
                 }
-            if (bitmap != null && !bitmap.isRecycled) {
-                canvas.drawBitmap(bitmap, null, bounds, paint)
-            } else {
-                drawFailurePlaceholder(canvas)
-            }
         }
 
         private fun loadBitmap(): Bitmap? {
-            if (decodeFailed) return null
+            // Avoid hammering a closed/temporarily unavailable ZIP on every invalidation,
+            // while still allowing a later frame to recover the image.
+            val now = System.nanoTime()
+            if (now - lastDecodeFailureNanos < 250_000_000L) return null
             vectorSource?.let { markup ->
                 return try {
                     renderVectorBitmap(markup, drawWidth, drawHeight)
                 } catch (error: Throwable) {
-                    decodeFailed = true
+                    lastDecodeFailureNanos = now
                     android.util.Log.w("EpubParser", "Vector render failed: $cacheKey", error)
                     null
                 }
@@ -2718,7 +3138,7 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
                     }
                 }
             } catch (error: Throwable) {
-                decodeFailed = true
+                lastDecodeFailureNanos = now
                 android.util.Log.w("EpubParser", "Lazy image decode failed: ${sourceEntry.name}", error)
                 null
             }
@@ -2850,25 +3270,16 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
                 } else {
                     // 出版社给了尺寸（width="12%"、style="width:60px"）就按它排，
                     // 装饰小图不再被拉满正文列宽。
-                    sizeHints[source]?.resolveWidthPx(pageW, density) ?: pageW
+                    (sizeHints[source]?.resolveWidthPx(pageW, density) ?: pageW).coerceIn(1, pageW)
                 }
-                // 整页图（漫画页）按"正文列宽 × 列高"等比铺满，避免超出一页被拆开；
-                // 普通插图仍按宽度封顶、不放大。
-                val imageBounds = if (allowUpscale) {
-                    ReaderImageSizing.fitBounds(
-                        originalWidth = originalWidth,
-                        originalHeight = originalHeight,
-                        maxWidth = targetWidth,
-                        maxHeight = pageContentHeight
-                    )
-                } else {
-                    ReaderImageSizing.bounds(
-                        originalWidth,
-                        originalHeight,
-                        targetWidth,
-                        allowUpscale = false
-                    )
-                }
+                // Every paged illustration must fit its column, including multi-image chapters.
+                val imageBounds = ReaderImageSizing.bounds(
+                    originalWidth,
+                    originalHeight,
+                    targetWidth,
+                    allowUpscale = allowUpscale,
+                    contentHeight = if (isInlineMarker) 0 else pageContentHeight
+                )
                     ?: return createErrorPlaceholder("Invalid image dimensions: ${entry.name.take(60)}")
 
                 LazyEpubImageDrawable(
@@ -2900,17 +3311,11 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
             }
             val density = (context?.resources?.displayMetrics
                 ?: android.content.res.Resources.getSystem().displayMetrics).density
-            val targetWidth = sizeHints[source]?.resolveWidthPx(pageW, density) ?: pageW
-            val bounds = if (allowUpscale) {
-                ReaderImageSizing.fitBounds(
-                    originalWidth = intrinsic.width,
-                    originalHeight = intrinsic.height,
-                    maxWidth = targetWidth,
-                    maxHeight = pageContentHeight
-                )
-            } else {
-                ReaderImageSizing.bounds(intrinsic.width, intrinsic.height, targetWidth)
-            }
+            val targetWidth = (sizeHints[source]?.resolveWidthPx(pageW, density) ?: pageW).coerceIn(1, pageW)
+            val bounds = ReaderImageSizing.bounds(
+                intrinsic.width, intrinsic.height, targetWidth,
+                allowUpscale = allowUpscale, contentHeight = pageContentHeight
+            )
                 ?: return null
             return LazyEpubImageDrawable(
                 zipFile = zipFile,
@@ -3049,11 +3454,11 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
                     val marginPx = (38 * dm.density).toInt()
                     dm.widthPixels - marginPx * 2
                 }
-                val imageBounds = ReaderImageSizing.bounds(originalWidth, originalHeight, pageW)
+                val imageBounds = ReaderImageSizing.bounds(originalWidth, originalHeight, pageW,
+                    allowUpscale = allowUpscale, contentHeight = pageContentHeight)
                     ?: return null
-                val ratio = imageBounds.width.toFloat() / bitmap.width.coerceAtLeast(1)
                 val drawW = imageBounds.width
-                val drawH = (bitmap.height * ratio).toInt().coerceAtLeast(1)
+                val drawH = imageBounds.height
                 val drawable = BitmapDrawable(null, bitmap)
                 drawable.setBounds(0, 0, drawW, drawH)
                 return drawable
@@ -3094,89 +3499,32 @@ class EpubParser(private val context: Context? = null) : BookParser, BookRenderS
 
     private fun extractCover(zipFile: ZipFile, opfContent: String, sourceKey: String): String? {
         val ctx = context ?: return null
-
-        try {
-            val coverIdRegex = """<meta\s+name="cover"\s+content="([^"]+)"""".toRegex()
-            val coverId = coverIdRegex.find(opfContent)?.groupValues?.get(1)
-
-            val manifestRegex = """<manifest[^>]*>(.*?)</manifest>""".toRegex(RegexOption.DOT_MATCHES_ALL)
-            val manifestContent = manifestRegex.find(opfContent)?.groupValues?.get(1) ?: ""
-
-            var coverHref: String? = null
-
-            // 方式1：<meta name="cover" content="ID"> → 在 manifest 中按 id 找 href
-            if (coverId != null) {
-                coverHref = extractHrefById(manifestContent, coverId)
-            }
-
-            // 方式2：EPUB 3 — <item properties="cover-image" href="...">
-            if (coverHref == null) {
-                val r1 = """<item[^>]*\bproperties="[^"]*\bcover-image\b[^"]*"[^>]*\bhref="([^"]+)"""".toRegex(RegexOption.IGNORE_CASE)
-                val r2 = """<item[^>]*\bhref="([^"]+)"[^>]*\bproperties="[^"]*\bcover-image\b[^"]*"""".toRegex(RegexOption.IGNORE_CASE)
-                coverHref = r1.find(manifestContent)?.groupValues?.get(1)
-                    ?: r2.find(manifestContent)?.groupValues?.get(1)
-            }
-
-            // 方式3：manifest item 的 id 含 "cover"（属性顺序不限）
-            if (coverHref == null) {
-                val coverIdPattern = """<item\b[^>]*\bid="([^"]*cover[^"]*)"[^>]*>""".toRegex(RegexOption.IGNORE_CASE)
-                coverIdPattern.find(manifestContent)?.groupValues?.get(1)?.let { id ->
-                    coverHref = extractHrefById(manifestContent, id)
+        val packagePath = zipFile.name
+        return runCatching {
+            val epubPackage = EpubPackageReader.read(packagePath)
+            val candidates = EpubCoverCandidates.paths(epubPackage, opfContent) { path ->
+                findEntry(zipFile, path)?.let { entry ->
+                    zipFile.getInputStream(entry).bufferedReader().use { it.readText() }
                 }
             }
-
-            // 方式4：href 本身含 "cover" 且是图片
-            if (coverHref == null) {
-                """<item\b[^>]*\bhref="([^"]*cover[^"]*\.(?:jpg|jpeg|png|webp))"""".toRegex(RegexOption.IGNORE_CASE)
-                    .find(manifestContent)?.let { coverHref = it.groupValues[1] }
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            for (path in candidates) {
+                val entry = findEntry(zipFile, path) ?: continue
+                if (entry.size > MAX_IMAGE_RESOURCE_BYTES) continue
+                val bytes = zipFile.getInputStream(entry).use { it.readBytes() }
+                if (bytes.isEmpty() || bytes.size > MAX_IMAGE_RESOURCE_BYTES) continue
+                options.outWidth = 0
+                options.outHeight = 0
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                if (options.outWidth <= 0 || options.outHeight <= 0) continue
+                val coversDir = File(ctx.filesDir, "covers")
+                coversDir.mkdirs()
+                val coverFile = File(coversDir, "${sourceKey.hashCode()}.${path.substringAfterLast('.', "jpg").lowercase()}")
+                coverFile.writeBytes(bytes)
+                return@runCatching coverFile.absolutePath
             }
-
-            // 方式5：<meta name="cover"> 指向的是 HTML 章节，从该章节中提取第一张图片
-            if (coverHref == null && coverId != null) {
-                val htmlHref = extractHrefById(manifestContent, coverId)
-                if (htmlHref != null && (htmlHref.endsWith(".html", true) || htmlHref.endsWith(".xhtml", true) || htmlHref.endsWith(".htm", true))) {
-                    val htmlPath = if (basePath.isNotEmpty()) "$basePath/$htmlHref" else htmlHref
-                    val htmlEntry = findEntry(zipFile, htmlPath)
-                    if (htmlEntry != null) {
-                        val html = zipFile.getInputStream(htmlEntry).bufferedReader().readText()
-                        val imgSrc = """<img\b[^>]*\bsrc="([^"]+)"""".toRegex(RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1)
-                            ?: """xlink:href="([^"]+\.(?:jpg|jpeg|png|webp))"""".toRegex(RegexOption.IGNORE_CASE).find(html)?.groupValues?.get(1)
-                        if (imgSrc != null) {
-                            val imgPath = normalizePath(if (basePath.isNotEmpty()) "$basePath/$imgSrc" else imgSrc)
-                            if (findEntry(zipFile, imgPath) != null) coverHref = imgSrc
-                        }
-                    }
-                }
-            }
-
-            if (coverHref == null) {
-                zipFile.entries().toList().forEach { entry ->
-                    if (entry.name.contains("cover", ignoreCase = true) &&
-                        (entry.name.endsWith(".jpg", true) || entry.name.endsWith(".jpeg", true) ||
-                         entry.name.endsWith(".png", true) || entry.name.endsWith(".webp", true))) {
-                        coverHref = entry.name
-                        return@forEach
-                    }
-                }
-            }
-
-            val href = coverHref ?: return null
-
-            val fullPath = if (basePath.isNotEmpty()) "$basePath/$href" else href
-            val entry = findEntry(zipFile, fullPath) ?: return null
-            val bytes = zipFile.getInputStream(entry).readBytes()
-            if (bytes.isEmpty()) return null
-
-            val coversDir = File(ctx.filesDir, "covers")
-            coversDir.mkdirs()
-            val coverFile = File(coversDir, "${sourceKey.hashCode()}.jpg")
-            coverFile.writeBytes(bytes)
-
-            return coverFile.absolutePath
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return null
-        }
+            null
+        }.getOrNull()
     }
 
     override fun extractCoverPath(filePath: String): String? {
