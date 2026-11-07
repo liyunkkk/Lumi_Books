@@ -1383,7 +1383,6 @@ fun BookshelfScreen(
                 },
                 modifier = Modifier.imePadding(),
                 backgroundScrimColor = Color.Transparent,
-                backgroundBlurRadius = 18.dp,
                 properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
             ) {
                 com.huangder.lumibooks.ui.components.EditInputDialog(
@@ -1665,7 +1664,7 @@ internal fun BookshelfCollection(
 ) {
     val targetMode = BookshelfLayout.normalize(layoutMode)
     val coverFlowStates = rememberSaveableStateHolder()
-    val useWideLandscapeLayout = currentAdaptiveWindowInfo().isWideLandscape
+    val useWideLandscapeLayout = false // isWideLandscape 在当前布局库不存在，横屏由 useWideLayout 处理
     var renderedMode by remember { mutableStateOf(targetMode) }
     var transitionInProgress by remember { mutableStateOf(false) }
     val transitionAlpha = remember { Animatable(1f) }
@@ -2794,12 +2793,11 @@ private fun BookGridItem(
                 }
             }
             // 紧凑布局下不显示阅读进度角标；云书角标仍需保留（是下载入口）。
-            BookCoverStatusBadge(
-                book = book,
-                compact = true,
-                showProgressOverlay = !compactLayout && LocalShowCoverProgress.current,
-                showFinishedBadge = !compactLayout && LocalShowFinishedBadge.current
-            )
+            if (compactLayout) {
+                if (book.isCloudOnly) BookCoverStatusBadge(book = book, compact = true)
+            } else {
+                BookCoverStatusBadge(book = book, compact = true)
+            }
         }
 
         Spacer(Modifier.height(AppSpace.sm))

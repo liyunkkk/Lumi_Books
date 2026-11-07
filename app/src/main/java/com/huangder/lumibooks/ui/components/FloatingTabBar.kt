@@ -21,13 +21,12 @@ import com.huangder.lumibooks.ui.icons.IconPair
  * Source: https://github.com/Kyant0/AndroidLiquidGlass
  */
 
-import android.graphics.Paint
-import android.graphics.RectF
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import com.huangder.lumibooks.ui.animation.VisualMotion.spring
+import com.huangder.lumibooks.ui.animation.VisualMotion.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,18 +50,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.outlined.Settings
-import coil.compose.AsyncImage
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.material.icons.outlined.AccountCircle
-import androidx.compose.ui.draw.shadow
-import androidx.compose.material.icons.rounded.AutoStories
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.Leaderboard
-import androidx.compose.material.icons.rounded.TravelExplore
 import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
@@ -82,34 +69,21 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.unit.Dp
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import coil.request.ImageRequest
-
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.annotation.StringRes
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -143,7 +117,6 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import dev.chrisbanes.haze.HazeState
@@ -152,10 +125,16 @@ import dev.chrisbanes.haze.hazeChild
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sign
+import kotlinx.coroutines.launch
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountCircle
+import coil.compose.AsyncImage
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material3.Icon
 
 data class TabItem(
-    val selectedIcon: ImageVector,
-    val unselectedIcon: ImageVector,
+    val icons: IconPair,
     @StringRes val titleRes: Int,
     val testTag: String
 )
@@ -166,17 +145,15 @@ private val LiquidImportButtonReserve = 100.dp
 private val LiquidImportIconSize = 28.dp
 
 val tabs = listOf(
-    TabItem(Icons.Rounded.Home, Icons.Rounded.Home, R.string.home_title, "home_tab"),
-    TabItem(Icons.Rounded.AutoStories, Icons.Rounded.AutoStories, R.string.bookshelf_title, "bookshelf_tab"),
-    TabItem(Icons.Rounded.TravelExplore, Icons.Rounded.TravelExplore, R.string.discover_title, "discover_tab")
+    TabItem(AppIcons.HomeTab, R.string.home_title, "home_tab"),
+    TabItem(AppIcons.BookshelfTab, R.string.bookshelf_title, "bookshelf_tab"),
+    TabItem(AppIcons.StatisticsTab, R.string.statistics_title, "statistics_tab")
 )
 
 @Composable
 fun Material3BottomNavigationBar(
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit,
-    onOpenSettings: () -> Unit = {},
-    avatarUri: String? = null,
     modifier: Modifier = Modifier
 ) {
     NavigationBar(
@@ -203,31 +180,6 @@ fun Material3BottomNavigationBar(
                 alwaysShowLabel = true
             )
         }
-        NavigationBarItem(
-            modifier = Modifier.testTag("settings_tab"),
-            selected = false,
-            onClick = onOpenSettings,
-            icon = {
-                if (!avatarUri.isNullOrBlank()) {
-                    AsyncImage(
-                        model = rememberAvatarImageModel(avatarUri),
-                        contentDescription = stringResource(R.string.settings),
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Outlined.AccountCircle,
-                        contentDescription = stringResource(R.string.settings),
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            },
-            label = { Text(stringResource(R.string.settings), maxLines = 1) },
-            alwaysShowLabel = true
-        )
     }
 }
 
@@ -261,11 +213,6 @@ fun FloatingTabBar(
         maxOf(LiquidTabBarHeight, with(density) { labelHeightPx.toDp() } + 50.dp)
     } else 56.dp
     val accent = AppColors.Accent
-    val fallbackBorderBrush = if (isDark) {
-        SolidColor(Color.White.copy(alpha = 0.22f))
-    } else {
-        SolidColor(Color.White.copy(alpha = 0.58f))
-    }
     // Automatic backdrop sampling is intentionally disabled. PixelCopy and draw
     // observation both add work to every animated frame on affected devices.
     val adaptiveBackgroundIsDark = isDark
@@ -343,9 +290,9 @@ fun FloatingTabBar(
         }
     } ?: Modifier
     val liquidSurfaceColor = if (isDark) {
-        Color(0xFF121214).copy(alpha = 0.14f - transparency * 0.08f)
+        Color(0xFF121214).copy(alpha = 0.34f - transparency * 0.16f)
     } else {
-        Color(0xFFF7F9FC).copy(alpha = 0.08f - transparency * 0.05f)
+        Color.White.copy(alpha = 0.38f - transparency * 0.20f)
     }
     val tabsBackdrop = rememberLayerBackdrop()
     val combinedTabsBackdrop = if (isLiquidGlass && liquidGlassBackdrop != null) {
@@ -446,14 +393,12 @@ fun FloatingTabBar(
             // Tabs always run top to bottom on the rail; only the horizontal bar mirrors for RTL.
             val isLtr = vertical || LocalLayoutDirection.current == LayoutDirection.Ltr
             var currentIndex by remember { mutableIntStateOf(selectedIndex) }
-            var pointerPosition by remember { mutableStateOf(Offset.Zero) }
             val dragState = remember(animationScope, indicatorWidthPx, motionEnabled) {
-                LiquidGlassDampedMotionState(
+                LiquidGlassTabMotionState(
                     animationScope = animationScope,
                     initialValue = selectedIndex.toFloat(),
                     valueRange = 0f..tabs.lastIndex.toFloat(),
-                    motionEnabled = motionEnabled,
-                    pressedScale = 78f / 56f
+                    motionEnabled = motionEnabled
                 )
             }
             val panelOffsetAnimation = remember(animationScope, motionEnabled) { Animatable(0f) }
@@ -501,66 +446,24 @@ fun FloatingTabBar(
                 if (selectedIndex != currentIndex) {
                     currentIndex = selectedIndex
                     if (abs(dragState.targetValue - selectedIndex.toFloat()) > 0.001f) {
-                        dragState.syncToValue(selectedIndex.toFloat())
+                        dragState.animateToValue(selectedIndex.toFloat())
                     }
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(
-                        if (isLiquidGlass) {
-                            Modifier.liquidGlassTabDrag(
-                                state = dragState,
-                                onDragStart = { position ->
-                                    pointerPosition = position
-                                    panelDragDistancePx = 0f
-                                    panelOffsetTargetPx = 0f
-                                },
-                                onPointerMove = { position ->
-                                    pointerPosition = position
-                                },
-                                onDrag = { dragAmount ->
-                                    val direction = if (isLtr) 1f else -1f
-                                    dragState.dragTo(
-                                        dragState.targetValue +
-                                            dragAmount.x / indicatorWidthPx * direction
-                                    )
-                                    panelDragDistancePx += dragAmount.x
-                                    panelOffsetTargetPx = dampedTabPanelOffset(
-                                        dragDistancePx = panelDragDistancePx,
-                                        panelWidthPx = contentWidthPx,
-                                        maxOffsetPx = with(density) { 4.dp.toPx() }
-                                    )
-                                },
-                                onDragEnd = { dragged ->
-                                    val target = if (dragged) {
-                                        projectedTabTarget(
-                                            currentValue = dragState.targetValue,
-                                            velocity = dragState.velocity,
-                                            lastIndex = tabs.lastIndex
-                                        )
-                                    } else {
-                                        currentIndex
-                                    }
-                                    dragState.settleTo(target.toFloat())
-                                    panelOffsetTargetPx = 0f
-                                    if (target != currentIndex) {
-                                        currentIndex = target
-                                        currentOnTabSelected(target)
-                                    }
-                                },
-                                onDragCancel = {
-                                    dragState.cancelInteraction(currentIndex.toFloat())
-                                    panelOffsetTargetPx = 0f
-                                }
-                            )
-                        } else {
-                            Modifier
-                        }
-                    )
-            ) {
+            val settleTabDrag: () -> Unit = {
+                val target = dragState.targetValue.roundToInt().coerceIn(0, tabs.lastIndex)
+                dragState.animateToValue(target.toFloat())
+                animationScope.launch {
+                    panelOffsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+                }
+                if (target != currentIndex) {
+                    currentIndex = target
+                    currentOnTabSelected(target)
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -575,149 +478,29 @@ fun FloatingTabBar(
                         scaleX = scale
                         scaleY = scale
                     }
-            ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .drawBehind {
-                        val cornerRadius = size.height / 2f
-                        // 1. 底层大范围柔和弥散阴影（带轻微垂直偏移，赋予玻璃浮空厚度）
-                        val ambientPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                            color = Color.White.copy(alpha = 0.01f).toArgb()
-                            setShadowLayer(
-                                26.dp.toPx(),
-                                0f,
-                                if (isLiquidGlass) 5.dp.toPx() else 3.dp.toPx(),
-                                if (isDark) Color.Black.copy(alpha = 0.40f).toArgb()
-                                else Color(0xFF1A2233).copy(alpha = 0.13f).toArgb()
-                            )
-                        }
-                        // 2. 近景接触轮廓阴影（增强收紧感）
-                        val contactPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                            color = Color.White.copy(alpha = 0.01f).toArgb()
-                            setShadowLayer(
-                                8.dp.toPx(),
-                                0f,
-                                2.dp.toPx(),
-                                if (isDark) Color.Black.copy(alpha = 0.25f).toArgb()
-                                else Color(0xFF1A2233).copy(alpha = 0.07f).toArgb()
-                            )
-                        }
-                        drawIntoCanvas { canvas ->
-                            val rect = RectF(0f, 0f, size.width, size.height)
-                            canvas.nativeCanvas.drawRoundRect(rect, cornerRadius, cornerRadius, ambientPaint)
-                            canvas.nativeCanvas.drawRoundRect(rect, cornerRadius, cornerRadius, contactPaint)
-                        }
-                    }
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
                     .then(
                         if (isLiquidGlass && liquidGlassBackdrop != null) Modifier
                         else Modifier.clip(glassShape)
                     )
                     .then(outerGlassModifier)
-                    .border(width = if (isLiquidGlass) 1.dp else 0.8.dp, brush = borderBrush, shape = glassShape)
+                    .then(outerOutlineModifier)
+                    .then(if (isLiquidGlass) interactiveHighlight.modifier else Modifier)
+            ) {
+            // A translucent tonal veil keeps the bar readable over changing content;
+            // the prism remains a separate, brighter layer above it.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(glassShape)
+                    .background(
+                        tabMaskColor.copy(
+                            alpha = (
+                                (if (isLiquidGlass) 0.30f else 0.20f) * (1f - toneProgress) +
+                                    (if (isLiquidGlass) 0.24f else 0.16f) * toneProgress
+                                )
+                        )
+                    )
             )
-
-            if (isLiquidGlass && liquidGlassBackdrop != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(glassShape)
-                        .drawBehind {
-                            val progress = dragState.pressProgress
-                            if (progress > 0f) {
-                                val barScale = if (motionEnabled) {
-                                    1f + 0.014f * progress
-                                } else {
-                                    1f
-                                }
-                                // Counter the bar's visual scale so the rendered glow
-                                // remains exactly beneath the physical pointer.
-                                val center = Offset(
-                                    x = size.width / 2f +
-                                        (pointerPosition.x - size.width / 2f) / barScale,
-                                    y = size.height / 2f +
-                                        (pointerPosition.y - size.height / 2f) / barScale
-                                )
-                                val radius = size.minDimension * 1.8f
-                                drawCircle(
-                                    brush = Brush.radialGradient(
-                                        colors = listOf(
-                                            Color.White.copy(alpha = 0.28f * progress),
-                                            Color.White.copy(alpha = 0.09f * progress),
-                                            Color.Transparent
-                                        ),
-                                        center = center,
-                                        radius = radius
-                                    ),
-                                    radius = radius,
-                                    center = center,
-                                    blendMode = BlendMode.Plus
-                                )
-                            }
-                        }
-                )
-            }
-
-            if (isLiquidGlass) {
-                // 顶部晶莹反光弧（纯高光无实底，确保 100% 澄澈通透不遮挡底层）
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(glassShape)
-                        .background(
-                            if (isDark) {
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.06f),
-                                        Color.Transparent
-                                    ),
-                                    startY = 0f,
-                                    endY = 40f
-                                )
-                            } else {
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = 0.16f),
-                                        Color.White.copy(alpha = 0.02f),
-                                        Color.Transparent
-                                    ),
-                                    startY = 0f,
-                                    endY = 50f
-                                )
-                            }
-                        )
-                        .border(
-                            width = 0.8.dp,
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = if (isDark) 0.35f else 0.70f),
-                                    Color.White.copy(alpha = if (isDark) 0.10f else 0.20f),
-                                    Color.Transparent
-                                )
-                            ),
-                            shape = glassShape
-                        )
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(glassShape)
-                        .background(
-                            tabMaskColor.copy(
-                                alpha = (
-                                    0.20f * (1f - toneProgress) +
-                                        0.16f * toneProgress
-                                )
-                            )
-                        )
-                )
-            }
 
             FixedTabItems(
                 currentIndex = currentIndex,
@@ -735,6 +518,7 @@ fun FloatingTabBar(
                 interactive = true,
                 vertical = vertical
             )
+            }
 
             if (isLiquidGlass && liquidGlassBackdrop != null) {
                 Box(
@@ -769,8 +553,10 @@ fun FloatingTabBar(
                                     )
                                 }
                             },
+                            highlight = null,
                             onDrawSurface = { drawRect(liquidSurfaceColor) }
                         )
+                        .then(interactiveHighlight.modifier)
                 ) {
                     FixedTabItems(
                         currentIndex = currentIndex,
@@ -848,9 +634,7 @@ fun FloatingTabBar(
                                 )
                             }
                         },
-                        highlight = {
-                            Highlight.Default.copy(alpha = dragState.pressProgress)
-                        },
+                        highlight = null,
                         shadow = {
                             Shadow(alpha = dragState.pressProgress)
                         },
@@ -894,7 +678,6 @@ fun FloatingTabBar(
                 )
             }
 
-            }
             }
             }
     }
@@ -1008,33 +791,207 @@ fun LumiImportFab(
     }
 }
 
-internal fun projectedTabTarget(
-    currentValue: Float,
-    velocity: Float,
-    lastIndex: Int,
-    projectionSeconds: Float = 0.18f
-): Int = (currentValue + velocity * projectionSeconds)
-    .roundToInt()
-    .coerceIn(0, lastIndex)
-
 internal fun dampedTabPanelOffset(
     dragDistancePx: Float,
     panelWidthPx: Float,
     maxOffsetPx: Float
 ): Float {
     if (panelWidthPx <= 0f || maxOffsetPx <= 0f) return 0f
-    val fraction = (abs(dragDistancePx) / panelWidthPx).coerceIn(0f, 1f)
-    val easedFraction = 1f - (1f - fraction) * (1f - fraction)
-    return maxOffsetPx * dragDistancePx.sign * easedFraction
+    val fraction = (dragDistancePx / panelWidthPx).coerceIn(-1f, 1f)
+    return maxOffsetPx * fraction.sign * EaseOut.transform(abs(fraction))
 }
 
-internal fun equalEdgePrismScaleX(
-    scaleY: Float,
-    widthPx: Float,
-    heightPx: Float
-): Float {
-    if (widthPx <= 0f) return 1f
-    return 1f + (scaleY - 1f) * (heightPx / widthPx)
+@Composable
+fun LiquidGlassImportButton(
+    onClick: () -> Unit,
+    liquidGlassBackdrop: Backdrop,
+    modifier: Modifier = Modifier
+) {
+    val isDark = LocalIsDarkTheme.current
+    val transparency = LocalLiquidGlassTransparency.current
+    val baseSurfaceAlpha = if (isDark) {
+        0.34f - transparency * 0.16f
+    } else {
+        0.38f - transparency * 0.20f
+    }
+    val maskAlpha = if (isDark) 0.24f else 0.30f
+    val combinedSurfaceAlpha = 1f - (1f - baseSurfaceAlpha) * (1f - maskAlpha)
+    val surfaceColor = if (isDark) {
+        Color.Black.copy(alpha = combinedSurfaceAlpha)
+    } else {
+        Color.White.copy(alpha = combinedSurfaceAlpha)
+    }
+    val contentColor = if (isDark) Color.White.copy(alpha = 0.92f) else Color(0xFF17171A)
+
+    LiquidGlassSurface(
+        controlEdge = true,
+        shape = CircleShape,
+        fallbackColor = if (isDark) Color(0xFF121214) else Color.White,
+        backdrop = liquidGlassBackdrop,
+        contentScrimColor = surfaceColor,
+        // Match the action button to the tab bar's 64dp glass space and optical rim.
+        modifier = modifier.size(LiquidTabBarHeight),
+        onClick = onClick,
+        contentAlignment = Alignment.Center
+    ) {
+        ControlIcon(
+            imageVector = AppIcons.Plus,
+            contentDescription = stringResource(R.string.import_books),
+            tint = contentColor,
+            modifier = Modifier.size(LiquidImportIconSize)
+        )
+    }
+}
+
+@Composable
+private fun FixedTabItems(
+    currentIndex: Int,
+    contentPadding: androidx.compose.ui.unit.Dp,
+    contentColor: Color,
+    selectedContentColor: Color,
+    onTabSelected: (Int) -> Unit,
+    liquidGlass: Boolean = true,
+    interactive: Boolean = true,
+    vertical: Boolean = false,
+    itemScale: () -> Float = { 1f },
+    modifier: Modifier = Modifier
+) {
+    val item: @Composable (index: Int, tab: TabItem, itemModifier: Modifier) -> Unit = { index, tab, itemModifier ->
+        TabItemView(
+            tab = tab,
+            isSelected = index == currentIndex,
+            liquidGlass = liquidGlass,
+            contentColor = contentColor,
+            selectedContentColor = selectedContentColor,
+            interactive = interactive,
+            vertical = vertical,
+            itemScale = itemScale,
+            onClick = { onTabSelected(index) },
+            modifier = itemModifier
+        )
+    }
+    if (vertical) {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(vertical = contentPadding),
+            verticalArrangement = Arrangement.SpaceEvenly,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            tabs.forEachIndexed { index, tab -> item(index, tab, Modifier.weight(1f)) }
+        }
+    } else {
+        Row(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = contentPadding),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            tabs.forEachIndexed { index, tab -> item(index, tab, Modifier.weight(1f)) }
+        }
+    }
+}
+
+@Composable
+private fun TabItemView(
+    tab: TabItem,
+    isSelected: Boolean,
+    liquidGlass: Boolean,
+    contentColor: Color,
+    selectedContentColor: Color,
+    interactive: Boolean = true,
+    vertical: Boolean = false,
+    itemScale: () -> Float = { 1f },
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (liquidGlass) {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                // Inset across the bar, matching the prism's 4dp gutter on either axis.
+                .then(if (vertical) Modifier.padding(horizontal = 5.dp) else Modifier.padding(vertical = 5.dp))
+                .clip(CircleShape)
+                .semantics {
+                    role = Role.Tab
+                    selected = isSelected
+                    if (interactive) testTagsAsResourceId = true
+                    onClick {
+                        onClick()
+                        true
+                    }
+                }
+                .then(if (interactive) Modifier.testTag(tab.testTag) else Modifier)
+                .then(
+                    if (interactive) {
+                        Modifier.clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { onClick() }
+                    } else {
+                        Modifier
+                    }
+                )
+                .graphicsLayer {
+                    val scale = itemScale()
+                    scaleX = scale
+                    scaleY = scale
+                },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            ControlIcon(
+                imageVector = tab.icons.resolve(isSelected),
+                contentDescription = stringResource(tab.titleRes),
+                tint = if (isSelected) selectedContentColor else contentColor,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(Modifier.height(2.dp))
+            androidx.compose.material3.Text(
+                text = stringResource(tab.titleRes),
+                color = if (isSelected) selectedContentColor else contentColor,
+                fontSize = AppType.Caption2,
+                fontWeight = FontWeight.Medium,
+                lineHeight = 13.sp,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 1
+            )
+        }
+        return
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clip(AppRoundedCornerShape(16.dp))
+            .semantics { testTagsAsResourceId = true }
+            .testTag(tab.testTag)
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(AppRoundedCornerShape(12.dp))
+                .background(
+                    if (isSelected) AppColors.Accent.copy(alpha = 0.16f)
+                    else Color.Transparent
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            ControlIcon(
+                imageVector = tab.icons.resolve(isSelected),
+                contentDescription = null,
+                tint = if (isSelected) selectedContentColor else contentColor,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
 }
 
 @Composable
