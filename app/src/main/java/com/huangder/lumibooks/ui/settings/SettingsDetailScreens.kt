@@ -265,7 +265,7 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
     LaunchedEffect(Unit) { viewModel.refreshInstalledTtsEngines() }
     ReplaceRulesManagerCard()
     Spacer(Modifier.height(12.dp))
-    TxtTocRulesManagerCard(viewModel)
+    TxtTocRulesManagerRow(viewModel)
     Spacer(Modifier.height(12.dp))
     val selectionRanges = listOf(
         LongPressSelectionRange.PARAGRAPH to stringResource(R.string.selection_range_paragraph),
@@ -910,6 +910,7 @@ private fun ReplaceRulesManagerCard() {
     }
 }
 
+@Composable
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun TxtTocRulesManagerRow(viewModel: SettingsViewModel) {
     val context = LocalContext.current
@@ -3639,6 +3640,7 @@ private fun pinAppWidget(context: Context, providerClass: Class<*>) {
     }
 }
 
+@Composable
 internal fun SettingsNavigationRow(
     label: String,
     supportingText: String? = null,

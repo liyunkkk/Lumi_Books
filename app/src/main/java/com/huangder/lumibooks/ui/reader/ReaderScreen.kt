@@ -342,6 +342,7 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import coil.load
 import android.text.Spanned
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 private data class ReaderLinkLocation(
     val chapterIndex: Int,
@@ -5335,7 +5336,6 @@ fun ReaderScreen(
             val fresh = if (isBookLayout) null else readViewRef.value?.getSelectionInfo()
             val text = fresh?.selectedText ?: selectionState?.selectedText
             selectionState = null
-            showHighlightColorPicker = false
             clearActiveTextSelection()
             if (!text.isNullOrBlank()) {
                 purifyDialogText = text
@@ -8509,12 +8509,12 @@ internal fun ContinuousScrollReader(
                         bottom = itemChapterGap
                     )
             ) {
-                val chapterImages = remember(chapterIndex, chapterText) {
-                    extractChapterImages(chapterText)
+                val chapterImages = remember(chapterIndex, selectableText) {
+                    extractChapterImages(selectableText)
                 }
                 val hasImages = chapterImages.isNotEmpty()
                 val isComic = if (hasImages) {
-                    comicModeEnabled || isPureImageChapter(chapterText, chapterImages)
+                    comicModeEnabled || isPureImageChapter(selectableText, chapterImages)
                 } else {
                     false
                 }

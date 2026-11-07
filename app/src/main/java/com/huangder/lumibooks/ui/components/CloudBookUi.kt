@@ -152,30 +152,15 @@ fun CloudAwareBookDeleteDialog(
 fun BookCoverStatusBadge(
     book: Book,
     modifier: Modifier = Modifier,
-    compact: Boolean = false,
-    showProgressOverlay: Boolean = LocalShowCoverProgress.current,
-    showFinishedBadge: Boolean = LocalShowFinishedBadge.current,
-    showReadingProgress: Boolean = true,
-    badgeCornerRadius: Dp = if (compact) 6.dp else 8.dp
+    compact: Boolean = false
 ) {
-    // 合并后：上游的 LocalCoverReadingProgressEnabled 为总开关，fork 的本地开关继续生效。
-    val downloading = downloadState as? BookDownloadState.Downloading
-    val progress = downloading?.progress ?: book.readingProgress
-        .takeIf { it.isFinite() }
-        ?.coerceIn(0f, 1f)
-        .orEmptyProgress()
-    val showProgress = showProgressOverlay &&
-        LocalCoverReadingProgressEnabled.current &&
-        (downloading != null || (showReadingProgress && progress > 0f && !book.isCloudOnly))
-    val showFinished = showFinishedBadge &&
-        LocalCoverReadingProgressEnabled.current &&
-        downloading == null &&
-        showReadingProgress &&
-        !book.isCloudOnly &&
-        book.isReadingFinished
-
-    Box(modifier = modifier.fillMaxSize()) {
-        if (book.isCloudOnly && downloading == null) {
+    if (book.isCloudOnly) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(if (compact) 5.dp else 7.dp),
+            contentAlignment = Alignment.BottomEnd
+        ) {
             Box(
                 modifier = Modifier
                     .size(if (compact) 24.dp else 30.dp)
