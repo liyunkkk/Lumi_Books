@@ -39,7 +39,7 @@ android {
         applicationId = "com.huangder.lumibooks"
         minSdk = 26
         targetSdk = 37
-        versionCode = 23
+        versionCode = 26
         versionName = "2.3.11"
 
         buildConfigField("boolean", "DIAGNOSTIC_BUILD", "false")
