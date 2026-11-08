@@ -986,6 +986,76 @@ fun MainNavGraph(
                 }
             }
 
+            // ── fork 自有独立路由：Search / Discover / Statistics ──
+            // 2.3.10 合并时误删，导致发现页搜索闪退
+            // (Navigation destination that matches route search cannot be found)。
+            composable(
+                route = Screen.Search.route,
+                arguments = listOf(
+                    navArgument("initialQuery") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                ),
+                enterTransition = { if (eInkMode) EnterTransition.None else null },
+                exitTransition = { if (eInkMode) ExitTransition.None else null },
+                popEnterTransition = { if (eInkMode) EnterTransition.None else null },
+                popExitTransition = { if (eInkMode) ExitTransition.None else null }
+            ) { backStackEntry ->
+                val initialQuery = backStackEntry.arguments?.getString("initialQuery")
+                SearchScreen(
+                    initialQuery = initialQuery,
+                    onBack = { navController.popBackStack() },
+                    onOpenBook = { bookId, coverUrl, title ->
+                        requestOpenBook(bookId, coverUrl, title)
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.Discover.route,
+                enterTransition = { if (eInkMode) EnterTransition.None else null },
+                exitTransition = { if (eInkMode) ExitTransition.None else null },
+                popEnterTransition = { if (eInkMode) EnterTransition.None else null },
+                popExitTransition = { if (eInkMode) ExitTransition.None else null }
+            ) { _ ->
+                DiscoveryScreen(
+                    initialSearchQuery = pendingDiscoverSearchQuery,
+                    onInitialSearchQueryConsumed = { pendingDiscoverSearchQuery = null },
+                    onNavigateToSearch = { initialQuery ->
+                        navController.navigate(Screen.Search.createRoute(initialQuery))
+                    },
+                    onSearchInBookshelf = { query ->
+                        selectTab(1)
+                        pendingBookshelfSearchQuery = query
+                    },
+                    onOpenBook = { bookId, coverUrl, title ->
+                        requestOpenBook(bookId, coverUrl, title)
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.Statistics.route,
+                enterTransition = { if (eInkMode) EnterTransition.None else null },
+                exitTransition = { if (eInkMode) ExitTransition.None else null },
+                popEnterTransition = { if (eInkMode) EnterTransition.None else null },
+                popExitTransition = { if (eInkMode) ExitTransition.None else null }
+            ) { backStackEntry ->
+                val playEntranceAnimation = rememberPageEntrancePlayback(
+                    pageKey = Screen.Statistics.route,
+                    entryKey = backStackEntry.id,
+                    enabled = entranceAnimationsEnabled,
+                    tracker = entranceTracker
+                )
+                StatisticsScreen(
+                    playEntranceAnimation = playEntranceAnimation,
+                    onBack = { navController.popBackStack() },
+                    onMessage = { transientMessage = it }
+                )
+            }
+
             composable(
                 route = Screen.Reader.route,
                 arguments = listOf(navArgument("bookId") { type = NavType.StringType }),
