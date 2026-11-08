@@ -4523,6 +4523,15 @@ fun ReaderScreen(
                 currentAnchor = uiState.currentTocAnchor,
                 bookmarks = bookmarks,
                 chapterTitles = uiState.chapterTitles,
+                onRefreshChapters = if (uiState.book?.filePath?.startsWith(
+                        com.huangder.lumibooks.util.parser.OnlineBookParser.SCHEME
+                    ) == true
+                ) {
+                    { viewModel.refreshCurrentOnlineBook() }
+                } else {
+                    null
+                },
+                isRefreshingChapters = isRefreshingOnlineBook,
                 onChapterSelected = { entry ->
                     scope.launch {
                         val target = viewModel.resolveTocTarget(
@@ -6605,10 +6614,16 @@ private fun ReaderTopBar(
             add(LiquidGlassMenuItem(stringResource(R.string.reader_txt_toc_rule), AppIcons.Gear) { onTocRuleClick() })
         }
     }
+    // 右侧竖排按钮数：听书 + 书签 + 净化 + (在线书: 换源 + 刷新) + (文本格式: 更多)。
+    // 容器高度按实际数量计算，否则 5 个按钮时第 4/5 个会被截到容器外互相重叠。
+    val sideActionCount = 3 +
+        (if (isOnlineBook) 2 else 0) +
+        (if (bookFormat in setOf("TXT", "EPUB", "MOBI", "MARKDOWN")) 1 else 0)
+    val sideRailHeight = 42.dp + 36.dp * sideActionCount + 10.dp * (sideActionCount - 1) + 8.dp
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height((82 + 3 * 46).dp)
+            .height(maxOf((82 + 3 * 46).dp, sideRailHeight))
     ) {
         if (!isLiquidGlass) {
             Box(
@@ -9089,6 +9104,8 @@ private fun TocSheet(
     onEditBookmarkRemark: (com.huangder.lumibooks.domain.model.Bookmark, String, List<String>) -> Unit = { _, _, _ -> },
     onCreateTag: (suspend (String) -> Unit)? = null,
     onEditBookmarkTags: (com.huangder.lumibooks.domain.model.Bookmark) -> Unit,
+    onRefreshChapters: (() -> Unit)? = null,
+    isRefreshingChapters: Boolean = false,
     onDismiss: () -> Unit
 ) {
     // Keep fold choices while this book's reader remains open, including across sheet reopens.
@@ -9238,6 +9255,19 @@ private fun TocSheet(
         ) {
             // 标题栏
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // 刷新最新章节：仅在线书提供，放在目录面板左上角
+                if (onRefreshChapters != null) {
+                    LiquidGlassIconButton(
+                        imageVector = AppIcons.ArrowClockwise,
+                        contentDescription = "刷新最新章节",
+                        onClick = { if (!isRefreshingChapters) onRefreshChapters.invoke() },
+                        size = 44.dp,
+                        iconSize = 20.dp,
+                        contentColor = if (isRefreshingChapters) AppColors.Accent else AppColors.TextPrimary,
+                        normalContainerColor = LightBgGray
+                    )
+                    Spacer(Modifier.width(10.dp))
+                }
                 Text(
                     text = stringResource(R.string.reader_toc),
                     fontSize = 20.sp,
