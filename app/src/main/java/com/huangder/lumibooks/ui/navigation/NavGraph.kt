@@ -1054,7 +1054,6 @@ fun MainNavGraph(
                 )
                 StatisticsScreen(
                     playEntranceAnimation = playEntranceAnimation,
-                    onBack = { navController.popBackStack() },
                     onMessage = { transientMessage = it }
                 )
             }
