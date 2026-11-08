@@ -3019,7 +3019,7 @@ private fun ReaderScreenContent(
     // NavHost keeps the outgoing reader composed during pop animations; it must not
     // overwrite the home screen's system-bar style after navigation has switched.
 
-    // 拆分支持：共享状态打包给两个 section（直接赋值，不进 lambda）
+    // 拆分支持：共享状态打包给两个 section
     val readerRefs = ReaderScreenRefs()
     readerRefs.activeReaderGlassBackdrop = activeReaderGlassBackdrop
     readerRefs.annotationTagState = annotationTagState
@@ -3031,6 +3031,8 @@ private fun ReaderScreenContent(
     readerRefs.autoReadingOriginalWritingMode = autoReadingOriginalWritingMode
     readerRefs.autoReadingPaused = autoReadingPaused
     readerRefs.availableAnnotationTags = availableAnnotationTags
+    readerRefs.beginManualReaderNavigation = ::beginManualReaderNavigation
+    readerRefs.bookId = bookId
     readerRefs.bookLayoutSpreadEligible = bookLayoutSpreadEligible
     readerRefs.bookmarkExitAlphaAnimation = bookmarkExitAlphaAnimation
     readerRefs.bookmarkExitOffsetAnimation = bookmarkExitOffsetAnimation
@@ -3050,6 +3052,7 @@ private fun ReaderScreenContent(
     readerRefs.catalogProgressColor = catalogProgressColor
     readerRefs.changeSourceList = changeSourceList
     readerRefs.clearActiveTextSelection = clearActiveTextSelection
+    readerRefs.clearCancelledEpubNavigation = ::clearCancelledEpubNavigation
     readerRefs.completeReaderExit = completeReaderExit
     readerRefs.composeBgColor = composeBgColor
     readerRefs.context = context
@@ -3063,6 +3066,7 @@ private fun ReaderScreenContent(
     readerRefs.dictionaryAppOptions = dictionaryAppOptions
     readerRefs.dictionaryLookupText = dictionaryLookupText
     readerRefs.dismissReaderImagePreview = dismissReaderImagePreview
+    readerRefs.dismissSelectionMenu = ::dismissSelectionMenu
     readerRefs.eInkMode = eInkMode
     readerRefs.editingNote = editingNote
     readerRefs.editorAutomaticTextColorInt = editorAutomaticTextColorInt
@@ -3108,6 +3112,7 @@ private fun ReaderScreenContent(
     readerRefs.isSearchingSources = isSearchingSources
     readerRefs.isSelectionDragging = isSelectionDragging
     readerRefs.isVerticalWriting = isVerticalWriting
+    readerRefs.jumpToContinuousChapter = ::jumpToContinuousChapter
     readerRefs.lineGuideAvailable = lineGuideAvailable
     readerRefs.linkReturnLocation = linkReturnLocation
     readerRefs.linkReturnToken = linkReturnToken
@@ -3134,6 +3139,7 @@ private fun ReaderScreenContent(
     readerRefs.purifyDialogText = purifyDialogText
     readerRefs.purifyRulesLauncher = purifyRulesLauncher
     readerRefs.readViewRef = readViewRef
+    readerRefs.readerActive = readerActive
     readerRefs.readerGlassContentScrim = readerGlassContentScrim
     readerRefs.readerImagePreview = readerImagePreview
     readerRefs.readerImagePreviewProgress = readerImagePreviewProgress
@@ -3156,6 +3162,7 @@ private fun ReaderScreenContent(
     readerRefs.requestCloseToc = requestCloseToc
     readerRefs.requestTtsStart = requestTtsStart
     readerRefs.requestWriteSettingsPermission = requestWriteSettingsPermission
+    readerRefs.resetSelectionSubmenus = ::resetSelectionSubmenus
     readerRefs.returnToLinkedSource = returnToLinkedSource
     readerRefs.returnToTtsProgress = returnToTtsProgress
     readerRefs.scope = scope
@@ -3167,6 +3174,7 @@ private fun ReaderScreenContent(
     readerRefs.showAdvancedSheet = showAdvancedSheet
     readerRefs.showChangeSourceDialog = showChangeSourceDialog
     readerRefs.showDictionaryAppPicker = showDictionaryAppPicker
+    readerRefs.showExcerpt = ::showExcerpt
     readerRefs.showHighlightRules = showHighlightRules
     readerRefs.showMenuSettings = showMenuSettings
     readerRefs.showNoteInput = showNoteInput
@@ -3183,6 +3191,7 @@ private fun ReaderScreenContent(
     readerRefs.sideRailItemSize = sideRailItemSize
     readerRefs.sideRailItemWidth = sideRailItemWidth
     readerRefs.startTtsFromCurrentPage = startTtsFromCurrentPage
+    readerRefs.stopAutoReading = ::stopAutoReading
     readerRefs.submitEpubNavigation = submitEpubNavigation
     readerRefs.submitSearch = submitSearch
     readerRefs.supportsBookLayout = supportsBookLayout
@@ -3197,10 +3206,8 @@ private fun ReaderScreenContent(
     readerRefs.txtEditorLauncher = txtEditorLauncher
     readerRefs.uiState = uiState
     readerRefs.useSideReaderMenu = useSideReaderMenu
-    readerRefs.visibleEpubNavigationId = visibleEpubNavigationId
     readerRefs.viewModel = viewModel
-    readerRefs.bookId = bookId
-    readerRefs.readerActive = readerActive
+    readerRefs.visibleEpubNavigationId = visibleEpubNavigationId
     readerRefs.captureReaderLocation = { c, p, l, f -> captureReaderLocation(c, p, l, f) }
     readerRefs.captureReaderLocationHere = { captureReaderLocation() }
     androidx.compose.runtime.CompositionLocalProvider(LocalReaderScreenRefs provides readerRefs) {
@@ -4208,8 +4215,6 @@ private fun ReaderScreenContent(
 }
 }
 }
-}
-
 }
 
 }
@@ -7883,6 +7888,7 @@ internal fun extractChapterImages(chapterText: CharSequence?): List<String> {
                 "data-src" -> foundDataSrc = attrVal
                 "src" -> foundSrc = attrVal
             }
+        }
         val bestUrl = listOf(foundDataOriginal, foundDataSrc, foundSrc).firstOrNull { candidate ->
             candidate.isNotBlank() && !candidate.startsWith("data:image") && !candidate.endsWith("loading.gif", ignoreCase = true)
         } ?: foundSrc
@@ -11863,7 +11869,6 @@ private fun rememberReaderWindowLifecycle(
     return requestWriteSettingsPermission
 }
 
-
 private class ReaderScreenRefs {
     var activeReaderGlassBackdrop: Backdrop?? = null
     var annotationTagState: com.huangder.lumibooks.ui.reader.ReaderAnnotationTagState? = null
@@ -11875,6 +11880,8 @@ private class ReaderScreenRefs {
     var autoReadingOriginalWritingMode: ReaderWritingMode?? = null
     var autoReadingPaused: Boolean? = null
     var availableAnnotationTags: List<String>? = null
+    var beginManualReaderNavigation: (() -> Unit)? = null
+    var bookId: String? = null
     var bookLayoutSpreadEligible: Boolean? = null
     var bookmarkExitAlphaAnimation: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>? = null
     var bookmarkExitOffsetAnimation: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>? = null
@@ -11894,6 +11901,7 @@ private class ReaderScreenRefs {
     var catalogProgressColor: androidx.compose.ui.graphics.Color? = null
     var changeSourceList: List<io.legado.app.data.entities.SearchBook>? = null
     var clearActiveTextSelection: (() -> Any?)? = null
+    var clearCancelledEpubNavigation: ((EpubNavigationRequest?) -> Unit)? = null
     var completeReaderExit: ((Boolean) -> Unit)? = null
     var composeBgColor: androidx.compose.ui.graphics.Color? = null
     var context: android.content.Context? = null
@@ -11907,6 +11915,7 @@ private class ReaderScreenRefs {
     var dictionaryAppOptions: List<DictionaryAppOption>? = null
     var dictionaryLookupText: String? = null
     var dismissReaderImagePreview: (() -> Unit)? = null
+    var dismissSelectionMenu: (() -> Unit)? = null
     var eInkMode: Boolean? = null
     var editingNote: com.huangder.lumibooks.domain.model.Note?? = null
     var editorAutomaticTextColorInt: Int? = null
@@ -11952,6 +11961,7 @@ private class ReaderScreenRefs {
     var isSearchingSources: Boolean? = null
     var isSelectionDragging: Boolean? = null
     var isVerticalWriting: Boolean? = null
+    var jumpToContinuousChapter: ((Int, Float) -> Unit)? = null
     var lineGuideAvailable: Boolean? = null
     var linkReturnLocation: ReaderLinkLocation?? = null
     var linkReturnToken: Int? = null
@@ -11978,6 +11988,7 @@ private class ReaderScreenRefs {
     var purifyDialogText: String? = null
     var purifyRulesLauncher: androidx.activity.compose.ManagedActivityResultLauncher<*, *>? = null
     var readViewRef: androidx.compose.runtime.MutableState<ReadView?>? = null
+    var readerActive: Boolean? = null
     var readerGlassContentScrim: androidx.compose.ui.graphics.Color? = null
     var readerImagePreview: EpubImagePreviewRequest?? = null
     var readerImagePreviewProgress: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>? = null
@@ -12000,6 +12011,7 @@ private class ReaderScreenRefs {
     var requestCloseToc: Boolean? = null
     var requestTtsStart: (() -> Unit)? = null
     var requestWriteSettingsPermission: Any?? = null
+    var resetSelectionSubmenus: (() -> Unit)? = null
     var returnToLinkedSource: (() -> Unit)? = null
     var returnToTtsProgress: (() -> Unit)? = null
     var scope: kotlinx.coroutines.CoroutineScope? = null
@@ -12011,6 +12023,7 @@ private class ReaderScreenRefs {
     var showAdvancedSheet: Boolean? = null
     var showChangeSourceDialog: Boolean? = null
     var showDictionaryAppPicker: Boolean? = null
+    var showExcerpt: ((String, String, Int) -> Unit)? = null
     var showHighlightRules: Boolean? = null
     var showMenuSettings: Boolean? = null
     var showNoteInput: Boolean? = null
@@ -12027,6 +12040,7 @@ private class ReaderScreenRefs {
     var sideRailItemSize: androidx.compose.ui.unit.DpSize?? = null
     var sideRailItemWidth: androidx.compose.ui.unit.Dp?? = null
     var startTtsFromCurrentPage: ((Boolean) -> Unit)? = null
+    var stopAutoReading: (() -> Unit)? = null
     var submitEpubNavigation: ((EpubNavigationOrigin, Int, EpubNavigationDestination, Boolean) -> Unit)? = null
     var submitSearch: ((String) -> Unit)? = null
     var supportsBookLayout: Boolean? = null
@@ -12041,10 +12055,8 @@ private class ReaderScreenRefs {
     var txtEditorLauncher: androidx.activity.compose.ManagedActivityResultLauncher<*, *>? = null
     var uiState: com.huangder.lumibooks.ui.reader.ReaderUiState? = null
     var useSideReaderMenu: Boolean? = null
-    var visibleEpubNavigationId: Long?? = null
     var viewModel: com.huangder.lumibooks.ui.reader.ReaderViewModel? = null
-    var bookId: String? = null
-    var readerActive: Boolean? = null
+    var visibleEpubNavigationId: Long?? = null
     var captureReaderLocation: ((Int, Int, String?, Float?) -> ReaderLinkLocation)? = null
     var captureReaderLocationHere: (() -> ReaderLinkLocation)? = null
 }
@@ -12064,6 +12076,8 @@ private fun ReaderMenuAndSheetsSection() {
     val autoReadingOriginalWritingMode = r.autoReadingOriginalWritingMode!!
     val autoReadingPaused = r.autoReadingPaused!!
     val availableAnnotationTags = r.availableAnnotationTags!!
+    val beginManualReaderNavigation = r.beginManualReaderNavigation!!
+    val bookId = r.bookId!!
     val bookLayoutSpreadEligible = r.bookLayoutSpreadEligible!!
     val bookmarkExitAlphaAnimation = r.bookmarkExitAlphaAnimation!!
     val bookmarkExitOffsetAnimation = r.bookmarkExitOffsetAnimation!!
@@ -12083,6 +12097,7 @@ private fun ReaderMenuAndSheetsSection() {
     val catalogProgressColor = r.catalogProgressColor!!
     val changeSourceList = r.changeSourceList!!
     val clearActiveTextSelection = r.clearActiveTextSelection!!
+    val clearCancelledEpubNavigation = r.clearCancelledEpubNavigation!!
     val completeReaderExit = r.completeReaderExit!!
     val composeBgColor = r.composeBgColor!!
     val context = r.context!!
@@ -12096,6 +12111,7 @@ private fun ReaderMenuAndSheetsSection() {
     val dictionaryAppOptions = r.dictionaryAppOptions!!
     val dictionaryLookupText = r.dictionaryLookupText!!
     val dismissReaderImagePreview = r.dismissReaderImagePreview!!
+    val dismissSelectionMenu = r.dismissSelectionMenu!!
     val eInkMode = r.eInkMode!!
     val editingNote = r.editingNote!!
     val editorAutomaticTextColorInt = r.editorAutomaticTextColorInt!!
@@ -12141,6 +12157,7 @@ private fun ReaderMenuAndSheetsSection() {
     val isSearchingSources = r.isSearchingSources!!
     val isSelectionDragging = r.isSelectionDragging!!
     val isVerticalWriting = r.isVerticalWriting!!
+    val jumpToContinuousChapter = r.jumpToContinuousChapter!!
     val lineGuideAvailable = r.lineGuideAvailable!!
     val linkReturnLocation = r.linkReturnLocation!!
     val linkReturnToken = r.linkReturnToken!!
@@ -12167,6 +12184,7 @@ private fun ReaderMenuAndSheetsSection() {
     val purifyDialogText = r.purifyDialogText!!
     val purifyRulesLauncher = r.purifyRulesLauncher!!
     val readViewRef = r.readViewRef!!
+    val readerActive = r.readerActive!!
     val readerGlassContentScrim = r.readerGlassContentScrim!!
     val readerImagePreview = r.readerImagePreview!!
     val readerImagePreviewProgress = r.readerImagePreviewProgress!!
@@ -12189,6 +12207,7 @@ private fun ReaderMenuAndSheetsSection() {
     val requestCloseToc = r.requestCloseToc!!
     val requestTtsStart = r.requestTtsStart!!
     val requestWriteSettingsPermission = r.requestWriteSettingsPermission!!
+    val resetSelectionSubmenus = r.resetSelectionSubmenus!!
     val returnToLinkedSource = r.returnToLinkedSource!!
     val returnToTtsProgress = r.returnToTtsProgress!!
     val scope = r.scope!!
@@ -12200,6 +12219,7 @@ private fun ReaderMenuAndSheetsSection() {
     val showAdvancedSheet = r.showAdvancedSheet!!
     val showChangeSourceDialog = r.showChangeSourceDialog!!
     val showDictionaryAppPicker = r.showDictionaryAppPicker!!
+    val showExcerpt = r.showExcerpt!!
     val showHighlightRules = r.showHighlightRules!!
     val showMenuSettings = r.showMenuSettings!!
     val showNoteInput = r.showNoteInput!!
@@ -12216,6 +12236,7 @@ private fun ReaderMenuAndSheetsSection() {
     val sideRailItemSize = r.sideRailItemSize!!
     val sideRailItemWidth = r.sideRailItemWidth!!
     val startTtsFromCurrentPage = r.startTtsFromCurrentPage!!
+    val stopAutoReading = r.stopAutoReading!!
     val submitEpubNavigation = r.submitEpubNavigation!!
     val submitSearch = r.submitSearch!!
     val supportsBookLayout = r.supportsBookLayout!!
@@ -12230,10 +12251,8 @@ private fun ReaderMenuAndSheetsSection() {
     val txtEditorLauncher = r.txtEditorLauncher!!
     val uiState = r.uiState!!
     val useSideReaderMenu = r.useSideReaderMenu!!
-    val visibleEpubNavigationId = r.visibleEpubNavigationId!!
     val viewModel = r.viewModel!!
-    val bookId = r.bookId!!
-    val readerActive = r.readerActive!!
+    val visibleEpubNavigationId = r.visibleEpubNavigationId!!
     val captureReaderLocation: (Int, Int, String?, Float?) -> ReaderLinkLocation = r.captureReaderLocation!!
     val captureReaderLocationHere: () -> ReaderLinkLocation = r.captureReaderLocationHere!!
     Box(Modifier.fillMaxSize()) {
@@ -13633,6 +13652,8 @@ private fun ReaderOverlaysSection() {
     val autoReadingOriginalWritingMode = r.autoReadingOriginalWritingMode!!
     val autoReadingPaused = r.autoReadingPaused!!
     val availableAnnotationTags = r.availableAnnotationTags!!
+    val beginManualReaderNavigation = r.beginManualReaderNavigation!!
+    val bookId = r.bookId!!
     val bookLayoutSpreadEligible = r.bookLayoutSpreadEligible!!
     val bookmarkExitAlphaAnimation = r.bookmarkExitAlphaAnimation!!
     val bookmarkExitOffsetAnimation = r.bookmarkExitOffsetAnimation!!
@@ -13652,6 +13673,7 @@ private fun ReaderOverlaysSection() {
     val catalogProgressColor = r.catalogProgressColor!!
     val changeSourceList = r.changeSourceList!!
     val clearActiveTextSelection = r.clearActiveTextSelection!!
+    val clearCancelledEpubNavigation = r.clearCancelledEpubNavigation!!
     val completeReaderExit = r.completeReaderExit!!
     val composeBgColor = r.composeBgColor!!
     val context = r.context!!
@@ -13665,6 +13687,7 @@ private fun ReaderOverlaysSection() {
     val dictionaryAppOptions = r.dictionaryAppOptions!!
     val dictionaryLookupText = r.dictionaryLookupText!!
     val dismissReaderImagePreview = r.dismissReaderImagePreview!!
+    val dismissSelectionMenu = r.dismissSelectionMenu!!
     val eInkMode = r.eInkMode!!
     val editingNote = r.editingNote!!
     val editorAutomaticTextColorInt = r.editorAutomaticTextColorInt!!
@@ -13710,6 +13733,7 @@ private fun ReaderOverlaysSection() {
     val isSearchingSources = r.isSearchingSources!!
     val isSelectionDragging = r.isSelectionDragging!!
     val isVerticalWriting = r.isVerticalWriting!!
+    val jumpToContinuousChapter = r.jumpToContinuousChapter!!
     val lineGuideAvailable = r.lineGuideAvailable!!
     val linkReturnLocation = r.linkReturnLocation!!
     val linkReturnToken = r.linkReturnToken!!
@@ -13736,6 +13760,7 @@ private fun ReaderOverlaysSection() {
     val purifyDialogText = r.purifyDialogText!!
     val purifyRulesLauncher = r.purifyRulesLauncher!!
     val readViewRef = r.readViewRef!!
+    val readerActive = r.readerActive!!
     val readerGlassContentScrim = r.readerGlassContentScrim!!
     val readerImagePreview = r.readerImagePreview!!
     val readerImagePreviewProgress = r.readerImagePreviewProgress!!
@@ -13758,6 +13783,7 @@ private fun ReaderOverlaysSection() {
     val requestCloseToc = r.requestCloseToc!!
     val requestTtsStart = r.requestTtsStart!!
     val requestWriteSettingsPermission = r.requestWriteSettingsPermission!!
+    val resetSelectionSubmenus = r.resetSelectionSubmenus!!
     val returnToLinkedSource = r.returnToLinkedSource!!
     val returnToTtsProgress = r.returnToTtsProgress!!
     val scope = r.scope!!
@@ -13769,6 +13795,7 @@ private fun ReaderOverlaysSection() {
     val showAdvancedSheet = r.showAdvancedSheet!!
     val showChangeSourceDialog = r.showChangeSourceDialog!!
     val showDictionaryAppPicker = r.showDictionaryAppPicker!!
+    val showExcerpt = r.showExcerpt!!
     val showHighlightRules = r.showHighlightRules!!
     val showMenuSettings = r.showMenuSettings!!
     val showNoteInput = r.showNoteInput!!
@@ -13785,6 +13812,7 @@ private fun ReaderOverlaysSection() {
     val sideRailItemSize = r.sideRailItemSize!!
     val sideRailItemWidth = r.sideRailItemWidth!!
     val startTtsFromCurrentPage = r.startTtsFromCurrentPage!!
+    val stopAutoReading = r.stopAutoReading!!
     val submitEpubNavigation = r.submitEpubNavigation!!
     val submitSearch = r.submitSearch!!
     val supportsBookLayout = r.supportsBookLayout!!
@@ -13799,10 +13827,8 @@ private fun ReaderOverlaysSection() {
     val txtEditorLauncher = r.txtEditorLauncher!!
     val uiState = r.uiState!!
     val useSideReaderMenu = r.useSideReaderMenu!!
-    val visibleEpubNavigationId = r.visibleEpubNavigationId!!
     val viewModel = r.viewModel!!
-    val bookId = r.bookId!!
-    val readerActive = r.readerActive!!
+    val visibleEpubNavigationId = r.visibleEpubNavigationId!!
     val captureReaderLocation: (Int, Int, String?, Float?) -> ReaderLinkLocation = r.captureReaderLocation!!
     val captureReaderLocationHere: () -> ReaderLinkLocation = r.captureReaderLocationHere!!
     Box(Modifier.fillMaxSize()) {
