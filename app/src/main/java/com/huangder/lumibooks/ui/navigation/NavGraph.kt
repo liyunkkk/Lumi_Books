@@ -542,12 +542,15 @@ fun MainNavGraph(
                 if (started) {
                     navController.navigate(Screen.Reader.createRoute(book.id))
                 } else {
+                    // 详情页首次点击时书架封面锚点尚未注册（二级弹层遮挡），
+                    // startOpen 返回 false。原先只置状态不导航，表现为"第一次点击无反应，
+                    // 第二次才进书"。fallback 后仍直接导航，保证首次点击即可打开。
                     bookReaderTransition.fallbackToLibrary()
                     transitionBookId = book.id
                     transitionCover = book.coverPath
                     transitionTitle = book.title
                     showTransition = true
-                    pendingBookId = book.id
+                    navController.navigate(Screen.Reader.createRoute(book.id))
                 }
             }
         } else {
