@@ -182,6 +182,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
+// ─── 书架封面统一比例 ───────────────────────────────────────────
+// 书籍封面、文件夹封面、添加书籍占位块必须用同一比例，
+// 否则紧凑布局下（列更窄）三者高度不一致，视觉上大小对不上。
+private fun bookshelfCoverAspectRatio(compactLayout: Boolean): Float =
+    if (compactLayout) 0.66f else 0.75f
+
 @Composable
 fun BookshelfScreen(
     initialLayoutMode: Int? = null,
@@ -1942,7 +1949,7 @@ internal fun BookshelfCollection(
                             play = playEntranceAnimation,
                             index = folders.size + books.size + 2
                         ) {
-                            AddBookItem(onClick = onAddBook)
+                            AddBookItem(compactLayout = compactLayout, onClick = onAddBook)
                         }
                     }
                 }
@@ -2751,7 +2758,7 @@ private fun BookGridItem(
             modifier = Modifier
                 .fillMaxWidth()
                 // 紧凑布局：网格间距更小、列更窄，封面改用更高的比例以避免视觉上被压扁变小。
-                .aspectRatio(if (compactLayout) 0.66f else 0.75f)
+                .aspectRatio(bookshelfCoverAspectRatio(compactLayout))
                 .onGloballyPositioned { coordinates ->
                     coverCoordinates[0] = coordinates
                 }
@@ -2874,8 +2881,9 @@ private fun BookGridItem(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        // 紧凑布局不显示阅读进度文本（云书下载进度仍需保留，它是下载状态反馈）。
-        if (!compactLayout || book.isCloudOnly) {
+        // 所有网格布局（紧凑 / 标准/宽松）都不再显示阅读进度文本，
+        // 仅保留云书的下载进度（那是下载状态反馈，不是阅读进度）。
+        if (book.isCloudOnly) {
             BookProgressStatus(
                 book = book,
                 downloadState = downloadState,
@@ -3068,7 +3076,7 @@ private fun FolderGridItem(
             previewBooks = previewBooks,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.75f)
+                .aspectRatio(bookshelfCoverAspectRatio(compactLayout))
                 .onGloballyPositioned { coordinates -> coverCoordinates[0] = coordinates }
                 .graphicsLayer {
                     scaleX = pressScale
@@ -3164,7 +3172,10 @@ private fun AddBookListItem(onClick: () -> Unit) {
 }
 
 @Composable
-private fun AddBookItem(onClick: () -> Unit) {
+private fun AddBookItem(
+    compactLayout: Boolean = false,
+    onClick: () -> Unit
+) {
     val coverCorner = if (LocalAppTheme.current == "liquid_glass") 16.dp else AppRadius.sm
     val coverShape = AppRoundedCornerShape(coverCorner)
     Column(
@@ -3173,7 +3184,7 @@ private fun AddBookItem(onClick: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.75f)
+                .aspectRatio(bookshelfCoverAspectRatio(compactLayout))
                 .clip(coverShape)
                 .background(AppColors.PageBg),
             contentAlignment = Alignment.Center

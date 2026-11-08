@@ -254,7 +254,9 @@ fun HomeScreen(
             LocalShowFinishedBadge provides uiState.showFinishedBadge
         ) {
             CardFlowHomeScreen(
-                books = uiState.books,
+                // 3D 卡片流必须使用与经典首页同一份过滤结果，
+                // 否则「隐藏当前在读」的书/文件夹仍会出现在 3D 首页。
+                books = activeReadingBooks,
                 todayReadingTime = uiState.todayReadingTime,
                 dailyGoal = uiState.dailyGoal,
                 streakDays = uiState.streakDays,
