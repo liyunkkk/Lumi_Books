@@ -522,7 +522,7 @@ fun FloatingTabBar(
             )
             }
 
-            if (actualLiquid && liquidGlassBackdrop != null) {
+            if (isLiquidGlass && liquidGlassBackdrop != null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.Center)
@@ -825,16 +825,15 @@ fun LiquidGlassImportButton(
     }
     val contentColor = if (isDark) Color.White.copy(alpha = 0.92f) else Color(0xFF17171A)
 
+    // 导入按钮跟随当前真实主题：液态玻璃 64dp 与玻璃底栏同高，
+    // 普通主题 56dp 与普通底栏(56dp)同高，底部基线一致不再错位。
+    val actualLiquidBar = LocalAppTheme.current == "liquid_glass"
     LiquidGlassSurface(
         controlEdge = true,
         shape = CircleShape,
         fallbackColor = if (isDark) Color(0xFF121214) else Color.White,
         backdrop = liquidGlassBackdrop,
         contentScrimColor = surfaceColor,
-        // Match the action button to the tab bar's 64dp glass space and optical rim.
-        // 导入按钮跟随当前真实主题：液态玻璃 64dp 与玻璃底栏同高，
-        // 普通主题 56dp 与普通底栏(56dp)同高，底部基线一致不再错位。
-        val actualLiquidBar = LocalAppTheme.current == "liquid_glass"
         modifier = modifier.size(if (actualLiquidBar) LiquidTabBarHeight else 56.dp),
         onClick = onClick,
         contentAlignment = Alignment.Center
@@ -1016,7 +1015,7 @@ fun NavSettingsButton(
     val iconSize = if (actualLiquid) 32.dp else 26.dp
     val strokeColor = if (isDark) Color.White.copy(alpha = 0.2f) else Color(0xFF7A8499).copy(alpha = 0.28f)
 
-    if (isLiquidGlass && liquidGlassBackdrop != null) {
+    if (actualLiquid && liquidGlassBackdrop != null) {
         val fallback = if (isDark) Color.Black else Color.White
         val scrim = if (isDark) Color.Black.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.12f)
         LiquidGlassSurface(
