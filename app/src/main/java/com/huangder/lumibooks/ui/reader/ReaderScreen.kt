@@ -3202,7 +3202,10 @@ private fun ReaderScreenContent(
     readerRefs.bookId = bookId
     readerRefs.readerActive = readerActive
     readerRefs.beginManualReaderNavigation = beginManualReaderNavigation
-    readerRefs.captureReaderLocation = captureReaderLocation
+    readerRefs.captureReaderLocation = { chapter, page, locator, fraction ->
+        captureReaderLocation(chapter, page, locator, fraction)
+    }
+    readerRefs.captureReaderLocationHere = { captureReaderLocation() }
     readerRefs.clearCancelledEpubNavigation = clearCancelledEpubNavigation
     readerRefs.dismissSelectionMenu = dismissSelectionMenu
     readerRefs.jumpToContinuousChapter = jumpToContinuousChapter
@@ -11873,8 +11876,8 @@ private fun rememberReaderWindowLifecycle(
 // ── ReaderScreenContent 拆分支持：共享状态容器 ──
 // 上游 2.3.11 的 ReaderScreenContent 局部变量达 294 个，超过 DEX 单方法 255 参数上限，
 // ART 校验 ReaderScreenKt 失败（VerifyError），打开任何书即崩溃。
-// 方案：菜单/弹层两个 section 移到独立 @Composable，共享状态经 ReaderScreenRefs 传递，
-// 让各 section 的 lambda 捕获数回到安全范围。
+// 方案：菜单/弹层两个 section 移到独立 @Composable，共享状态经 ReaderScreenRefs 传递；
+// section 开头一次性解构，之后代码与原实现完全一致（无 r. 前缀，可空性消除）。
 private class ReaderScreenRefs {
     var activeReaderGlassBackdrop: Backdrop?? = null
     var annotationTagState: com.huangder.lumibooks.ui.reader.ReaderAnnotationTagState? = null
@@ -11891,7 +11894,7 @@ private class ReaderScreenRefs {
     var bookmarkExitOffsetAnimation: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>? = null
     var bookmarkPullActive: Boolean? = null
     var bookmarkPullDistancePx: Float? = null
-    var bookmarkPullSettleMode: Int? = null
+    var bookmarkPullSettleMode: BookmarkPullSettleMode? = null
     var bookmarkPullStartedBookmarked: Boolean? = null
     var bookmarkPullSupported: Boolean? = null
     var bookmarkRemarkTags: List<String>? = null
@@ -11904,7 +11907,7 @@ private class ReaderScreenRefs {
     var catalogDragReturnLocation: Any?? = null
     var catalogProgressColor: androidx.compose.ui.graphics.Color? = null
     var changeSourceList: List<io.legado.app.data.entities.SearchBook>? = null
-    var clearActiveTextSelection: () -> Unit? = null
+    var clearActiveTextSelection: (() -> Unit)? = null
     var completeReaderExit: (Boolean) -> Unit? = null
     var composeBgColor: androidx.compose.ui.graphics.Color? = null
     var context: android.content.Context? = null
@@ -11947,7 +11950,7 @@ private class ReaderScreenRefs {
     var footnoteProgress: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>? = null
     var forceNativeGlassFallback: Boolean? = null
     var hasSearched: Boolean? = null
-    var highlightRules: List<com.huangder.lumibooks.data.local.entity.HighlightRuleEntity>? = null
+    var highlightRules: List<HighlightRule>? = null
     var highlightScanState: Any?? = null
     var highlightSettings: Any?? = null
     var importThemeLauncher: androidx.activity.compose.ManagedActivityResultLauncher<*, *>? = null
@@ -11975,7 +11978,7 @@ private class ReaderScreenRefs {
     var motionEnabled: Boolean? = null
     var nativeBookPages: com.huangder.lumibooks.ui.reader.engine.ReaderBookPages? = null
     var nativeContinuousViewport: Boolean? = null
-    var navigateEpub: (EpubNavigationOrigin, Int, EpubNavigationDestination, Boolean) -> Unit? = null
+    var navigateEpub: ((EpubNavigationOrigin, Int, EpubNavigationDestination, Boolean) -> Unit)? = null
     var nightDisplay: Boolean? = null
     var noteInputText: String? = null
     var notes: List<com.huangder.lumibooks.domain.model.Note>? = null
@@ -12011,8 +12014,8 @@ private class ReaderScreenRefs {
     var requestCloseToc: Boolean? = null
     var requestTtsStart: () -> Unit? = null
     var requestWriteSettingsPermission: Any?? = null
-    var returnToLinkedSource: () -> Unit? = null
-    var returnToTtsProgress: () -> Unit? = null
+    var returnToLinkedSource: (() -> Unit)? = null
+    var returnToTtsProgress: (() -> Unit)? = null
     var scope: kotlinx.coroutines.CoroutineScope? = null
     var searchQuery: String? = null
     var searchResultQuery: String? = null
@@ -12038,7 +12041,7 @@ private class ReaderScreenRefs {
     var sideRailItemSize: androidx.compose.ui.unit.DpSize?? = null
     var sideRailItemWidth: androidx.compose.ui.unit.Dp?? = null
     var startTtsFromCurrentPage: (Boolean) -> Unit? = null
-    var submitEpubNavigation: (EpubNavigationRequest) -> Unit? = null
+    var submitEpubNavigation: ((EpubNavigationRequest) -> Unit)? = null
     var submitSearch: (String) -> Unit? = null
     var supportsBookLayout: Boolean? = null
     var supportsEpubFeatures: Boolean? = null
@@ -12056,14 +12059,15 @@ private class ReaderScreenRefs {
     var viewModel: com.huangder.lumibooks.ui.reader.ReaderViewModel? = null
     var bookId: String? = null
     var readerActive: Boolean? = null
-    var beginManualReaderNavigation: () -> Unit? = null
-    var captureReaderLocation: () -> com.huangder.lumibooks.domain.model.ReaderLocation?? = null
-    var clearCancelledEpubNavigation: (EpubNavigationRequest?) -> Unit? = null
-    var dismissSelectionMenu: () -> Unit? = null
-    var jumpToContinuousChapter: (Int, Float) -> Unit? = null
-    var resetSelectionSubmenus: () -> Unit? = null
-    var showExcerpt: (String, String, Int) -> Unit? = null
-    var stopAutoReading: () -> Unit? = null
+    var beginManualReaderNavigation: (() -> Unit)? = null
+    var captureReaderLocation: ((Int, Int, String?, Float?) -> ReaderLinkLocation)? = null
+    var captureReaderLocationHere: (() -> ReaderLinkLocation)? = null
+    var clearCancelledEpubNavigation: ((EpubNavigationRequest?) -> Unit)? = null
+    var dismissSelectionMenu: (() -> Unit)? = null
+    var jumpToContinuousChapter: ((Int, Float) -> Unit)? = null
+    var resetSelectionSubmenus: (() -> Unit)? = null
+    var showExcerpt: ((String, String, Int) -> Unit)? = null
+    var stopAutoReading: (() -> Unit)? = null
 }
 
 private val LocalReaderScreenRefs = androidx.compose.runtime.staticCompositionLocalOf<ReaderScreenRefs?> { null }
@@ -12071,6 +12075,195 @@ private val LocalReaderScreenRefs = androidx.compose.runtime.staticCompositionLo
 @Composable
 private fun ReaderMenuAndSheetsSection() {
     val r = LocalReaderScreenRefs.current ?: return
+    val activeReaderGlassBackdrop = r.activeReaderGlassBackdrop!!
+    val annotationTagState = r.annotationTagState!!
+    val appIsDark = r.appIsDark!!
+    val autoReadingActive = r.autoReadingActive!!
+    val autoReadingAtChapterEnd = r.autoReadingAtChapterEnd!!
+    val autoReadingAvailable = r.autoReadingAvailable!!
+    val autoReadingOriginalTransition = r.autoReadingOriginalTransition!!
+    val autoReadingOriginalWritingMode = r.autoReadingOriginalWritingMode!!
+    val autoReadingPaused = r.autoReadingPaused!!
+    val availableAnnotationTags = r.availableAnnotationTags!!
+    val bookLayoutSpreadEligible = r.bookLayoutSpreadEligible!!
+    val bookmarkExitAlphaAnimation = r.bookmarkExitAlphaAnimation!!
+    val bookmarkExitOffsetAnimation = r.bookmarkExitOffsetAnimation!!
+    val bookmarkPullActive = r.bookmarkPullActive!!
+    val bookmarkPullDistancePx = r.bookmarkPullDistancePx!!
+    val bookmarkPullSettleMode = r.bookmarkPullSettleMode!!
+    val bookmarkPullStartedBookmarked = r.bookmarkPullStartedBookmarked!!
+    val bookmarkPullSupported = r.bookmarkPullSupported!!
+    val bookmarkRemarkTags = r.bookmarkRemarkTags!!
+    val bookmarkRemarkText = r.bookmarkRemarkText!!
+    val bookmarkSettleAnimation = r.bookmarkSettleAnimation!!
+    val bookmarks = r.bookmarks!!
+    val cancelActiveSearch = r.cancelActiveSearch!!
+    val capsuleBgColor = r.capsuleBgColor!!
+    val capsuleContentColor = r.capsuleContentColor!!
+    val catalogDragReturnLocation = r.catalogDragReturnLocation!!
+    val catalogProgressColor = r.catalogProgressColor!!
+    val changeSourceList = r.changeSourceList!!
+    val clearActiveTextSelection = r.clearActiveTextSelection!!
+    val completeReaderExit = r.completeReaderExit!!
+    val composeBgColor = r.composeBgColor!!
+    val context = r.context!!
+    val continuousReturnAnchor = r.continuousReturnAnchor!!
+    val continuousScrollRequests = r.continuousScrollRequests!!
+    val continuousSearchHighlight = r.continuousSearchHighlight!!
+    val continuousSelectionController = r.continuousSelectionController!!
+    val continuousVisibleCharacters = r.continuousVisibleCharacters!!
+    val customBackgroundThemeColorInt = r.customBackgroundThemeColorInt!!
+    val density = r.density!!
+    val dictionaryAppOptions = r.dictionaryAppOptions!!
+    val dictionaryLookupText = r.dictionaryLookupText!!
+    val dismissReaderImagePreview = r.dismissReaderImagePreview!!
+    val eInkMode = r.eInkMode!!
+    val editingNote = r.editingNote!!
+    val editorAutomaticTextColorInt = r.editorAutomaticTextColorInt!!
+    val editorBackgroundColorInt = r.editorBackgroundColorInt!!
+    val editorBackgroundImagePath = r.editorBackgroundImagePath!!
+    val editorThemeSettings = r.editorThemeSettings!!
+    val effectiveLineGuide = r.effectiveLineGuide!!
+    val effectivePageTransition = r.effectivePageTransition!!
+    val effectivePreserveEpubBackground = r.effectivePreserveEpubBackground!!
+    val epubDictionarySelection = r.epubDictionarySelection!!
+    val epubLayoutPreviewActive = r.epubLayoutPreviewActive!!
+    val epubLocatorRequest = r.epubLocatorRequest!!
+    val epubNavigationRequest = r.epubNavigationRequest!!
+    val epubNavigationStage = r.epubNavigationStage!!
+    val epubPageRequest = r.epubPageRequest!!
+    val epubRenderFailure = r.epubRenderFailure!!
+    val epubRetryToken = r.epubRetryToken!!
+    val epubSearchRequest = r.epubSearchRequest!!
+    val epubSearchRequestToken = r.epubSearchRequestToken!!
+    val epubSession = r.epubSession!!
+    val excerptRequest = r.excerptRequest!!
+    val exitReader = r.exitReader!!
+    val exportThemeLauncher = r.exportThemeLauncher!!
+    val failedEpubNavigation = r.failedEpubNavigation!!
+    val floatingSubtitlesEnabled = r.floatingSubtitlesEnabled!!
+    val footnoteBubble = r.footnoteBubble!!
+    val footnoteProgress = r.footnoteProgress!!
+    val forceNativeGlassFallback = r.forceNativeGlassFallback!!
+    val hasSearched = r.hasSearched!!
+    val highlightRules = r.highlightRules!!
+    val highlightScanState = r.highlightScanState!!
+    val highlightSettings = r.highlightSettings!!
+    val importThemeLauncher = r.importThemeLauncher!!
+    val isAnySheetOpen = r.isAnySheetOpen!!
+    val isBookLayout = r.isBookLayout!!
+    val isBookLayoutContinuousScroll = r.isBookLayoutContinuousScroll!!
+    val isContinuousScrollMode = r.isContinuousScrollMode!!
+    val isCurrentPageBookmarked = r.isCurrentPageBookmarked!!
+    val isLiquidGlass = r.isLiquidGlass!!
+    val isMarkdownNative = r.isMarkdownNative!!
+    val isRefreshingOnlineBook = r.isRefreshingOnlineBook!!
+    val isSearching = r.isSearching!!
+    val isSearchingSources = r.isSearchingSources!!
+    val isSelectionDragging = r.isSelectionDragging!!
+    val isVerticalWriting = r.isVerticalWriting!!
+    val lineGuideAvailable = r.lineGuideAvailable!!
+    val linkReturnLocation = r.linkReturnLocation!!
+    val linkReturnToken = r.linkReturnToken!!
+    val listeningResumePrompt = r.listeningResumePrompt!!
+    val localDictionaryQuery = r.localDictionaryQuery!!
+    val menuBgColor = r.menuBgColor!!
+    val menuContentColor = r.menuContentColor!!
+    val menuLayout = r.menuLayout!!
+    val menuReappearKey = r.menuReappearKey!!
+    val motionEnabled = r.motionEnabled!!
+    val nativeBookPages = r.nativeBookPages!!
+    val nativeContinuousViewport = r.nativeContinuousViewport!!
+    val navigateEpub = r.navigateEpub!!
+    val nightDisplay = r.nightDisplay!!
+    val noteInputText = r.noteInputText!!
+    val notes = r.notes!!
+    val openAdvancedAfterThemeClose = r.openAdvancedAfterThemeClose!!
+    val originalSpreadState = r.originalSpreadState!!
+    val pendingBookmarkRemarkId = r.pendingBookmarkRemarkId!!
+    val pendingExportThemeId = r.pendingExportThemeId!!
+    val pendingExternalLink = r.pendingExternalLink!!
+    val pendingSelection = r.pendingSelection!!
+    val publisherPaintSuiteActive = r.publisherPaintSuiteActive!!
+    val purifyDialogText = r.purifyDialogText!!
+    val purifyRulesLauncher = r.purifyRulesLauncher!!
+    val readViewRef = r.readViewRef!!
+    val readerGlassContentScrim = r.readerGlassContentScrim!!
+    val readerImagePreview = r.readerImagePreview!!
+    val readerImagePreviewProgress = r.readerImagePreviewProgress!!
+    val readerRootSize = r.readerRootSize!!
+    val readerRootWindowPosition = r.readerRootWindowPosition!!
+    val readerTextColorInt = r.readerTextColorInt!!
+    val readerTtsPosition = r.readerTtsPosition!!
+    val renderedFootnote = r.renderedFootnote!!
+    val rendererBookPages = r.rendererBookPages!!
+    val rendererPageKey = r.rendererPageKey!!
+    val rendererVisibleCharacters = r.rendererVisibleCharacters!!
+    val renderingTheme = r.renderingTheme!!
+    val replaceSelection = r.replaceSelection!!
+    val requestCloseAdvanced = r.requestCloseAdvanced!!
+    val requestCloseHighlightRules = r.requestCloseHighlightRules!!
+    val requestCloseNoteInput = r.requestCloseNoteInput!!
+    val requestCloseNotesList = r.requestCloseNotesList!!
+    val requestCloseSearch = r.requestCloseSearch!!
+    val requestCloseTheme = r.requestCloseTheme!!
+    val requestCloseToc = r.requestCloseToc!!
+    val requestTtsStart = r.requestTtsStart!!
+    val requestWriteSettingsPermission = r.requestWriteSettingsPermission!!
+    val returnToLinkedSource = r.returnToLinkedSource!!
+    val returnToTtsProgress = r.returnToTtsProgress!!
+    val scope = r.scope!!
+    val searchQuery = r.searchQuery!!
+    val searchResultQuery = r.searchResultQuery!!
+    val searchResults = r.searchResults!!
+    val selectionCrossPage = r.selectionCrossPage!!
+    val selectionState = r.selectionState!!
+    val showAdvancedSheet = r.showAdvancedSheet!!
+    val showChangeSourceDialog = r.showChangeSourceDialog!!
+    val showDictionaryAppPicker = r.showDictionaryAppPicker!!
+    val showHighlightRules = r.showHighlightRules!!
+    val showMenuSettings = r.showMenuSettings!!
+    val showNoteInput = r.showNoteInput!!
+    val showNotesList = r.showNotesList!!
+    val showQuickPurifyDialog = r.showQuickPurifyDialog!!
+    val showReplaceInput = r.showReplaceInput!!
+    val showSearch = r.showSearch!!
+    val showThemeSheet = r.showThemeSheet!!
+    val showToc = r.showToc!!
+    val showTtsExitDialog = r.showTtsExitDialog!!
+    val showTxtEncodingDialog = r.showTxtEncodingDialog!!
+    val showTxtTocDialog = r.showTxtTocDialog!!
+    val showWebSearch = r.showWebSearch!!
+    val sideRailItemSize = r.sideRailItemSize!!
+    val sideRailItemWidth = r.sideRailItemWidth!!
+    val startTtsFromCurrentPage = r.startTtsFromCurrentPage!!
+    val submitEpubNavigation = r.submitEpubNavigation!!
+    val submitSearch = r.submitSearch!!
+    val supportsBookLayout = r.supportsBookLayout!!
+    val supportsEpubFeatures = r.supportsEpubFeatures!!
+    val toggleBookmarkForCurrentPage = r.toggleBookmarkForCurrentPage!!
+    val ttsCatalogBounds = r.ttsCatalogBounds!!
+    val ttsCurrentPage = r.ttsCurrentPage!!
+    val ttsFooterTop = r.ttsFooterTop!!
+    val ttsRevealKey = r.ttsRevealKey!!
+    val ttsStartPrompt = r.ttsStartPrompt!!
+    val ttsState = r.ttsState!!
+    val txtEditorLauncher = r.txtEditorLauncher!!
+    val uiState = r.uiState!!
+    val useSideReaderMenu = r.useSideReaderMenu!!
+    val visibleEpubNavigationId = r.visibleEpubNavigationId!!
+    val viewModel = r.viewModel!!
+    val bookId = r.bookId!!
+    val readerActive = r.readerActive!!
+    val beginManualReaderNavigation = r.beginManualReaderNavigation!!
+    val captureReaderLocation: (Int, Int, String?, Float?) -> ReaderLinkLocation = r.captureReaderLocation!!
+    val captureReaderLocationHere: () -> ReaderLinkLocation = r.captureReaderLocationHere!!
+    val clearCancelledEpubNavigation = r.clearCancelledEpubNavigation!!
+    val dismissSelectionMenu = r.dismissSelectionMenu!!
+    val jumpToContinuousChapter = r.jumpToContinuousChapter!!
+    val resetSelectionSubmenus = r.resetSelectionSubmenus!!
+    val showExcerpt = r.showExcerpt!!
+    val stopAutoReading = r.stopAutoReading!!
 
         // 底部系统手势排除：正文边距为 0 时最后几行会伸进系统手势导航预留区，
         // 且下滑唤出的临时导航栏显示期间会吃掉该区域的触摸（表现为"最后几行时灵时不灵"）。
@@ -12085,49 +12278,49 @@ private fun ReaderMenuAndSheetsSection() {
             )
         }
 
-        val bookmarkCommitThresholdPx = with(r.density) {
+        val bookmarkCommitThresholdPx = with(density) {
             BookmarkPullGestureTracker.COMMIT_THRESHOLD_DP.dp.toPx()
         }
         val bookmarkAddProgress = when {
-            r.bookmarkPullActive && !r.bookmarkPullStartedBookmarked ->
-                r.bookmarkPullDistancePx / bookmarkCommitThresholdPx
-            r.bookmarkPullSettleMode == BookmarkPullSettleMode.ADD_CANCEL ->
-                (r.bookmarkSettleAnimation?.value ?: 0f) / bookmarkCommitThresholdPx
-            r.bookmarkPullSettleMode == BookmarkPullSettleMode.ADD_COMMIT -> 1f
+            bookmarkPullActive && !bookmarkPullStartedBookmarked ->
+                bookmarkPullDistancePx / bookmarkCommitThresholdPx
+            bookmarkPullSettleMode == BookmarkPullSettleMode.ADD_CANCEL ->
+                (bookmarkSettleAnimation?.value ?: 0f) / bookmarkCommitThresholdPx
+            bookmarkPullSettleMode == BookmarkPullSettleMode.ADD_COMMIT -> 1f
             else -> 0f
         }.coerceIn(0f, 1f)
         val bookmarkIndicatorAlpha = when {
-            r.bookmarkPullActive && r.bookmarkPullStartedBookmarked -> 1f
-            r.bookmarkPullActive -> bookmarkAddProgress
-            r.bookmarkPullSettleMode == BookmarkPullSettleMode.ADD_CANCEL -> bookmarkAddProgress
-            r.bookmarkPullSettleMode == BookmarkPullSettleMode.ADD_COMMIT -> 1f
-            r.bookmarkPullSettleMode == BookmarkPullSettleMode.REMOVE_COMMIT ->
-                r.bookmarkExitAlphaAnimation?.value ?: 0f
-            r.bookmarkPullSettleMode == BookmarkPullSettleMode.REMOVE_CANCEL -> 1f
-            r.isCurrentPageBookmarked -> 1f
+            bookmarkPullActive && bookmarkPullStartedBookmarked -> 1f
+            bookmarkPullActive -> bookmarkAddProgress
+            bookmarkPullSettleMode == BookmarkPullSettleMode.ADD_CANCEL -> bookmarkAddProgress
+            bookmarkPullSettleMode == BookmarkPullSettleMode.ADD_COMMIT -> 1f
+            bookmarkPullSettleMode == BookmarkPullSettleMode.REMOVE_COMMIT ->
+                bookmarkExitAlphaAnimation?.value ?: 0f
+            bookmarkPullSettleMode == BookmarkPullSettleMode.REMOVE_CANCEL -> 1f
+            isCurrentPageBookmarked -> 1f
             else -> 0f
         }
         val bookmarkIndicatorOffsetPx = when {
-            r.bookmarkPullActive && r.bookmarkPullStartedBookmarked ->
-                r.bookmarkPullDistancePx * BOOKMARK_REMOVE_DRAG_RATIO
-            r.bookmarkPullActive -> with(r.density) { (-64).dp.toPx() } *
+            bookmarkPullActive && bookmarkPullStartedBookmarked ->
+                bookmarkPullDistancePx * BOOKMARK_REMOVE_DRAG_RATIO
+            bookmarkPullActive -> with(density) { (-64).dp.toPx() } *
                 (1f - bookmarkAddProgress)
-            r.bookmarkPullSettleMode == BookmarkPullSettleMode.ADD_CANCEL ->
-                with(r.density) { (-64).dp.toPx() } * (1f - bookmarkAddProgress)
-            r.bookmarkPullSettleMode == BookmarkPullSettleMode.REMOVE_COMMIT ->
-                r.bookmarkExitOffsetAnimation?.value ?: with(r.density) { (-64).dp.toPx() }
-            r.bookmarkPullSettleMode == BookmarkPullSettleMode.REMOVE_CANCEL ->
-                (r.bookmarkSettleAnimation?.value ?: 0f) * BOOKMARK_REMOVE_DRAG_RATIO
+            bookmarkPullSettleMode == BookmarkPullSettleMode.ADD_CANCEL ->
+                with(density) { (-64).dp.toPx() } * (1f - bookmarkAddProgress)
+            bookmarkPullSettleMode == BookmarkPullSettleMode.REMOVE_COMMIT ->
+                bookmarkExitOffsetAnimation?.value ?: with(density) { (-64).dp.toPx() }
+            bookmarkPullSettleMode == BookmarkPullSettleMode.REMOVE_CANCEL ->
+                (bookmarkSettleAnimation?.value ?: 0f) * BOOKMARK_REMOVE_DRAG_RATIO
             else -> 0f
         }
-        val showBookmarkIndicator = r.bookmarkPullSupported &&
-            !r.uiState.isMenuVisible &&
-            (r.bookmarkPullActive || r.bookmarkPullSettleMode != null || r.isCurrentPageBookmarked)
+        val showBookmarkIndicator = bookmarkPullSupported &&
+            !uiState.isMenuVisible &&
+            (bookmarkPullActive || bookmarkPullSettleMode != null || isCurrentPageBookmarked)
         if (showBookmarkIndicator) {
             Icon(
                 imageVector = AppIcons.Bookmark.regular,
                 contentDescription = stringResource(R.string.reader_bookmark),
-                tint = Color(r.readerTextColorInt),
+                tint = Color(readerTextColorInt),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
@@ -12141,30 +12334,30 @@ private fun ReaderMenuAndSheetsSection() {
         }
 
         // ── Canvas 引擎注释气泡（同窗口覆盖层：玻璃折射对位正确，且无 Popup 窗口首帧闪现） ──
-        r.renderedFootnote?.let { bubble ->
+        renderedFootnote?.let { bubble ->
             ReaderFootnoteBubbleOverlay(
                 footnote = bubble,
-                progress = r.footnoteProgress.value,
-                rootWindowPosition = r.readerRootWindowPosition.value,
-                rootSize = r.readerRootSize.value,
-                r.isLiquidGlass = r.isLiquidGlass,
-                glassBackdrop = r.activeReaderGlassBackdrop,
-                backgroundColor = r.menuBgColor,
-                contentColor = r.menuContentColor,
-                fontSizeSp = r.uiState.fontSize,
-                onDismiss = { r.footnoteBubble = null }
+                progress = footnoteProgress.value,
+                rootWindowPosition = readerRootWindowPosition.value,
+                rootSize = readerRootSize.value,
+                isLiquidGlass = isLiquidGlass,
+                glassBackdrop = activeReaderGlassBackdrop,
+                backgroundColor = menuBgColor,
+                contentColor = menuContentColor,
+                fontSizeSp = uiState.fontSize,
+                onDismiss = { footnoteBubble = null }
             )
         }
 
         // ── 覆盖层 UI（新旧引擎共享） ──
         com.huangder.lumibooks.ui.components.LiquidGlassMenuHost(
             modifier = Modifier.fillMaxSize(),
-            backdrop = r.activeReaderGlassBackdrop
+            backdrop = activeReaderGlassBackdrop
         ) {
-        if (!r.uiState.isLoading || r.isAnySheetOpen || r.uiState.isEpubChapterHandoffInProgress) {
-            val menuSpread = r.originalSpreadState.takeIf { r.bookLayoutSpreadEligible }
-            val menuChapterIndex = menuSpread?.first?.target?.chapterIndex ?: r.uiState.currentChapterIndex
-            val liveChapterTitle = r.uiState.chapterTitles
+        if (!uiState.isLoading || isAnySheetOpen || uiState.isEpubChapterHandoffInProgress) {
+            val menuSpread = originalSpreadState.takeIf { bookLayoutSpreadEligible }
+            val menuChapterIndex = menuSpread?.first?.target?.chapterIndex ?: uiState.currentChapterIndex
+            val liveChapterTitle = uiState.chapterTitles
                 .getOrNull(menuChapterIndex)
                 ?.trim()
                 .orEmpty()
@@ -12177,201 +12370,201 @@ private fun ReaderMenuAndSheetsSection() {
             val liveMenuSnapshot = ReaderMenuSnapshot(
                 chapterIndex = menuChapterIndex,
                 chapterTitle = liveChapterTitle,
-                pageIndex = menuSpread?.first?.target?.pageIndex ?: r.uiState.currentPageIndex,
-                pageCount = menuSpread?.first?.pageCount ?: r.uiState.totalPages,
-                bookProgressPercent = if (r.isMarkdownNative) {
-                    runCatching { org.json.JSONObject(r.uiState.epubLocatorJson ?: "{}").optDouble("progression", 0.0).toFloat() * 100f }.getOrDefault(0f)
+                pageIndex = menuSpread?.first?.target?.pageIndex ?: uiState.currentPageIndex,
+                pageCount = menuSpread?.first?.pageCount ?: uiState.totalPages,
+                bookProgressPercent = if (isMarkdownNative) {
+                    runCatching { org.json.JSONObject(uiState.epubLocatorJson ?: "{}").optDouble("progression", 0.0).toFloat() * 100f }.getOrDefault(0f)
                 } else calculateBookProgressPercent(
-                    chapterIndex = r.uiState.currentChapterIndex,
-                    chapterCount = r.uiState.chapterCount,
-                    pageIndex = r.uiState.currentPageIndex,
-                    chapterPageCount = r.uiState.totalPages,
-                    rightChapterIndex = r.uiState.rightChapterIndex,
-                    rightPageIndex = r.uiState.rightPageIndex,
-                    rightChapterPageCount = r.uiState.rightChapterTotalPages
+                    chapterIndex = uiState.currentChapterIndex,
+                    chapterCount = uiState.chapterCount,
+                    pageIndex = uiState.currentPageIndex,
+                    chapterPageCount = uiState.totalPages,
+                    rightChapterIndex = uiState.rightChapterIndex,
+                    rightPageIndex = uiState.rightPageIndex,
+                    rightChapterPageCount = uiState.rightChapterTotalPages
                 ),
-                rightPageIndex = menuSpread?.second?.target?.pageIndex ?: r.uiState.rightPageIndex,
-                rightChapterIndex = menuSpread?.second?.target?.chapterIndex ?: r.uiState.rightChapterIndex
+                rightPageIndex = menuSpread?.second?.target?.pageIndex ?: uiState.rightPageIndex,
+                rightChapterIndex = menuSpread?.second?.target?.chapterIndex ?: uiState.rightChapterIndex
             )
-            var lastReadyMenuSnapshot by remember(r.bookId) {
+            var lastReadyMenuSnapshot by remember(bookId) {
                 mutableStateOf<ReaderMenuSnapshot?>(null)
             }
             SideEffect {
-                if (r.uiState.pageReady && !r.uiState.isEpubChapterHandoffInProgress) {
+                if (uiState.pageReady && !uiState.isEpubChapterHandoffInProgress) {
                     lastReadyMenuSnapshot = liveMenuSnapshot
                 }
             }
             val displayedMenuSnapshot = if (
-                r.isBookLayout && r.uiState.isEpubChapterHandoffInProgress
+                isBookLayout && uiState.isEpubChapterHandoffInProgress
             ) {
                 lastReadyMenuSnapshot ?: liveMenuSnapshot
             } else {
                 liveMenuSnapshot
             }
             val displayedBookPages = when {
-                r.isMarkdownNative || r.isBookLayout -> r.rendererBookPages
-                else -> r.nativeBookPages
+                isMarkdownNative || isBookLayout -> rendererBookPages
+                else -> nativeBookPages
             }
-            val chapterFraction = if (r.isContinuousScrollMode || r.isBookLayoutContinuousScroll)
+            val chapterFraction = if (isContinuousScrollMode || isBookLayoutContinuousScroll)
                 readerScrollChapterFraction(displayedMenuSnapshot.pageIndex, displayedMenuSnapshot.pageCount,
-                    r.uiState.epubLocatorJson.takeIf { r.isBookLayout || r.isMarkdownNative })
+                    uiState.epubLocatorJson.takeIf { isBookLayout || isMarkdownNative })
                 else ((displayedMenuSnapshot.pageIndex + 1).toFloat() /
                     displayedMenuSnapshot.pageCount.coerceAtLeast(1)).coerceIn(0f, 1f)
             val nativeScrollPageIndex by remember(displayedBookPages, displayedMenuSnapshot.chapterIndex, chapterFraction) {
                 derivedStateOf {
                     readerScrollPageIndex(displayedBookPages, displayedMenuSnapshot.chapterIndex,
-                        r.continuousReturnAnchor.value?.takeIf { it.chapter == displayedMenuSnapshot.chapterIndex }?.character,
+                        continuousReturnAnchor.value?.takeIf { it.chapter == displayedMenuSnapshot.chapterIndex }?.character,
                         chapterFraction)
                 }
             }
-            val scrollPageIndex = if (r.nativeContinuousViewport) nativeScrollPageIndex
-                else if (r.isBookLayoutContinuousScroll) runCatching {
-                org.json.JSONObject(r.uiState.epubLocatorJson ?: "{}").optInt("numberingPageIndex", 0)
+            val scrollPageIndex = if (nativeContinuousViewport) nativeScrollPageIndex
+                else if (isBookLayoutContinuousScroll) runCatching {
+                org.json.JSONObject(uiState.epubLocatorJson ?: "{}").optInt("numberingPageIndex", 0)
             }.getOrDefault(0) else null
-            val displayCurrentPage = if (r.nativeContinuousViewport || r.isBookLayoutContinuousScroll) {
+            val displayCurrentPage = if (nativeContinuousViewport || isBookLayoutContinuousScroll) {
                 (scrollPageIndex ?: 0) + 1
             } else {
                 displayedMenuSnapshot.pageIndex + 1
             }
-            val displayRightPageIndex = if (r.isContinuousScrollMode || r.isBookLayoutContinuousScroll) null else {
+            val displayRightPageIndex = if (isContinuousScrollMode || isBookLayoutContinuousScroll) null else {
                 displayedMenuSnapshot.rightPageIndex
             }
-            val displayRightChapterIndex = if (r.isContinuousScrollMode || r.isBookLayoutContinuousScroll) null else {
+            val displayRightChapterIndex = if (isContinuousScrollMode || isBookLayoutContinuousScroll) null else {
                 displayedMenuSnapshot.rightChapterIndex
             }
-            val displayPageCount = if (r.nativeContinuousViewport || r.isBookLayoutContinuousScroll) {
+            val displayPageCount = if (nativeContinuousViewport || isBookLayoutContinuousScroll) {
                 displayedBookPages.chapterCounts.getOrNull(displayedMenuSnapshot.chapterIndex) ?: 0
             } else {
-                if (r.isMarkdownNative && !r.uiState.markdownPaginationReady) 0 else displayedMenuSnapshot.pageCount
+                if (isMarkdownNative && !uiState.markdownPaginationReady) 0 else displayedMenuSnapshot.pageCount
             }
 
             val scrollPageLabel = readerScrollPageLabel(displayedMenuSnapshot.chapterIndex, chapterFraction)
             val globalPageLabel = readerBookPageLabel(displayedBookPages,
                 displayedMenuSnapshot.chapterIndex, scrollPageIndex ?: displayedMenuSnapshot.pageIndex,
                 displayRightChapterIndex, displayRightPageIndex) ?: "… / …"
-            val listeningTarget = r.listeningResumePrompt.takeIf { r.linkReturnLocation == null }
-            val returnChapter = r.linkReturnLocation?.chapterIndex ?: listeningTarget?.chapterIndex
-            val returnCharacter = r.linkReturnLocation?.characterOffset ?: listeningTarget?.characterOffset
-            val returnPage = r.linkReturnLocation?.let { source ->
+            val listeningTarget = listeningResumePrompt.takeIf { linkReturnLocation == null }
+            val returnChapter = linkReturnLocation?.chapterIndex ?: listeningTarget?.chapterIndex
+            val returnCharacter = linkReturnLocation?.characterOffset ?: listeningTarget?.characterOffset
+            val returnPage = linkReturnLocation?.let { source ->
                 source.characterOffset?.let { displayedBookPages.pageAtCharacter(source.chapterIndex, it) }
                     ?: source.pageIndex.takeIf { source.paginationKey ==
-                        if (r.isBookLayout || r.isMarkdownNative) r.rendererPageKey else r.nativeBookPages.generation }
+                        if (isBookLayout || isMarkdownNative) rendererPageKey else nativeBookPages.generation }
             } ?: listeningTarget?.let { displayedBookPages.pageAtCharacter(it.chapterIndex, it.characterOffset) }
             val continuousReturnSide by rememberContinuousReturnSide(
-                returnChapter, returnCharacter, r.uiState.currentChapterIndex,
-                r.continuousReturnAnchor, r.continuousVisibleCharacters)
-            val currentCharacter = if (r.isBookLayout || r.isMarkdownNative)
-                readerLocatorCharacter(r.uiState.epubLocatorJson) ?: r.rendererVisibleCharacters.firstOrNull()?.start
-                else if (r.isContinuousScrollMode) null
-                else r.nativeBookPages.chapterStarts[r.uiState.currentChapterIndex]?.getOrNull(r.uiState.currentPageIndex)
+                returnChapter, returnCharacter, uiState.currentChapterIndex,
+                continuousReturnAnchor, continuousVisibleCharacters)
+            val currentCharacter = if (isBookLayout || isMarkdownNative)
+                readerLocatorCharacter(uiState.epubLocatorJson) ?: rendererVisibleCharacters.firstOrNull()?.start
+                else if (isContinuousScrollMode) null
+                else nativeBookPages.chapterStarts[uiState.currentChapterIndex]?.getOrNull(uiState.currentPageIndex)
             val returnSide = when {
                 returnChapter == null -> null
-                returnPage != null && !r.isContinuousScrollMode && !r.isBookLayoutContinuousScroll -> readerReturnSide(
-                    returnChapter, returnPage.toFloat(), r.uiState.currentChapterIndex, r.uiState.currentPageIndex.toFloat(),
-                    r.uiState.rightChapterIndex, r.uiState.rightPageIndex?.toFloat())
-                returnCharacter != null && r.nativeContinuousViewport -> continuousReturnSide
+                returnPage != null && !isContinuousScrollMode && !isBookLayoutContinuousScroll -> readerReturnSide(
+                    returnChapter, returnPage.toFloat(), uiState.currentChapterIndex, uiState.currentPageIndex.toFloat(),
+                    uiState.rightChapterIndex, uiState.rightPageIndex?.toFloat())
+                returnCharacter != null && nativeContinuousViewport -> continuousReturnSide
                 returnCharacter != null -> readerReturnSideAtCharacter(returnChapter, returnCharacter,
-                    r.uiState.currentChapterIndex, currentCharacter ?: 0,
-                    r.rendererVisibleCharacters)
-                else -> readerReturnSide(returnChapter, r.linkReturnLocation?.chapterFraction ?: 0f,
-                    r.uiState.currentChapterIndex, r.uiState.currentPageIndex.toFloat() / r.uiState.totalPages.coerceAtLeast(1))
+                    uiState.currentChapterIndex, currentCharacter ?: 0,
+                    rendererVisibleCharacters)
+                else -> readerReturnSide(returnChapter, linkReturnLocation?.chapterFraction ?: 0f,
+                    uiState.currentChapterIndex, uiState.currentPageIndex.toFloat() / uiState.totalPages.coerceAtLeast(1))
             }
-            val cornerButtonVisible = returnSide != null && r.readerActive &&
-                !r.uiState.isMenuVisible && !r.isAnySheetOpen && r.ttsStartPrompt == null &&
-                r.selectionState == null && !r.isSelectionDragging
+            val cornerButtonVisible = returnSide != null && readerActive &&
+                !uiState.isMenuVisible && !isAnySheetOpen && ttsStartPrompt == null &&
+                selectionState == null && !isSelectionDragging
             val targetBookPage = if (returnChapter != null && returnPage != null)
                 displayedBookPages.pageNumber(returnChapter, returnPage) else null
             val targetCharacterFraction by produceState<Float?>(null, returnChapter, returnCharacter,
-                r.isContinuousScrollMode, r.isBookLayoutContinuousScroll, r.uiState.contentRevision, r.epubSession) {
+                isContinuousScrollMode, isBookLayoutContinuousScroll, uiState.contentRevision, epubSession) {
                 value = null
                 val chapter = returnChapter ?: return@produceState
                 val character = returnCharacter ?: return@produceState
-                if (!r.isContinuousScrollMode && !r.isBookLayoutContinuousScroll) return@produceState
+                if (!isContinuousScrollMode && !isBookLayoutContinuousScroll) return@produceState
                 val length = withContext(Dispatchers.IO) {
-                    if (r.isBookLayout) r.epubSession?.searchText(chapter)?.length
-                        ?: r.viewModel.getChapterTextLength(chapter)
-                    else r.viewModel.getChapterTextLength(chapter)
+                    if (isBookLayout) epubSession?.searchText(chapter)?.length
+                        ?: viewModel.getChapterTextLength(chapter)
+                    else viewModel.getChapterTextLength(chapter)
                 }
                 value = if (length > 0) character.toFloat() / length else null
             }
-            val targetPageLabel = if (r.isContinuousScrollMode || r.isBookLayoutContinuousScroll) {
-                val fraction = r.linkReturnLocation?.chapterFraction ?: targetCharacterFraction
+            val targetPageLabel = if (isContinuousScrollMode || isBookLayoutContinuousScroll) {
+                val fraction = linkReturnLocation?.chapterFraction ?: targetCharacterFraction
                 if (returnChapter != null && fraction != null) readerScrollPageLabel(returnChapter, fraction) else null
             } else targetBookPage?.toString()
-            ListeningResumeHintExpiry(r.listeningResumePrompt,
-                cornerButtonVisible && listeningTarget != null, r.viewModel::keepReadingPosition)
-            ListeningResumeHintExpiry(r.linkReturnLocation?.let { it to r.linkReturnToken },
-                cornerButtonVisible && r.linkReturnLocation != null, { r.linkReturnLocation = null })
-            LaunchedEffect(r.linkReturnLocation) {
-                if (r.linkReturnLocation != null && r.viewModel.listeningResumePrompt.value != null) {
-                    r.viewModel.keepReadingPosition()
+            ListeningResumeHintExpiry(listeningResumePrompt,
+                cornerButtonVisible && listeningTarget != null, viewModel::keepReadingPosition)
+            ListeningResumeHintExpiry(linkReturnLocation?.let { it to linkReturnToken },
+                cornerButtonVisible && linkReturnLocation != null, { linkReturnLocation = null })
+            LaunchedEffect(linkReturnLocation) {
+                if (linkReturnLocation != null && viewModel.listeningResumePrompt.value != null) {
+                    viewModel.keepReadingPosition()
                 }
             }
 
             AnimatedVisibility(
                 visible = cornerButtonVisible,
-                enter = if (r.eInkMode) EnterTransition.None else fadeIn(animationSpec = tween(200)),
-                exit = if (r.eInkMode) ExitTransition.None else fadeOut(animationSpec = tween(150)),
+                enter = if (eInkMode) EnterTransition.None else fadeIn(animationSpec = tween(200)),
+                exit = if (eInkMode) ExitTransition.None else fadeOut(animationSpec = tween(150)),
                 modifier = Modifier
                     .align(if (returnSide == ReaderReturnSide.RIGHT) Alignment.TopEnd else Alignment.TopStart)
                     .padding(
-                        start = r.uiState.readerCornerMargins.resolvedLeftDp(r.uiState.marginLeftDp).coerceAtLeast(0f).dp,
-                        end = r.uiState.readerCornerMargins.resolvedRightDp(r.uiState.marginRightDp).coerceAtLeast(0f).dp,
-                        top = (r.uiState.readerCornerMargins.resolvedTopDp() - 10f).coerceAtLeast(0f).dp)
+                        start = uiState.readerCornerMargins.resolvedLeftDp(uiState.marginLeftDp).coerceAtLeast(0f).dp,
+                        end = uiState.readerCornerMargins.resolvedRightDp(uiState.marginRightDp).coerceAtLeast(0f).dp,
+                        top = (uiState.readerCornerMargins.resolvedTopDp() - 10f).coerceAtLeast(0f).dp)
             ) {
                 ReaderReturnChip(
                     pageLabel = targetPageLabel,
                     side = returnSide ?: ReaderReturnSide.LEFT,
                     headphones = listeningTarget != null,
-                    paperColor = Color(r.customBackgroundThemeColorInt),
-                    contentColor = Color(r.readerTextColorInt),
-                    r.eInkMode = r.eInkMode,
+                    paperColor = Color(customBackgroundThemeColorInt),
+                    contentColor = Color(readerTextColorInt),
+                    eInkMode = eInkMode,
                     description = stringResource(when {
                         listeningTarget != null -> R.string.tts_listening_resume_jump
-                        r.linkReturnLocation?.isListeningReadingReturn == true -> R.string.tts_return_reading_progress
+                        linkReturnLocation?.isListeningReadingReturn == true -> R.string.tts_return_reading_progress
                         else -> R.string.reader_link_return
                     }),
-                    entryKey = listeningTarget ?: r.linkReturnToken,
+                    entryKey = listeningTarget ?: linkReturnToken,
                     onClick = {
                         if (listeningTarget != null) {
-                            if (r.viewModel.listeningResumePrompt.value != null) {
-                                val source = r.captureReaderLocation()
-                                r.viewModel.chooseListeningResume(
+                            if (viewModel.listeningResumePrompt.value != null) {
+                                val source = captureReaderLocationHere()
+                                viewModel.chooseListeningResume(
                                     com.huangder.lumibooks.tts.TtsReaderResumeChoice.LISTENING_POSITION, false)
-                                r.linkReturnLocation = source
-                                r.linkReturnToken++
+                                linkReturnLocation = source
+                                linkReturnToken++
                             }
-                        } else r.returnToLinkedSource()
+                        } else returnToLinkedSource()
                     }
                 )
             }
 
-            if (r.uiState.isMenuVisible) {
+            if (uiState.isMenuVisible) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() },
-                            onClick = r.viewModel::hideMenu
+                            onClick = viewModel::hideMenu
                         )
                 )
             }
 
             // 顶部栏
             AnimatedVisibility(
-                visible = r.uiState.isMenuVisible,
+                visible = uiState.isMenuVisible,
                 enter = when {
-                    r.eInkMode -> EnterTransition.None
-                    !r.motionEnabled -> fadeIn(animationSpec = tween(120))
+                    eInkMode -> EnterTransition.None
+                    !motionEnabled -> fadeIn(animationSpec = tween(120))
                     else -> slideInVertically(
                         initialOffsetY = { -it },
                         animationSpec = tween(LumiMotion.MenuEnterMillis, easing = AppEasing.Smooth)
                     ) + fadeIn(animationSpec = tween(LumiMotion.MenuEnterMillis))
                 },
                 exit = when {
-                    r.eInkMode -> ExitTransition.None
-                    !r.motionEnabled -> fadeOut(animationSpec = tween(100))
+                    eInkMode -> ExitTransition.None
+                    !motionEnabled -> fadeOut(animationSpec = tween(100))
                     else -> slideOutVertically(
                         targetOffsetY = { -it },
                         animationSpec = tween(LumiMotion.MenuExitMillis, easing = AppEasing.Accelerate)
@@ -12379,121 +12572,121 @@ private fun ReaderMenuAndSheetsSection() {
                 },
                 modifier = Modifier.align(Alignment.TopCenter)
             ) {
-                val bookTitle = r.uiState.book?.title ?: ""
-                val isOnlineBook = remember(r.uiState.book?.filePath) {
-                    r.uiState.book?.filePath?.startsWith(com.huangder.lumibooks.util.parser.OnlineBookParser.SCHEME) == true
+                val bookTitle = uiState.book?.title ?: ""
+                val isOnlineBook = remember(uiState.book?.filePath) {
+                    uiState.book?.filePath?.startsWith(com.huangder.lumibooks.util.parser.OnlineBookParser.SCHEME) == true
                 }
-                val isTxtBook = !isOnlineBook && r.uiState.book?.format?.name == "TXT"
-                val supportsHighlightRules = (r.uiState.book?.format?.let { it == BookFormat.TXT || it.supportsEpubFeatures } == true)
+                val isTxtBook = !isOnlineBook && uiState.book?.format?.name == "TXT"
+                val supportsHighlightRules = (uiState.book?.format?.let { it == BookFormat.TXT || it.supportsEpubFeatures } == true)
                 ReaderTopBar(
                     title = bookTitle,
-                    onBack = r.exitReader,
-                    r.sideRailItemSize = r.sideRailItemSize,
-                    horizontalActions = r.menuLayout.horizontalTopActions,
-                    bgColor = r.menuBgColor,
-                    contentColor = r.menuContentColor,
-                    glassContentScrimColor = r.readerGlassContentScrim,
-                    forceSolidButtons = r.forceNativeGlassFallback,
-                    isTtsActive = r.ttsState.activeBookId == r.uiState.book?.id &&
-                        r.ttsState.playbackState != TtsPlaybackState.IDLE,
-                    onTtsClick = r.requestTtsStart,
-                    isBookmarked = r.isCurrentPageBookmarked,
-                    onBookmarkToggle = { r.toggleBookmarkForCurrentPage(true) },
+                    onBack = exitReader,
+                    sideRailItemSize = sideRailItemSize,
+                    horizontalActions = menuLayout.horizontalTopActions,
+                    bgColor = menuBgColor,
+                    contentColor = menuContentColor,
+                    glassContentScrimColor = readerGlassContentScrim,
+                    forceSolidButtons = forceNativeGlassFallback,
+                    isTtsActive = ttsState.activeBookId == uiState.book?.id &&
+                        ttsState.playbackState != TtsPlaybackState.IDLE,
+                    onTtsClick = requestTtsStart,
+                    isBookmarked = isCurrentPageBookmarked,
+                    onBookmarkToggle = { toggleBookmarkForCurrentPage(true) },
                     supportsHighlightRules = supportsHighlightRules,
                     onHighlightRulesClick = {
-                        r.viewModel.hideMenu()
-                        r.showHighlightRules = true
+                        viewModel.hideMenu()
+                        showHighlightRules = true
                     },
                     isTxtBook = isTxtBook,
                     isOnlineBook = isOnlineBook,
-                    r.isRefreshingOnlineBook = r.isRefreshingOnlineBook,
+                    isRefreshingOnlineBook = isRefreshingOnlineBook,
                     onPurifyRulesClick = {
-                        r.viewModel.hideMenu()
-                        val bookName = r.uiState.book?.title
-                        r.purifyRulesLauncher.launch(
-                            Intent(r.context, ReplaceRulesActivity::class.java).apply {
+                        viewModel.hideMenu()
+                        val bookName = uiState.book?.title
+                        purifyRulesLauncher.launch(
+                            Intent(context, ReplaceRulesActivity::class.java).apply {
                                 bookName?.let { putExtra(ReplaceRulesActivity.EXTRA_BOOK_NAME, it) }
                             }
                         )
                     },
                     onChangeSource = {
-                        r.viewModel.hideMenu()
-                        r.showChangeSourceDialog = true
+                        viewModel.hideMenu()
+                        showChangeSourceDialog = true
                     },
                     onRefreshSource = {
-                        r.viewModel.hideMenu()
-                        r.viewModel.refreshCurrentOnlineBook()
+                        viewModel.hideMenu()
+                        viewModel.refreshCurrentOnlineBook()
                     },
-                    bookFormat = r.uiState.book?.format?.name.orEmpty(),
-                    r.lineGuideAvailable = r.lineGuideAvailable,
-                    lineGuideEnabled = r.uiState.lineGuideEnabled,
+                    bookFormat = uiState.book?.format?.name.orEmpty(),
+                    lineGuideAvailable = lineGuideAvailable,
+                    lineGuideEnabled = uiState.lineGuideEnabled,
                     onLineGuideToggle = {
-                        r.clearActiveTextSelection()
-                        r.viewModel.saveLineGuideEnabled(!r.viewModel.uiState.value.lineGuideEnabled)
-                        r.viewModel.hideMenu()
+                        clearActiveTextSelection()
+                        viewModel.saveLineGuideEnabled(!viewModel.uiState.value.lineGuideEnabled)
+                        viewModel.hideMenu()
                     },
-                    r.autoReadingAvailable = r.autoReadingAvailable,
-                    autoReadingEnabled = r.autoReadingActive,
+                    autoReadingAvailable = autoReadingAvailable,
+                    autoReadingEnabled = autoReadingActive,
                     onAutoReadingToggle = {
-                        if (r.autoReadingActive) {
-                            r.stopAutoReading()
+                        if (autoReadingActive) {
+                            stopAutoReading()
                         } else {
-                            r.autoReadingOriginalTransition = r.uiState.pageTransition
-                            r.autoReadingOriginalWritingMode = r.uiState.readerWritingMode
-                            if (r.uiState.readerWritingMode != ReaderWritingMode.HORIZONTAL) {
-                                r.viewModel.saveReaderWritingMode(ReaderWritingMode.HORIZONTAL)
+                            autoReadingOriginalTransition = uiState.pageTransition
+                            autoReadingOriginalWritingMode = uiState.readerWritingMode
+                            if (uiState.readerWritingMode != ReaderWritingMode.HORIZONTAL) {
+                                viewModel.saveReaderWritingMode(ReaderWritingMode.HORIZONTAL)
                             }
-                            if (r.uiState.pageTransition != "continuous") {
-                                r.viewModel.savePageTransition("continuous")
+                            if (uiState.pageTransition != "continuous") {
+                                viewModel.savePageTransition("continuous")
                             }
-                            r.autoReadingActive = true
-                            r.autoReadingPaused = false
-                            r.autoReadingAtChapterEnd = false
+                            autoReadingActive = true
+                            autoReadingPaused = false
+                            autoReadingAtChapterEnd = false
                         }
-                        r.viewModel.hideMenu()
+                        viewModel.hideMenu()
                     },
-                    bionicReadingEnabled = r.uiState.bionicReadingEnabled,
+                    bionicReadingEnabled = uiState.bionicReadingEnabled,
                     onBionicReadingToggle = {
-                        r.viewModel.saveBionicReadingEnabled(!r.viewModel.uiState.value.bionicReadingEnabled)
+                        viewModel.saveBionicReadingEnabled(!viewModel.uiState.value.bionicReadingEnabled)
                     },
-                    comicModeEnabled = r.uiState.comicModeEnabled,
-                    onComicModeToggle = { r.viewModel.saveComicMode(!r.viewModel.uiState.value.comicModeEnabled) },
-                    onSwitchComicReader = r.viewModel::requestEpubComicReader,
+                    comicModeEnabled = uiState.comicModeEnabled,
+                    onComicModeToggle = { viewModel.saveComicMode(!viewModel.uiState.value.comicModeEnabled) },
+                    onSwitchComicReader = viewModel::requestEpubComicReader,
                     onEditClick = {
-                        r.viewModel.hideMenu()
-                        val readerAnchor = r.readViewRef.value?.getCurrentPageTextAnchor()
+                        viewModel.hideMenu()
+                        val readerAnchor = readViewRef.value?.getCurrentPageTextAnchor()
                         val chapterIndex = readerAnchor?.chapterIndex
-                            ?: r.uiState.currentChapterIndex
-                        val charOffset = r.viewModel.resolveTxtEditorCharOffset(
+                            ?: uiState.currentChapterIndex
+                        val charOffset = viewModel.resolveTxtEditorCharOffset(
                             chapterIndex = chapterIndex,
                             readerOffset = readerAnchor?.characterOffset ?: 0
                         )
-                        val intent = Intent(r.context, TxtEditorActivity::class.java).apply {
-                            putExtra(TxtEditorActivity.EXTRA_BOOK_ID, r.bookId)
+                        val intent = Intent(context, TxtEditorActivity::class.java).apply {
+                            putExtra(TxtEditorActivity.EXTRA_BOOK_ID, bookId)
                             putExtra(TxtEditorActivity.EXTRA_CHAPTER_INDEX, chapterIndex)
                             putExtra(TxtEditorActivity.EXTRA_CHAR_OFFSET, charOffset)
                             putExtra(TxtEditorActivity.EXTRA_REVEAL_READING_POSITION, true)
                         }
                         runCatching {
-                            r.txtEditorLauncher.launch(intent)
+                            txtEditorLauncher.launch(intent)
                         }.onFailure { error ->
                             Log.w("ReaderScreen", "Failed to open TXT editor", error)
-                            Toast.makeText(r.context, R.string.error, Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, R.string.error, Toast.LENGTH_SHORT).show()
                         }
                     },
                     onEncodingClick = {
-                        r.viewModel.hideMenu()
-                        r.showTxtEncodingDialog = true
+                        viewModel.hideMenu()
+                        showTxtEncodingDialog = true
                     },
                     onTocRuleClick = {
-                        r.viewModel.hideMenu()
-                        r.showTxtTocDialog = true
+                        viewModel.hideMenu()
+                        showTxtTocDialog = true
                     }
                 )
             }
 
-            if (r.uiState.totalPages > 0 || r.uiState.useNewEngine ||
-                r.uiState.isEpubChapterHandoffInProgress
+            if (uiState.totalPages > 0 || uiState.useNewEngine ||
+                uiState.isEpubChapterHandoffInProgress
             ) {
                 val chapterTitle = displayedMenuSnapshot.chapterTitle
                 val bookProgressPercent = displayedMenuSnapshot.bookProgressPercent
@@ -12502,17 +12695,17 @@ private fun ReaderMenuAndSheetsSection() {
                 val menuAlpha = remember { Animatable(0f) }
                 val menuOffset = remember { Animatable(60f) }
                 val menuScope = rememberCoroutineScope()
-                LaunchedEffect(r.uiState.isMenuVisible, r.eInkMode, r.motionEnabled) {
-                    if (r.eInkMode) {
-                        menuAlpha.snapTo(if (r.uiState.isMenuVisible) 1f else 0f)
-                        menuOffset.snapTo(if (r.uiState.isMenuVisible) 0f else 60f)
-                    } else if (!r.motionEnabled) {
+                LaunchedEffect(uiState.isMenuVisible, eInkMode, motionEnabled) {
+                    if (eInkMode) {
+                        menuAlpha.snapTo(if (uiState.isMenuVisible) 1f else 0f)
+                        menuOffset.snapTo(if (uiState.isMenuVisible) 0f else 60f)
+                    } else if (!motionEnabled) {
                         menuOffset.snapTo(0f)
                         menuAlpha.animateTo(
-                            if (r.uiState.isMenuVisible) 1f else 0f,
-                            tween(if (r.uiState.isMenuVisible) 120 else 100)
+                            if (uiState.isMenuVisible) 1f else 0f,
+                            tween(if (uiState.isMenuVisible) 120 else 100)
                         )
-                    } else if (r.uiState.isMenuVisible) {
+                    } else if (uiState.isMenuVisible) {
                         menuOffset.snapTo(60f)
                         menuScope.launch { menuAlpha.animateTo(1f, tween(LumiMotion.MenuEnterMillis)) }
                         menuScope.launch { menuOffset.animateTo(0f, tween(LumiMotion.MenuEnterMillis, easing = AppEasing.Smooth)) }
@@ -12522,26 +12715,26 @@ private fun ReaderMenuAndSheetsSection() {
                     }
                 }
 
-                if (!r.isLiquidGlass) {
+                if (!isLiquidGlass) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             // 竖向工具栏布局底部只剩一行胶囊，遮罩随之变矮
-                            .height(if (r.useSideReaderMenu) 132.dp else 220.dp)
+                            .height(if (useSideReaderMenu) 132.dp else 220.dp)
                             .align(Alignment.BottomCenter)
                             .graphicsLayer { alpha = menuAlpha.value }
                             .then(
-                                if (r.eInkMode) {
-                                    Modifier.background(r.menuBgColor)
+                                if (eInkMode) {
+                                    Modifier.background(menuBgColor)
                                 } else {
                                     Modifier.background(
                                         Brush.verticalGradient(
                                             colorStops = arrayOf(
-                                                0.0f to r.menuBgColor.copy(alpha = 0f),
-                                                0.2f to r.menuBgColor.copy(alpha = 0.4f),
-                                                0.5f to r.menuBgColor.copy(alpha = 0.8f),
-                                                0.8f to r.menuBgColor.copy(alpha = 0.95f),
-                                                1.0f to r.menuBgColor
+                                                0.0f to menuBgColor.copy(alpha = 0f),
+                                                0.2f to menuBgColor.copy(alpha = 0.4f),
+                                                0.5f to menuBgColor.copy(alpha = 0.8f),
+                                                0.8f to menuBgColor.copy(alpha = 0.95f),
+                                                1.0f to menuBgColor
                                             )
                                         )
                                     )
@@ -12556,13 +12749,13 @@ private fun ReaderMenuAndSheetsSection() {
                     .graphicsLayer { alpha = menuAlpha.value; translationY = menuOffset.value }
                 ) {
                     FloatingReaderMenu(
-                        visible = r.uiState.isMenuVisible,
+                        visible = uiState.isMenuVisible,
                         onCatalogBoundsChanged = { bounds ->
-                            r.ttsCatalogBounds = bounds.translate(Offset(0f, -menuOffset.value))
+                            ttsCatalogBounds = bounds.translate(Offset(0f, -menuOffset.value))
                         },
                         chapterTitle = chapterTitle,
-                        chapterTitles = r.uiState.chapterTitles,
-                        chapterCount = r.uiState.chapterCount,
+                        chapterTitles = uiState.chapterTitles,
+                        chapterCount = uiState.chapterCount,
                         bookProgressPercent = bookProgressPercent,
                         globalPageLabel = globalPageLabel,
                         currentPage = displayCurrentPage,
@@ -12570,90 +12763,90 @@ private fun ReaderMenuAndSheetsSection() {
                         rightPageIndex = displayRightPageIndex,
                         rightChapterIndex = displayRightChapterIndex,
                         currentChapterIndex = displayedMenuSnapshot.chapterIndex,
-                        r.capsuleBgColor = r.capsuleBgColor,
-                        r.capsuleContentColor = if (r.isLiquidGlass && (!r.isBookLayout || r.isMarkdownNative)) r.menuContentColor else r.capsuleContentColor,
-                        r.catalogProgressColor = r.catalogProgressColor,
-                        glassContentScrimColor = r.readerGlassContentScrim,
-                        forceSolidCapsules = r.forceNativeGlassFallback,
-                        canGoToPreviousChapter = r.uiState.currentChapterIndex > 0,
-                        canGoToNextChapter = r.uiState.currentChapterIndex < r.uiState.chapterCount - 1,
+                        capsuleBgColor = capsuleBgColor,
+                        capsuleContentColor = if (isLiquidGlass && (!isBookLayout || isMarkdownNative)) menuContentColor else capsuleContentColor,
+                        catalogProgressColor = catalogProgressColor,
+                        glassContentScrimColor = readerGlassContentScrim,
+                        forceSolidCapsules = forceNativeGlassFallback,
+                        canGoToPreviousChapter = uiState.currentChapterIndex > 0,
+                        canGoToNextChapter = uiState.currentChapterIndex < uiState.chapterCount - 1,
                         onCatalogClick = {
-                            r.viewModel.hideMenu()
-                            r.showToc = true
+                            viewModel.hideMenu()
+                            showToc = true
                         },
                         onPreviousChapterClick = {
-                            val targetChapter = r.uiState.currentChapterIndex - 1
-                            if (targetChapter >= 0) r.beginManualReaderNavigation()
+                            val targetChapter = uiState.currentChapterIndex - 1
+                            if (targetChapter >= 0) beginManualReaderNavigation()
                             when {
                                 targetChapter < 0 -> Unit
-                                r.isContinuousScrollMode -> r.jumpToContinuousChapter(targetChapter)
-                                r.isBookLayout -> r.navigateEpub(
+                                isContinuousScrollMode -> jumpToContinuousChapter(targetChapter, 0f)
+                                isBookLayout -> navigateEpub(
                                     EpubNavigationOrigin.CHAPTER_CONTROL,
                                     targetChapter,
                                     EpubNavigationDestination.ChapterStart,
                                     true
                                 )
-                                !r.isBookLayout && r.uiState.useNewEngine -> {
-                                    val readView = r.readViewRef.value
+                                !isBookLayout && uiState.useNewEngine -> {
+                                    val readView = readViewRef.value
                                     if (readView != null) {
                                         readView.jumpToChapter(targetChapter)
                                     } else {
-                                        r.viewModel.setChapter(targetChapter)
+                                        viewModel.setChapter(targetChapter)
                                     }
                                 }
-                                else -> r.viewModel.setChapter(targetChapter)
+                                else -> viewModel.setChapter(targetChapter)
                             }
                         },
                         onNextChapterClick = {
-                            val targetChapter = r.uiState.currentChapterIndex + 1
-                            if (targetChapter < r.uiState.chapterCount) r.beginManualReaderNavigation()
+                            val targetChapter = uiState.currentChapterIndex + 1
+                            if (targetChapter < uiState.chapterCount) beginManualReaderNavigation()
                             when {
-                                targetChapter >= r.uiState.chapterCount -> Unit
-                                r.isContinuousScrollMode -> r.jumpToContinuousChapter(targetChapter)
-                                r.isBookLayout -> r.navigateEpub(
+                                targetChapter >= uiState.chapterCount -> Unit
+                                isContinuousScrollMode -> jumpToContinuousChapter(targetChapter, 0f)
+                                isBookLayout -> navigateEpub(
                                     EpubNavigationOrigin.CHAPTER_CONTROL,
                                     targetChapter,
                                     EpubNavigationDestination.ChapterStart,
                                     true
                                 )
-                                !r.isBookLayout && r.uiState.useNewEngine -> {
-                                    val readView = r.readViewRef.value
+                                !isBookLayout && uiState.useNewEngine -> {
+                                    val readView = readViewRef.value
                                     if (readView != null) {
                                         readView.jumpToChapter(targetChapter)
                                     } else {
-                                        r.viewModel.setChapter(targetChapter)
+                                        viewModel.setChapter(targetChapter)
                                     }
                                 }
-                                else -> r.viewModel.setChapter(targetChapter)
+                                else -> viewModel.setChapter(targetChapter)
                             }
                         },
                         onBookmarkClick = {
-                            r.viewModel.hideMenu()
-                            r.showNotesList = true
+                            viewModel.hideMenu()
+                            showNotesList = true
                         },
                         onSearchClick = {
-                            r.viewModel.hideMenu()
-                            r.showSearch = true
+                            viewModel.hideMenu()
+                            showSearch = true
                         },
                         onThemeClick = {
-                            r.viewModel.hideMenu()
-                            r.openAdvancedAfterThemeClose = false
-                            r.requestCloseTheme = false
-                            r.showThemeSheet = true
+                            viewModel.hideMenu()
+                            openAdvancedAfterThemeClose = false
+                            requestCloseTheme = false
+                            showThemeSheet = true
                         },
                         onCatalogProgressDragStart = {
-                            r.catalogDragReturnLocation = r.captureReaderLocation()
+                            catalogDragReturnLocation = captureReaderLocationHere()
                         },
                         onCatalogProgressDragEnd = { finalProgress ->
-                            if (r.isContinuousScrollMode) {
-                                val source = r.catalogDragReturnLocation
-                                r.beginManualReaderNavigation()
-                                mapGlobalProgress(finalProgress, r.uiState.chapterCount)?.let { target ->
-                                    if (source != null) { r.linkReturnLocation = source; r.linkReturnToken++ }
-                                    if (r.isMarkdownNative) {
+                            if (isContinuousScrollMode) {
+                                val source = catalogDragReturnLocation
+                                beginManualReaderNavigation()
+                                mapGlobalProgress(finalProgress, uiState.chapterCount)?.let { target ->
+                                    if (source != null) { linkReturnLocation = source; linkReturnToken++ }
+                                    if (isMarkdownNative) {
                                         // The native Markdown surface maps this fraction directly
                                         // to its document coordinate and restores its virtual window.
-                                        r.navigateEpub(
+                                        navigateEpub(
                                             EpubNavigationOrigin.PROGRESS,
                                             target.chapterIndex,
                                             EpubNavigationDestination.Page(
@@ -12663,7 +12856,7 @@ private fun ReaderMenuAndSheetsSection() {
                                             false
                                         )
                                     } else {
-                                        r.continuousScrollRequests.tryEmit(
+                                        continuousScrollRequests.tryEmit(
                                             ContinuousScrollRequest(
                                                 target.chapterIndex,
                                                 target.chapterFraction
@@ -12671,13 +12864,13 @@ private fun ReaderMenuAndSheetsSection() {
                                         )
                                     }
                                 }
-                            } else if (r.isBookLayout) {
-                                mapGlobalProgress(finalProgress, r.uiState.chapterCount)?.let { target ->
-                                    val source = r.catalogDragReturnLocation
-                                    val expectedPage = if (target.chapterIndex == r.uiState.currentChapterIndex) {
+                            } else if (isBookLayout) {
+                                mapGlobalProgress(finalProgress, uiState.chapterCount)?.let { target ->
+                                    val source = catalogDragReturnLocation
+                                    val expectedPage = if (target.chapterIndex == uiState.currentChapterIndex) {
                                         pageIndexForChapterFraction(
                                             target.chapterFraction,
-                                            r.uiState.totalPages
+                                            uiState.totalPages
                                         )
                                     } else {
                                         0
@@ -12686,10 +12879,10 @@ private fun ReaderMenuAndSheetsSection() {
                                         (source.chapterIndex != target.chapterIndex ||
                                             source.pageIndex != expectedPage)
 
-                                    r.epubSearchRequest = null
-                                    r.epubLocatorRequest = null
-                                    r.epubPageRequest = null
-                                    r.navigateEpub(
+                                    epubSearchRequest = null
+                                    epubLocatorRequest = null
+                                    epubPageRequest = null
+                                    navigateEpub(
                                         EpubNavigationOrigin.PROGRESS,
                                         target.chapterIndex,
                                         EpubNavigationDestination.Page(
@@ -12699,41 +12892,41 @@ private fun ReaderMenuAndSheetsSection() {
                                         true
                                     )
                                     if (destinationDiffers) {
-                                        r.linkReturnLocation = source
-                                        r.linkReturnToken += 1
+                                        linkReturnLocation = source
+                                        linkReturnToken += 1
                                     }
                                 }
                             } else {
-                                r.beginManualReaderNavigation()
-                                val readView = r.readViewRef.value
+                                beginManualReaderNavigation()
+                                val readView = readViewRef.value
                                 readView?.jumpToGlobalProgress(finalProgress)
-                                val source = r.catalogDragReturnLocation
+                                val source = catalogDragReturnLocation
                                 val destination = readView?.getCurrentLocation()
-                                    ?.let { r.captureReaderLocation(it.first, it.second) }
+                                    ?.let { captureReaderLocation(it.first, it.second, null, null) }
                                 if (source != null && destination != null && source != destination) {
-                                    r.linkReturnLocation = source
-                                    r.linkReturnToken += 1
+                                    linkReturnLocation = source
+                                    linkReturnToken += 1
                                 }
                             }
-                            r.catalogDragReturnLocation = null
+                            catalogDragReturnLocation = null
                         },
                         onCatalogProgressDragCancel = {
-                            r.catalogDragReturnLocation = null
+                            catalogDragReturnLocation = null
                         },
-                        r.sideRailItemSize = r.sideRailItemSize,
+                        sideRailItemSize = sideRailItemSize,
                         modifier = Modifier.align(Alignment.BottomCenter)
                     )
                 }
 
                 // 底部阅读状态
-                if (!r.uiState.isMenuVisible) {
+                if (!uiState.isMenuVisible) {
                     // 选字过程中的引导提示：开始选字 → 拖到页角翻页；翻到新页 → 单击目标结尾。
-                    // 拖拽期间 r.selectionState 会被清空（菜单收起），所以同时看 r.isSelectionDragging，
+                    // 拖拽期间 selectionState 会被清空（菜单收起），所以同时看 isSelectionDragging，
                     // 保证拖动过程中提示常驻。
                     val selectionHintText = when {
-                        r.isBookLayout || r.isContinuousScrollMode -> null
-                        r.selectionState == null && !r.isSelectionDragging -> null
-                        r.selectionCrossPage ->
+                        isBookLayout || isContinuousScrollMode -> null
+                        selectionState == null && !isSelectionDragging -> null
+                        selectionCrossPage ->
                             stringResource(R.string.reader_selection_hint_tap_target)
                         else -> stringResource(R.string.reader_selection_hint_switch_page)
                     }
@@ -12749,34 +12942,34 @@ private fun ReaderMenuAndSheetsSection() {
                         rightChapterIndex = displayRightChapterIndex,
                         currentChapterIndex = displayedMenuSnapshot.chapterIndex,
                         // 四角信息区边距独立可调；未设置过的边沿用正文边距 / 旧版默认位置。
-                        leftMarginDp = r.uiState.readerCornerMargins.resolvedLeftDp(r.uiState.marginLeftDp),
-                        rightMarginDp = r.uiState.readerCornerMargins.resolvedRightDp(r.uiState.marginRightDp),
-                        topMarginDp = r.uiState.readerCornerMargins.resolvedTopDp(),
-                        bottomMarginDp = r.uiState.readerCornerMargins.resolvedBottomDp(),
+                        leftMarginDp = uiState.readerCornerMargins.resolvedLeftDp(uiState.marginLeftDp),
+                        rightMarginDp = uiState.readerCornerMargins.resolvedRightDp(uiState.marginRightDp),
+                        topMarginDp = uiState.readerCornerMargins.resolvedTopDp(),
+                        bottomMarginDp = uiState.readerCornerMargins.resolvedBottomDp(),
                         topLeft = if (!cornerButtonVisible || returnSide != ReaderReturnSide.LEFT) {
-                            r.uiState.readerTopLeftContent
+                            uiState.readerTopLeftContent
                         } else {
                             ReaderCornerContent.NONE
                         },
                         topRight = if (cornerButtonVisible && returnSide == ReaderReturnSide.RIGHT)
-                            ReaderCornerContent.NONE else r.uiState.readerTopRightContent,
-                        bottomLeft = r.uiState.readerBottomLeftContent,
-                        bottomRight = r.uiState.readerBottomRightContent,
-                        contentColor = Color(r.readerTextColorInt).copy(alpha = 0.45f),
+                            ReaderCornerContent.NONE else uiState.readerTopRightContent,
+                        bottomLeft = uiState.readerBottomLeftContent,
+                        bottomRight = uiState.readerBottomRightContent,
+                        contentColor = Color(readerTextColorInt).copy(alpha = 0.45f),
                         selectionHintText = selectionHintText,
-                        onFooterTopChanged = { r.ttsFooterTop = it },
+                        onFooterTopChanged = { ttsFooterTop = it },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
             }
 
-            if (r.effectiveLineGuide && !r.isAnySheetOpen) {
+            if (effectiveLineGuide && !isAnySheetOpen) {
                 ReaderLineGuideControl(
-                    level = r.uiState.lineGuideDimLevel,
-                    backgroundColor = r.menuBgColor,
-                    contentColor = r.menuContentColor,
-                    onLevelSelected = r.viewModel::saveLineGuideDimLevel,
-                    onClose = { r.viewModel.saveLineGuideEnabled(false) },
+                    level = uiState.lineGuideDimLevel,
+                    backgroundColor = menuBgColor,
+                    contentColor = menuContentColor,
+                    onLevelSelected = viewModel::saveLineGuideDimLevel,
+                    onClose = { viewModel.saveLineGuideEnabled(false) },
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .navigationBarsPadding()
@@ -12784,37 +12977,37 @@ private fun ReaderMenuAndSheetsSection() {
                 )
             }
 
-            if (r.autoReadingActive && !r.isAnySheetOpen) {
+            if (autoReadingActive && !isAnySheetOpen) {
                 AutoReadingControl(
-                    speed = r.uiState.autoReadingSpeed,
-                    paused = r.autoReadingPaused,
-                    backgroundColor = r.menuBgColor,
-                    contentColor = r.menuContentColor,
-                    forceSolid = r.forceNativeGlassFallback,
-                    onSpeedChanged = r.viewModel::saveAutoReadingSpeed,
-                    onPauseToggle = { r.autoReadingPaused = !r.autoReadingPaused },
-                    onClose = ::r.stopAutoReading,
+                    speed = uiState.autoReadingSpeed,
+                    paused = autoReadingPaused,
+                    backgroundColor = menuBgColor,
+                    contentColor = menuContentColor,
+                    forceSolid = forceNativeGlassFallback,
+                    onSpeedChanged = viewModel::saveAutoReadingSpeed,
+                    onPauseToggle = { autoReadingPaused = !autoReadingPaused },
+                    onClose = ::stopAutoReading,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .navigationBarsPadding()
-                        .padding(start = 20.dp, bottom = if (r.effectiveLineGuide) 72.dp else 18.dp)
+                        .padding(start = 20.dp, bottom = if (effectiveLineGuide) 72.dp else 18.dp)
                 )
             }
 
-            if (r.autoReadingAtChapterEnd && r.isBookLayout && !r.isAnySheetOpen &&
-                r.uiState.currentChapterIndex < r.uiState.chapterCount - 1
+            if (autoReadingAtChapterEnd && isBookLayout && !isAnySheetOpen &&
+                uiState.currentChapterIndex < uiState.chapterCount - 1
             ) {
                 LiquidGlassSurface(
                     role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
                     controlEdge = true,
                     shape = AppRoundedCornerShape(24.dp),
-                    fallbackColor = r.menuBgColor,
+                    fallbackColor = menuBgColor,
                     onClick = {
-                        r.autoReadingAtChapterEnd = false
-                        r.autoReadingPaused = false
-                        r.viewModel.nextChapter()
+                        autoReadingAtChapterEnd = false
+                        autoReadingPaused = false
+                        viewModel.nextChapter()
                     },
-                    forceFallback = r.forceNativeGlassFallback,
+                    forceFallback = forceNativeGlassFallback,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .navigationBarsPadding()
@@ -12822,7 +13015,7 @@ private fun ReaderMenuAndSheetsSection() {
                 ) {
                     Text(
                         text = stringResource(R.string.auto_reading_next_chapter),
-                        color = r.menuContentColor,
+                        color = menuContentColor,
                         fontSize = AppType.BodySmall,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
@@ -12831,61 +13024,61 @@ private fun ReaderMenuAndSheetsSection() {
             }
 
             ReaderTtsFloatingHost(
-                visible = r.ttsState.activeBookId == r.uiState.book?.id &&
-                    r.ttsState.playbackState != TtsPlaybackState.IDLE &&
-                    !r.isAnySheetOpen,
-                readerMenuVisible = r.uiState.isMenuVisible,
-                position = r.readerTtsPosition,
-                onPositionChange = r.viewModel::saveReaderTtsPosition,
-                footerTopInWindow = r.ttsFooterTop,
-                catalogBoundsInWindow = r.ttsCatalogBounds,
-                revealKey = r.ttsRevealKey,
-                horizontalInset = r.sideRailItemWidth?.plus(32.dp) ?: 24.dp
+                visible = ttsState.activeBookId == uiState.book?.id &&
+                    ttsState.playbackState != TtsPlaybackState.IDLE &&
+                    !isAnySheetOpen,
+                readerMenuVisible = uiState.isMenuVisible,
+                position = readerTtsPosition,
+                onPositionChange = viewModel::saveReaderTtsPosition,
+                footerTopInWindow = ttsFooterTop,
+                catalogBoundsInWindow = ttsCatalogBounds,
+                revealKey = ttsRevealKey,
+                horizontalInset = sideRailItemWidth?.plus(32.dp) ?: 24.dp
             ) { placement ->
                 TtsPlayerPanel(
                     placement = placement,
-                    chapterTitle = r.ttsCurrentPage?.location?.chapterIndex
+                    chapterTitle = ttsCurrentPage?.location?.chapterIndex
                         ?.let { ttsChapter ->
-                            r.uiState.chapterTitles.getOrNull(ttsChapter)
+                            uiState.chapterTitles.getOrNull(ttsChapter)
                                 ?.trim()
                                 ?.takeIf { it.isNotEmpty() }
                         }
                         ?: liveChapterTitle,
-                    playbackState = r.ttsState.playbackState,
-                    speechRate = r.ttsState.speechRate,
-                    speechRateMode = r.ttsState.speechRateMode,
-                    pitch = r.ttsState.pitch,
-                    pitchMode = r.ttsState.pitchMode,
-                    usesAndroidTts = r.ttsState.usesAndroidTts,
-                    sleepTimerRemainingMs = r.ttsState.sleepTimerRemainingMs,
-                    sleepTimerDurationMs = r.ttsState.sleepTimerDurationMs,
-                    followUserPageTurns = r.ttsState.followUserPageTurns,
-                    onPlayPause = r.viewModel::toggleTtsPlayPause,
-                    onStop = r.viewModel::stopTts,
-                    onOpenFullscreen = { r.viewModel.openFullScreenTts(r.context) },
-                    onSkipForward = r.viewModel::ttsSkipForward,
-                    onSkipBackward = r.viewModel::ttsSkipBackward,
-                    onRateChange = r.viewModel::setTtsSpeechRate,
-                    onRateModeChange = r.viewModel::setTtsSpeechRateMode,
-                    onPitchChange = r.viewModel::setTtsPitch,
-                    onPitchModeChange = r.viewModel::setTtsPitchMode,
-                    onSetSleepTimer = r.viewModel::setSleepTimer,
-                    onCancelSleepTimer = r.viewModel::cancelSleepTimer,
-                    onFollowUserPageTurnsChange = r.viewModel::setTtsFollowUserPageTurns,
-                    onReturnToProgress = r.returnToTtsProgress,
-                    onStartFromCurrentPage = { r.startTtsFromCurrentPage(false) },
-                    canReturnToProgress = r.ttsCurrentPage?.location?.let { location ->
-                        location.chapterIndex != r.uiState.currentChapterIndex ||
-                            location.pageIndex != r.uiState.currentPageIndex
+                    playbackState = ttsState.playbackState,
+                    speechRate = ttsState.speechRate,
+                    speechRateMode = ttsState.speechRateMode,
+                    pitch = ttsState.pitch,
+                    pitchMode = ttsState.pitchMode,
+                    usesAndroidTts = ttsState.usesAndroidTts,
+                    sleepTimerRemainingMs = ttsState.sleepTimerRemainingMs,
+                    sleepTimerDurationMs = ttsState.sleepTimerDurationMs,
+                    followUserPageTurns = ttsState.followUserPageTurns,
+                    onPlayPause = viewModel::toggleTtsPlayPause,
+                    onStop = viewModel::stopTts,
+                    onOpenFullscreen = { viewModel.openFullScreenTts(context) },
+                    onSkipForward = viewModel::ttsSkipForward,
+                    onSkipBackward = viewModel::ttsSkipBackward,
+                    onRateChange = viewModel::setTtsSpeechRate,
+                    onRateModeChange = viewModel::setTtsSpeechRateMode,
+                    onPitchChange = viewModel::setTtsPitch,
+                    onPitchModeChange = viewModel::setTtsPitchMode,
+                    onSetSleepTimer = viewModel::setSleepTimer,
+                    onCancelSleepTimer = viewModel::cancelSleepTimer,
+                    onFollowUserPageTurnsChange = viewModel::setTtsFollowUserPageTurns,
+                    onReturnToProgress = returnToTtsProgress,
+                    onStartFromCurrentPage = { startTtsFromCurrentPage(false) },
+                    canReturnToProgress = ttsCurrentPage?.location?.let { location ->
+                        location.chapterIndex != uiState.currentChapterIndex ||
+                            location.pageIndex != uiState.currentPageIndex
                     } == true,
-                    readerMenuVisible = r.uiState.isMenuVisible,
-                    readerBackgroundColor = r.composeBgColor,
-                    readerContentColor = Color(r.readerTextColorInt),
-                    forceSolidSurface = r.forceNativeGlassFallback
+                    readerMenuVisible = uiState.isMenuVisible,
+                    readerBackgroundColor = composeBgColor,
+                    readerContentColor = Color(readerTextColorInt),
+                    forceSolidSurface = forceNativeGlassFallback
                 )
             }
 
-            val darkMaskOpacity = r.uiState.activeThemeDarkMaskOpacity()
+            val darkMaskOpacity = uiState.activeThemeDarkMaskOpacity()
             if (darkMaskOpacity > 0f) {
                 Box(
                     Modifier
@@ -12897,40 +13090,40 @@ private fun ReaderMenuAndSheetsSection() {
             // 目录底部弹出
             // 刷新最新章节：仅在线书提供。lambda 提到外层定义，避免再增大 ReaderScreenContent 的方法体
             // （该 Composable 已接近 DEX 校验上限，内联嵌套 lambda 会触发 VerifyError）。
-            val isOnlineBookForToc = remember(r.uiState.book?.filePath) {
-                r.uiState.book?.filePath?.startsWith(
+            val isOnlineBookForToc = remember(uiState.book?.filePath) {
+                uiState.book?.filePath?.startsWith(
                     com.huangder.lumibooks.util.parser.OnlineBookParser.SCHEME
                 ) == true
             }
             val refreshChaptersAction: (() -> Unit)? = if (isOnlineBookForToc) {
-                remember(r.viewModel) { { r.viewModel.refreshCurrentOnlineBook() } }
+                remember(viewModel) { { viewModel.refreshCurrentOnlineBook() } }
             } else {
                 null
             }
             TocSheet(
-                visible = r.showToc,
-                requestClose = r.requestCloseToc,
-                glassBackdrop = r.activeReaderGlassBackdrop,
-                tocEntries = r.uiState.tocEntries,
-                currentChapter = r.uiState.currentChapterIndex,
-                currentAnchor = r.uiState.currentTocAnchor,
-                r.bookmarks = r.bookmarks,
-                chapterTitles = r.uiState.chapterTitles,
+                visible = showToc,
+                requestClose = requestCloseToc,
+                glassBackdrop = activeReaderGlassBackdrop,
+                tocEntries = uiState.tocEntries,
+                currentChapter = uiState.currentChapterIndex,
+                currentAnchor = uiState.currentTocAnchor,
+                bookmarks = bookmarks,
+                chapterTitles = uiState.chapterTitles,
                 onRefreshChapters = refreshChaptersAction,
-                isRefreshingChapters = r.isRefreshingOnlineBook,
+                isRefreshingChapters = isRefreshingOnlineBook,
                 onChapterSelected = { entry ->
-                    r.scope.launch {
-                        val target = r.viewModel.resolveTocTarget(
+                    scope.launch {
+                        val target = viewModel.resolveTocTarget(
                             chapterIndex = entry.chapterIndex,
                             anchor = entry.anchor
                         ) ?: return@launch
-                        r.beginManualReaderNavigation()
-                        val readView = r.readViewRef.value
-                        if (r.isMarkdownNative) {
-                            r.epubSearchRequest = null
-                            r.epubLocatorRequest = null
-                            r.epubPageRequest = null
-                            r.navigateEpub(
+                        beginManualReaderNavigation()
+                        val readView = readViewRef.value
+                        if (isMarkdownNative) {
+                            epubSearchRequest = null
+                            epubLocatorRequest = null
+                            epubPageRequest = null
+                            navigateEpub(
                                 EpubNavigationOrigin.TOC,
                                 target.chapterIndex,
                                 entry.anchor?.takeIf { it.isNotBlank() }?.let {
@@ -12938,13 +13131,13 @@ private fun ReaderMenuAndSheetsSection() {
                                 } ?: EpubNavigationDestination.ChapterStart,
                                 false
                             )
-                        } else if (r.isContinuousScrollMode) {
-                            r.jumpToContinuousChapter(target.chapterIndex)
-                        } else if (r.isBookLayout) {
-                            r.epubSearchRequest = null
-                            r.epubLocatorRequest = null
-                            r.epubPageRequest = null
-                            r.navigateEpub(
+                        } else if (isContinuousScrollMode) {
+                            jumpToContinuousChapter(target.chapterIndex, 0f)
+                        } else if (isBookLayout) {
+                            epubSearchRequest = null
+                            epubLocatorRequest = null
+                            epubPageRequest = null
+                            navigateEpub(
                                 EpubNavigationOrigin.TOC,
                                 target.chapterIndex,
                                 entry.anchor?.takeIf { it.isNotBlank() }?.let {
@@ -12952,7 +13145,7 @@ private fun ReaderMenuAndSheetsSection() {
                                 } ?: EpubNavigationDestination.ChapterStart,
                                 true
                             )
-                        } else if (!r.isBookLayout && r.uiState.useNewEngine && readView != null) {
+                        } else if (!isBookLayout && uiState.useNewEngine && readView != null) {
                             // Reload even when state already reports the selected chapter.
                             if (entry.anchor.isNullOrBlank()) {
                                 readView.jumpToChapter(target.chapterIndex)
@@ -12963,20 +13156,20 @@ private fun ReaderMenuAndSheetsSection() {
                                 )
                             }
                         } else {
-                            r.viewModel.setChapter(target.chapterIndex)
+                            viewModel.setChapter(target.chapterIndex)
                         }
                     }
-                    r.showToc = false
-                    r.requestCloseToc = false
+                    showToc = false
+                    requestCloseToc = false
                 },
                 onBookmarkClick = bookmarkClick@ { bm ->
                     if (bm.isStale) {
-                        Toast.makeText(r.context, R.string.markdown_original_changed, Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, R.string.markdown_original_changed, Toast.LENGTH_SHORT).show()
                         return@bookmarkClick
                     }
-                    r.beginManualReaderNavigation()
-                    if (r.isBookLayout) {
-                        val chapterHref = r.epubSession?.chapterHref(bm.chapterIndex).orEmpty()
+                    beginManualReaderNavigation()
+                    if (isBookLayout) {
+                        val chapterHref = epubSession?.chapterHref(bm.chapterIndex).orEmpty()
                         val locatorJson = bm.locatorJson?.let { json ->
                             if (comicPositionFromLocator(json) != null) JSONObject(json).put("href", chapterHref).toString() else json
                         }
@@ -12985,13 +13178,13 @@ private fun ReaderMenuAndSheetsSection() {
                                 createEpubFallbackLocator(
                                     href = chapterHref,
                                     charOffset = characterOffset,
-                                    chapterTextLength = r.viewModel.getChapterTextLength(bm.chapterIndex).coerceAtLeast(1)
+                                    chapterTextLength = viewModel.getChapterTextLength(bm.chapterIndex).coerceAtLeast(1)
                                 )
                             }
-                        r.epubSearchRequest = null
-                        r.epubLocatorRequest = null
-                        r.epubPageRequest = null
-                        r.navigateEpub(
+                        epubSearchRequest = null
+                        epubLocatorRequest = null
+                        epubPageRequest = null
+                        navigateEpub(
                             EpubNavigationOrigin.BOOKMARK,
                             bm.chapterIndex,
                             locatorJson?.let { EpubNavigationDestination.Locator(it) }
@@ -13000,178 +13193,178 @@ private fun ReaderMenuAndSheetsSection() {
                                 ),
                             true
                         )
-                    } else if (r.isContinuousScrollMode) {
-                        r.jumpToContinuousChapter(bm.chapterIndex)
+                    } else if (isContinuousScrollMode) {
+                        jumpToContinuousChapter(bm.chapterIndex, 0f)
                     } else {
-                        bm.characterOffset?.let { r.readViewRef.value?.jumpToCharacter(bm.chapterIndex, it) }
-                            ?: r.readViewRef.value?.jumpToChapter(bm.chapterIndex, bm.position.toInt())
+                        bm.characterOffset?.let { readViewRef.value?.jumpToCharacter(bm.chapterIndex, it) }
+                            ?: readViewRef.value?.jumpToChapter(bm.chapterIndex, bm.position.toInt())
                     }
-                    r.showToc = false
-                    r.requestCloseToc = false
+                    showToc = false
+                    requestCloseToc = false
                 },
-                onShareBookmark = { bm -> r.showExcerpt(bm.title, bm.remark, bm.chapterIndex) },
-                onDeleteBookmark = { bm -> r.viewModel.deleteBookmark(bm) },
-                availableTags = r.availableAnnotationTags,
-                onEditBookmarkTags = r.annotationTagState::editBookmark,
-                onEditBookmarkRemark = { bm, remark, tags -> r.viewModel.updateBookmarkRemarkAndTags(bm.syncId, remark, tags) },
-                onCreateTag = r.viewModel::createAnnotationTag,
-                onDismiss = { r.showToc = false; r.requestCloseToc = false }
+                onShareBookmark = { bm -> showExcerpt(bm.title, bm.remark, bm.chapterIndex) },
+                onDeleteBookmark = { bm -> viewModel.deleteBookmark(bm) },
+                availableTags = availableAnnotationTags,
+                onEditBookmarkTags = annotationTagState::editBookmark,
+                onEditBookmarkRemark = { bm, remark, tags -> viewModel.updateBookmarkRemarkAndTags(bm.syncId, remark, tags) },
+                onCreateTag = viewModel::createAnnotationTag,
+                onDismiss = { showToc = false; requestCloseToc = false }
             )
 
             // 主题设置弹窗
             ThemeSettingsSheet(
-                visible = r.showThemeSheet,
-                requestClose = r.requestCloseTheme,
-                currentFontSize = r.uiState.activeThemeSettingsForMode(r.uiState.themeEditingDark).fontSize,
-                currentFontType = r.uiState.activeThemeSettingsForMode(r.uiState.themeEditingDark).fontType,
-                currentCustomFontPath = r.uiState.customFonts.firstOrNull {
-                    "custom:${it.id}" == r.uiState.activeThemeSettingsForMode(r.uiState.themeEditingDark).fontType
+                visible = showThemeSheet,
+                requestClose = requestCloseTheme,
+                currentFontSize = uiState.activeThemeSettingsForMode(uiState.themeEditingDark).fontSize,
+                currentFontType = uiState.activeThemeSettingsForMode(uiState.themeEditingDark).fontType,
+                currentCustomFontPath = uiState.customFonts.firstOrNull {
+                    "custom:${it.id}" == uiState.activeThemeSettingsForMode(uiState.themeEditingDark).fontType
                 }?.path,
-                currentBodyFontWeight = r.uiState.activeThemeSettingsForMode(r.uiState.themeEditingDark).bodyFontWeight,
-                onBodyFontWeightChange = r.viewModel::saveBodyFontWeight,
-                onBodyFontWeightPreview = r.viewModel::previewBodyFontWeight,
-                currentTheme = r.uiState.activeThemeSettingsForMode(r.uiState.themeEditingDark).backgroundSelection,
-                currentBackgroundSelection = r.uiState.activeThemeSettingsForMode(r.uiState.themeEditingDark).backgroundSelection,
-                customBackgrounds = r.uiState.customReaderBackgrounds,
-                readerThemeSuites = r.uiState.readerThemeSuites,
-                activeReaderThemeSuiteId = r.uiState.activeReaderThemeSuiteId,
-                isAppDark = r.appIsDark,
-                readerThemeSuiteBookScoped = r.uiState.readerThemeSuiteBookScoped,
-                readerButtonContrastEnabled = r.uiState.readerButtonContrastEnabled,
-                customFonts = r.uiState.customFonts,
-                currentPreserveEpubBackground = r.effectivePreserveEpubBackground,
-                currentBrightness = r.uiState.brightness,
-                currentDarkMaskOpacity = r.uiState.activeThemeDarkMaskOpacity(),
-                currentOptimizeLayout = r.uiState.optimizeLayout,
-                currentUseEpubCss = r.uiState.useEpubCss,
-                r.supportsBookLayout = r.supportsBookLayout && !r.isMarkdownNative,
-                currentRenderMode = r.uiState.renderMode,
-                currentWritingMode = r.uiState.readerWritingMode,
-                supportsWritingMode = r.uiState.useNewEngine && !r.isBookLayout,
-                currentChineseMode = r.uiState.chineseMode,
-                currentPageTransition = r.effectivePageTransition,
-                supportsChineseConversion = !r.isMarkdownNative,
-                supportsPageTransitions = !r.isMarkdownNative,
-                currentDisplayMode = r.uiState.readerDisplayMode,
-                editingDark = r.uiState.themeEditingDark,
-                onFontSizeChange = { r.viewModel.saveFontSize(it) },
-                onFontSizePreview = r.viewModel::previewFontSize,
-                onLayoutPreviewActiveChange = { r.epubLayoutPreviewActive = it },
-                onThemeChange = { r.viewModel.saveReaderTheme(it) },
-                onModeThemeChange = r.viewModel::saveReaderThemeForMode,
-                onModeChange = r.viewModel::selectThemeEditMode,
+                currentBodyFontWeight = uiState.activeThemeSettingsForMode(uiState.themeEditingDark).bodyFontWeight,
+                onBodyFontWeightChange = viewModel::saveBodyFontWeight,
+                onBodyFontWeightPreview = viewModel::previewBodyFontWeight,
+                currentTheme = uiState.activeThemeSettingsForMode(uiState.themeEditingDark).backgroundSelection,
+                currentBackgroundSelection = uiState.activeThemeSettingsForMode(uiState.themeEditingDark).backgroundSelection,
+                customBackgrounds = uiState.customReaderBackgrounds,
+                readerThemeSuites = uiState.readerThemeSuites,
+                activeReaderThemeSuiteId = uiState.activeReaderThemeSuiteId,
+                isAppDark = appIsDark,
+                readerThemeSuiteBookScoped = uiState.readerThemeSuiteBookScoped,
+                readerButtonContrastEnabled = uiState.readerButtonContrastEnabled,
+                customFonts = uiState.customFonts,
+                currentPreserveEpubBackground = effectivePreserveEpubBackground,
+                currentBrightness = uiState.brightness,
+                currentDarkMaskOpacity = uiState.activeThemeDarkMaskOpacity(),
+                currentOptimizeLayout = uiState.optimizeLayout,
+                currentUseEpubCss = uiState.useEpubCss,
+                supportsBookLayout = supportsBookLayout && !isMarkdownNative,
+                currentRenderMode = uiState.renderMode,
+                currentWritingMode = uiState.readerWritingMode,
+                supportsWritingMode = uiState.useNewEngine && !isBookLayout,
+                currentChineseMode = uiState.chineseMode,
+                currentPageTransition = effectivePageTransition,
+                supportsChineseConversion = !isMarkdownNative,
+                supportsPageTransitions = !isMarkdownNative,
+                currentDisplayMode = uiState.readerDisplayMode,
+                editingDark = uiState.themeEditingDark,
+                onFontSizeChange = { viewModel.saveFontSize(it) },
+                onFontSizePreview = viewModel::previewFontSize,
+                onLayoutPreviewActiveChange = { epubLayoutPreviewActive = it },
+                onThemeChange = { viewModel.saveReaderTheme(it) },
+                onModeThemeChange = viewModel::saveReaderThemeForMode,
+                onModeChange = viewModel::selectThemeEditMode,
                 onExportThemeBundle = { suiteId ->
-                    r.pendingExportThemeId = suiteId
-                    r.exportThemeLauncher.launch("lumi-theme.lumi-theme.json")
+                    pendingExportThemeId = suiteId
+                    exportThemeLauncher.launch("lumi-theme.lumi-theme.json")
                 },
-                onImportThemeBundle = { r.importThemeLauncher.launch(arrayOf("application/json", "application/zip", "text/plain", "application/octet-stream")) },
-                onBackgroundSelect = { r.viewModel.selectReaderBackground(it) },
-                onAddBackgroundColor = { color, name -> r.viewModel.addCustomReaderBackgroundColor(color, name) },
-                onAddBackgroundImage = { uri, name -> r.viewModel.addCustomReaderBackgroundImage(uri, name) },
-                onDeleteBackground = { r.viewModel.deleteCustomReaderBackground(it) },
-                onThemeSuiteSelect = r.viewModel::selectReaderThemeSuite,
-                onThemeSuiteCreate = r.viewModel::createReaderThemeSuite,
-                onThemeSuiteDelete = r.viewModel::deleteReaderThemeSuite,
-                onThemeSuitesReorder = r.viewModel::reorderReaderThemeSuites,
-                onThemeSuiteBookScopedChange = r.viewModel::setApplyThemeSuiteToBook,
-                onReaderButtonContrastChange = r.viewModel::saveReaderButtonContrastEnabled,
-                onPreserveEpubBackgroundChange = r.viewModel::savePreserveEpubBackground,
-                onBrightnessChange = { r.viewModel.saveBrightness(it) },
-                onDarkMaskOpacityChange = r.viewModel::saveReaderDarkMaskOpacity,
-                onDarkMaskOpacityPreview = r.viewModel::previewReaderDarkMaskOpacity,
-                onOptimizeLayoutChange = { r.viewModel.saveOptimizeLayout(it) },
-                onUseEpubCssChange = { r.viewModel.saveUseEpubCss(it) },
-                onRenderModeChange = r.viewModel::saveRenderMode,
-                supportsNativeEpubCss = r.uiState.book?.format == BookFormat.EPUB,
-                nativeEpubCssEnabled = r.uiState.nativeEpubCssEnabled,
-                onNativeEpubCssChange = r.viewModel::saveNativeEpubCssEnabled,
-                onWritingModeChange = r.viewModel::saveReaderWritingMode,
-                onChineseModeChange = { r.viewModel.saveChineseMode(it) },
+                onImportThemeBundle = { importThemeLauncher.launch(arrayOf("application/json", "application/zip", "text/plain", "application/octet-stream")) },
+                onBackgroundSelect = { viewModel.selectReaderBackground(it) },
+                onAddBackgroundColor = { color, name -> viewModel.addCustomReaderBackgroundColor(color, name) },
+                onAddBackgroundImage = { uri, name -> viewModel.addCustomReaderBackgroundImage(uri, name) },
+                onDeleteBackground = { viewModel.deleteCustomReaderBackground(it) },
+                onThemeSuiteSelect = viewModel::selectReaderThemeSuite,
+                onThemeSuiteCreate = viewModel::createReaderThemeSuite,
+                onThemeSuiteDelete = viewModel::deleteReaderThemeSuite,
+                onThemeSuitesReorder = viewModel::reorderReaderThemeSuites,
+                onThemeSuiteBookScopedChange = viewModel::setApplyThemeSuiteToBook,
+                onReaderButtonContrastChange = viewModel::saveReaderButtonContrastEnabled,
+                onPreserveEpubBackgroundChange = viewModel::savePreserveEpubBackground,
+                onBrightnessChange = { viewModel.saveBrightness(it) },
+                onDarkMaskOpacityChange = viewModel::saveReaderDarkMaskOpacity,
+                onDarkMaskOpacityPreview = viewModel::previewReaderDarkMaskOpacity,
+                onOptimizeLayoutChange = { viewModel.saveOptimizeLayout(it) },
+                onUseEpubCssChange = { viewModel.saveUseEpubCss(it) },
+                onRenderModeChange = viewModel::saveRenderMode,
+                supportsNativeEpubCss = uiState.book?.format == BookFormat.EPUB,
+                nativeEpubCssEnabled = uiState.nativeEpubCssEnabled,
+                onNativeEpubCssChange = viewModel::saveNativeEpubCssEnabled,
+                onWritingModeChange = viewModel::saveReaderWritingMode,
+                onChineseModeChange = { viewModel.saveChineseMode(it) },
                 onPageTransitionChange = { mode ->
                     // Capture from the attached page before changing modes detaches it.
-                    val anchor = if (!r.isBookLayout && !r.isContinuousScrollMode) {
-                        r.readViewRef.value?.getCurrentPageTextAnchor()
+                    val anchor = if (!isBookLayout && !isContinuousScrollMode) {
+                        readViewRef.value?.getCurrentPageTextAnchor()
                     } else null
-                    r.viewModel.savePageTransition(mode, anchor)
+                    viewModel.savePageTransition(mode, anchor)
                 },
-                onDisplayModeChange = r.viewModel::saveReaderDisplayMode,
+                onDisplayModeChange = viewModel::saveReaderDisplayMode,
                 onOpenAdvanced = {
-                    if (!r.openAdvancedAfterThemeClose) {
-                        r.openAdvancedAfterThemeClose = true
-                        r.requestCloseTheme = true
-                        r.scope.launch {
-                            delay(if (r.eInkMode || !r.motionEnabled) 0L else delayMillis(90L))
-                            if (r.openAdvancedAfterThemeClose) {
-                                r.showAdvancedSheet = true
-                                r.openAdvancedAfterThemeClose = false
+                    if (!openAdvancedAfterThemeClose) {
+                        openAdvancedAfterThemeClose = true
+                        requestCloseTheme = true
+                        scope.launch {
+                            delay(if (eInkMode || !motionEnabled) 0L else delayMillis(90L))
+                            if (openAdvancedAfterThemeClose) {
+                                showAdvancedSheet = true
+                                openAdvancedAfterThemeClose = false
                             }
                         }
                     }
                 },
-                eInkModeEnabled = r.eInkMode,
+                eInkModeEnabled = eInkMode,
                 onDismiss = {
-                    if (!r.openAdvancedAfterThemeClose) {
-                        r.viewModel.selectThemeEditMode(r.nightDisplay)
+                    if (!openAdvancedAfterThemeClose) {
+                        viewModel.selectThemeEditMode(nightDisplay)
                     }
-                    r.showThemeSheet = false
-                    r.requestCloseTheme = false
+                    showThemeSheet = false
+                    requestCloseTheme = false
                 }
             )
 
             HighlightRulesSheet(
-                visible = r.showHighlightRules,
-                requestClose = r.requestCloseHighlightRules,
-                rules = r.highlightRules,
-                customFonts = r.uiState.customFonts,
-                materializeNotes = r.highlightSettings.materializeNotes,
-                scanState = r.highlightScanState,
-                eInkModeEnabled = r.eInkMode,
-                backdrop = r.activeReaderGlassBackdrop,
-                onMaterializeChange = r.viewModel::setHighlightRulesMaterialized,
-                onSaveRule = r.viewModel::saveHighlightRule,
-                onDuplicateRule = r.viewModel::duplicateHighlightRule,
-                onDeleteRule = r.viewModel::deleteHighlightRule,
-                onRuleEnabledChange = r.viewModel::setHighlightRuleEnabled,
-                onMoveRule = r.viewModel::moveHighlightRule,
-                onImportRules = r.viewModel::importHighlightRules,
-                onExportRules = r.viewModel::exportHighlightRules,
+                visible = showHighlightRules,
+                requestClose = requestCloseHighlightRules,
+                rules = highlightRules,
+                customFonts = uiState.customFonts,
+                materializeNotes = highlightSettings.materializeNotes,
+                scanState = highlightScanState,
+                eInkModeEnabled = eInkMode,
+                backdrop = activeReaderGlassBackdrop,
+                onMaterializeChange = viewModel::setHighlightRulesMaterialized,
+                onSaveRule = viewModel::saveHighlightRule,
+                onDuplicateRule = viewModel::duplicateHighlightRule,
+                onDeleteRule = viewModel::deleteHighlightRule,
+                onRuleEnabledChange = viewModel::setHighlightRuleEnabled,
+                onMoveRule = viewModel::moveHighlightRule,
+                onImportRules = viewModel::importHighlightRules,
+                onExportRules = viewModel::exportHighlightRules,
                 onImportFont = { uri, displayName ->
-                    r.scope.launch { r.viewModel.importFont(r.context, uri, displayName) }
+                    scope.launch { viewModel.importFont(context, uri, displayName) }
                 },
-                onCancelScan = r.viewModel::cancelHighlightRuleScan,
-                onRebuild = r.viewModel::rebuildHighlightRuleNotes,
+                onCancelScan = viewModel::cancelHighlightRuleScan,
+                onRebuild = viewModel::rebuildHighlightRuleNotes,
                 onDismiss = {
-                    r.showHighlightRules = false
-                    r.requestCloseHighlightRules = false
+                    showHighlightRules = false
+                    requestCloseHighlightRules = false
                 }
             )
 
             // 搜索弹窗
             SearchSheet(
-                visible = r.showSearch,
-                requestClose = r.requestCloseSearch,
-                query = r.searchQuery,
-                results = r.searchResults,
-                r.isSearching = r.isSearching,
-                r.hasSearched = r.hasSearched,
+                visible = showSearch,
+                requestClose = requestCloseSearch,
+                query = searchQuery,
+                results = searchResults,
+                isSearching = isSearching,
+                hasSearched = hasSearched,
                 onQueryChange = { value ->
-                    if (value != r.searchQuery) {
-                        r.cancelActiveSearch()
-                        r.searchResults = emptyList()
-                        r.searchResultQuery = ""
-                        r.hasSearched = false
+                    if (value != searchQuery) {
+                        cancelActiveSearch()
+                        searchResults = emptyList()
+                        searchResultQuery = ""
+                        hasSearched = false
                     }
-                    r.searchQuery = value
+                    searchQuery = value
                 },
                 onSearch = {
-                    r.submitSearch(r.searchQuery)
+                    submitSearch(searchQuery)
                 },
                 onResultClick = resultClick@{ result ->
-                    if (r.searchResultQuery != r.searchQuery) return@resultClick
-                    val epubSearchLocator = if (r.isBookLayout) {
+                    if (searchResultQuery != searchQuery) return@resultClick
+                    val epubSearchLocator = if (isBookLayout) {
                         result.epubLocator ?: run {
                             Toast.makeText(
-                                r.context,
+                                context,
                                 R.string.epub_search_location_failed,
                                 Toast.LENGTH_SHORT
                             ).show()
@@ -13180,20 +13373,20 @@ private fun ReaderMenuAndSheetsSection() {
                     } else {
                         null
                     }
-                    val source = r.captureReaderLocation()
-                    r.linkReturnLocation = source
-                    r.linkReturnToken += 1
+                    val source = captureReaderLocationHere()
+                    linkReturnLocation = source
+                    linkReturnToken += 1
 
-                    if (r.isBookLayout) {
-                        r.epubSearchRequestToken++
-                        r.epubLocatorRequest = null
-                        r.epubPageRequest = null
-                        r.epubSearchRequest = EpubSearchRequest(
-                            token = r.epubSearchRequestToken,
+                    if (isBookLayout) {
+                        epubSearchRequestToken++
+                        epubLocatorRequest = null
+                        epubPageRequest = null
+                        epubSearchRequest = EpubSearchRequest(
+                            token = epubSearchRequestToken,
                             chapterIndex = result.chapterIndex,
                             locator = epubSearchLocator!!
                         )
-                        r.navigateEpub(
+                        navigateEpub(
                             EpubNavigationOrigin.SEARCH,
                             result.chapterIndex,
                             EpubNavigationDestination.Locator(
@@ -13201,222 +13394,222 @@ private fun ReaderMenuAndSheetsSection() {
                             ),
                             true
                         )
-                    } else if (r.isContinuousScrollMode) {
-                        r.continuousSearchHighlight = ContinuousSearchHighlight(
+                    } else if (isContinuousScrollMode) {
+                        continuousSearchHighlight = ContinuousSearchHighlight(
                             chapterIndex = result.chapterIndex,
                             start = result.charOffset,
                             end = result.charOffset + result.matchLength
                         )
                         val destinationFraction = result.charOffset.toFloat()
-                            .div(r.viewModel.getChapterTextLength(result.chapterIndex).coerceAtLeast(1))
+                            .div(viewModel.getChapterTextLength(result.chapterIndex).coerceAtLeast(1))
                             .coerceIn(0f, 0.9999f)
-                        r.jumpToContinuousChapter(result.chapterIndex, destinationFraction)
+                        jumpToContinuousChapter(result.chapterIndex, destinationFraction)
                     } else {
-                        r.readViewRef.value?.jumpToSearchResult(
+                        readViewRef.value?.jumpToSearchResult(
                             result.chapterIndex,
                             result.charOffset,
                             result.matchLength
                         )
                     }
-                    r.showSearch = false
-                    r.cancelActiveSearch()
-                    r.requestCloseSearch = false
-                    r.searchQuery = ""
-                    r.searchResultQuery = ""
-                    r.searchResults = emptyList()
-                    r.hasSearched = false
+                    showSearch = false
+                    cancelActiveSearch()
+                    requestCloseSearch = false
+                    searchQuery = ""
+                    searchResultQuery = ""
+                    searchResults = emptyList()
+                    hasSearched = false
                 },
                 onDismiss = {
-                    r.showSearch = false
-                    r.cancelActiveSearch()
-                    r.requestCloseSearch = false
-                    r.searchQuery = ""
-                    r.searchResultQuery = ""
-                    r.searchResults = emptyList()
-                    r.hasSearched = false
+                    showSearch = false
+                    cancelActiveSearch()
+                    requestCloseSearch = false
+                    searchQuery = ""
+                    searchResultQuery = ""
+                    searchResults = emptyList()
+                    hasSearched = false
                 }
             )
 
             NetworkSearchSheet(
-                visible = r.showWebSearch,
-                initialQuery = r.searchQuery,
+                visible = showWebSearch,
+                initialQuery = searchQuery,
                 onDismiss = {
-                    r.showWebSearch = false
-                    r.searchQuery = ""
+                    showWebSearch = false
+                    searchQuery = ""
                 }
             )
 
             // 高级排版设置弹窗。不要在组合阶段同步读取/格式化整章文本：
             // 大型 EPUB 的 getChapterText() 可能需要数十秒，并且会阻塞主线程导致 ANR。
-            var previewText by remember(r.bookId) { mutableStateOf("") }
-            var previewImage by remember(r.bookId) { mutableStateOf<android.graphics.drawable.Drawable?>(null) }
-            LaunchedEffect(r.showAdvancedSheet, r.uiState.currentChapterIndex, r.uiState.contentRevision) {
-                if (!r.showAdvancedSheet) {
+            var previewText by remember(bookId) { mutableStateOf("") }
+            var previewImage by remember(bookId) { mutableStateOf<android.graphics.drawable.Drawable?>(null) }
+            LaunchedEffect(showAdvancedSheet, uiState.currentChapterIndex, uiState.contentRevision) {
+                if (!showAdvancedSheet) {
                     previewText = ""
                     previewImage = null
                     return@LaunchedEffect
                 }
-                val chapterIndex = r.uiState.currentChapterIndex
-                val chapter = withContext(Dispatchers.IO) { r.viewModel.getChapterText(chapterIndex) }
+                val chapterIndex = uiState.currentChapterIndex
+                val chapter = withContext(Dispatchers.IO) { viewModel.getChapterText(chapterIndex) }
                 previewText = chapter?.toString()?.replace('\uFFFC', ' ')?.take(420).orEmpty()
                 previewImage = (chapter as? android.text.Spanned)?.let {
                     it.getSpans(0, it.length, ImageSpan::class.java).firstOrNull()?.drawable
                 }
             }
             AdvancedSettingsSheet(
-                visible = r.showAdvancedSheet,
-                requestClose = r.requestCloseAdvanced,
+                visible = showAdvancedSheet,
+                requestClose = requestCloseAdvanced,
                 previewText = previewText,
                 previewImage = previewImage,
-                currentLineHeight = r.editorThemeSettings.lineHeight,
-                currentLetterSpacing = r.editorThemeSettings.letterSpacing,
-                currentTextAlignment = r.editorThemeSettings.textAlignment,
-                currentFontType = r.editorThemeSettings.fontType,
-                customFontPath = r.uiState.customFontPath,
-                customFonts = r.uiState.customFonts,
-                currentBackgroundSelection = r.editorThemeSettings.backgroundSelection,
-                customBackgrounds = r.uiState.customReaderBackgrounds,
-                currentPreserveEpubBackground = r.effectivePreserveEpubBackground,
-                showPreserveEpubBackground = r.supportsBookLayout,
-                currentPageImageCrop = r.uiState.pageImageCrop,
-                showPageImageCrop = r.supportsBookLayout &&
-                    r.uiState.renderMode == EpubRenderMode.BOOK_LAYOUT,
-                imageAdjustmentsEnabled = r.uiState.book?.format?.name in setOf("PDF", "CBZ") ||
-                    (r.supportsEpubFeatures && (r.uiState.comicModeEnabled ||
-                        r.epubSession?.isMediaOnlyPage(r.uiState.currentChapterIndex) == true)),
-                currentImageBrightness = r.uiState.imageBrightness,
-                currentImageContrast = r.uiState.imageContrast,
-                currentImageSharpen = r.uiState.imageSharpen,
-                onImageBrightnessChange = r.viewModel::saveImageBrightness,
-                onImageContrastChange = r.viewModel::saveImageContrast,
-                onImageSharpenChange = r.viewModel::saveImageSharpen,
-                publisherSuiteActive = r.publisherPaintSuiteActive,
-                currentMarginLeft = r.editorThemeSettings.marginLeft,
-                currentMarginRight = r.editorThemeSettings.marginRight,
-                currentMarginTop = r.editorThemeSettings.marginTop,
-                currentMarginBottom = r.editorThemeSettings.marginBottom,
-                currentCornerMargins = r.uiState.readerCornerMargins,
-                currentBgColor = Color(r.editorBackgroundColorInt),
-                currentBackgroundImagePath = r.editorBackgroundImagePath,
-                currentTextColor = Color(r.editorThemeSettings.textColor ?: r.editorAutomaticTextColorInt),
-                currentTextColorOverride = r.editorThemeSettings.textColor,
-                currentFontSizeSp = r.editorThemeSettings.fontSize,
-                editingDark = r.uiState.themeEditingDark,
-                preservePublisherLayout = r.isBookLayout,
-                currentWritingMode = r.uiState.readerWritingMode,
-                fontDownloadKey = r.uiState.fontDownloadKey,
-                fontDownloadFailed = r.uiState.fontDownloadFailed,
-                onLineHeightChange = { r.viewModel.saveLineHeight(it) },
-                onLineHeightPreview = r.viewModel::previewLineHeight,
-                onLetterSpacingChange = { r.viewModel.saveLetterSpacing(it) },
-                onLetterSpacingPreview = r.viewModel::previewLetterSpacing,
-                onTextAlignmentChange = r.viewModel::saveTextAlignment,
-                onFontTypeChange = { r.viewModel.saveFontType(it) },
+                currentLineHeight = editorThemeSettings.lineHeight,
+                currentLetterSpacing = editorThemeSettings.letterSpacing,
+                currentTextAlignment = editorThemeSettings.textAlignment,
+                currentFontType = editorThemeSettings.fontType,
+                customFontPath = uiState.customFontPath,
+                customFonts = uiState.customFonts,
+                currentBackgroundSelection = editorThemeSettings.backgroundSelection,
+                customBackgrounds = uiState.customReaderBackgrounds,
+                currentPreserveEpubBackground = effectivePreserveEpubBackground,
+                showPreserveEpubBackground = supportsBookLayout,
+                currentPageImageCrop = uiState.pageImageCrop,
+                showPageImageCrop = supportsBookLayout &&
+                    uiState.renderMode == EpubRenderMode.BOOK_LAYOUT,
+                imageAdjustmentsEnabled = uiState.book?.format?.name in setOf("PDF", "CBZ") ||
+                    (supportsEpubFeatures && (uiState.comicModeEnabled ||
+                        epubSession?.isMediaOnlyPage(uiState.currentChapterIndex) == true)),
+                currentImageBrightness = uiState.imageBrightness,
+                currentImageContrast = uiState.imageContrast,
+                currentImageSharpen = uiState.imageSharpen,
+                onImageBrightnessChange = viewModel::saveImageBrightness,
+                onImageContrastChange = viewModel::saveImageContrast,
+                onImageSharpenChange = viewModel::saveImageSharpen,
+                publisherSuiteActive = publisherPaintSuiteActive,
+                currentMarginLeft = editorThemeSettings.marginLeft,
+                currentMarginRight = editorThemeSettings.marginRight,
+                currentMarginTop = editorThemeSettings.marginTop,
+                currentMarginBottom = editorThemeSettings.marginBottom,
+                currentCornerMargins = uiState.readerCornerMargins,
+                currentBgColor = Color(editorBackgroundColorInt),
+                currentBackgroundImagePath = editorBackgroundImagePath,
+                currentTextColor = Color(editorThemeSettings.textColor ?: editorAutomaticTextColorInt),
+                currentTextColorOverride = editorThemeSettings.textColor,
+                currentFontSizeSp = editorThemeSettings.fontSize,
+                editingDark = uiState.themeEditingDark,
+                preservePublisherLayout = isBookLayout,
+                currentWritingMode = uiState.readerWritingMode,
+                fontDownloadKey = uiState.fontDownloadKey,
+                fontDownloadFailed = uiState.fontDownloadFailed,
+                onLineHeightChange = { viewModel.saveLineHeight(it) },
+                onLineHeightPreview = viewModel::previewLineHeight,
+                onLetterSpacingChange = { viewModel.saveLetterSpacing(it) },
+                onLetterSpacingPreview = viewModel::previewLetterSpacing,
+                onTextAlignmentChange = viewModel::saveTextAlignment,
+                onFontTypeChange = { viewModel.saveFontType(it) },
                 onImportFont = { uri, displayName ->
-                    r.scope.launch {
-                        val preset = r.viewModel.importFont(r.context, uri, displayName)
+                    scope.launch {
+                        val preset = viewModel.importFont(context, uri, displayName)
                         if (preset != null) {
-                            r.viewModel.saveCustomFontPath(preset.path)
-                            r.viewModel.saveFontType(preset.fontTypeKey)
+                            viewModel.saveCustomFontPath(preset.path)
+                            viewModel.saveFontType(preset.fontTypeKey)
                         }
                     }
                 },
-                onDeleteCustomFont = { id -> r.viewModel.deleteCustomFont(id) },
-                onBackgroundSelect = r.viewModel::selectReaderBackground,
-                onAddBackgroundColor = r.viewModel::addCustomReaderBackgroundColor,
-                onAddBackgroundImage = r.viewModel::addCustomReaderBackgroundImage,
-                onDeleteBackground = r.viewModel::deleteCustomReaderBackground,
-                onThemeEditModeChange = r.viewModel::selectThemeEditMode,
-                onPreserveEpubBackgroundChange = r.viewModel::savePreserveEpubBackground,
-                onPageImageCropChange = r.viewModel::savePageImageCrop,
-                onMarginLeftChange = { r.viewModel.saveMarginLeft(it) },
-                onMarginRightChange = { r.viewModel.saveMarginRight(it) },
-                onMarginTopChange = { r.viewModel.saveMarginTop(it) },
-                onMarginBottomChange = { r.viewModel.saveMarginBottom(it) },
-                onMarginLeftPreview = r.viewModel::previewMarginLeft,
-                onMarginRightPreview = r.viewModel::previewMarginRight,
-                onMarginTopPreview = r.viewModel::previewMarginTop,
-                onMarginBottomPreview = r.viewModel::previewMarginBottom,
-                onCornerMarginsChange = r.viewModel::saveReaderCornerMargins,
-                onCornerMarginsPreview = r.viewModel::previewReaderCornerMargins,
-                currentParagraphSpacing = r.editorThemeSettings.paragraphSpacing,
-                currentFirstLineIndent = r.editorThemeSettings.firstLineIndent,
-                onParagraphSpacingChange = { r.viewModel.saveParagraphSpacing(it) },
-                onParagraphSpacingPreview = r.viewModel::previewParagraphSpacing,
-                onFirstLineIndentChange = { r.viewModel.saveFirstLineIndent(it) },
-                onFirstLineIndentPreview = r.viewModel::previewFirstLineIndent,
-                onLayoutPreviewActiveChange = { r.epubLayoutPreviewActive = it },
-                readerTopLeftContent = r.uiState.readerTopLeftContent,
-                readerTopRightContent = r.uiState.readerTopRightContent,
-                readerBottomLeftContent = r.uiState.readerBottomLeftContent,
-                readerBottomRightContent = r.uiState.readerBottomRightContent,
-                volumeKeyUpAction = r.uiState.volumeKeyUpAction,
-                volumeKeyDownAction = r.uiState.volumeKeyDownAction,
-                bookmarkRemarkPromptEnabled = r.uiState.bookmarkRemarkPromptEnabled,
-                bionicReadingEnabled = r.uiState.bionicReadingEnabled,
-                comicModeEnabled = r.uiState.comicModeEnabled,
-                screenSleepTimeoutSeconds = r.uiState.screenSleepTimeoutSeconds,
-                readerEdgeTapMode = r.uiState.readerEdgeTapMode,
-                onReaderCornerContentChange = r.viewModel::saveReaderCornerContent,
-                onVolumeKeyActionsChange = { up, down -> r.viewModel.saveVolumeKeyActions(up, down) },
-                onBookmarkRemarkPromptEnabledChange = r.viewModel::saveBookmarkRemarkPromptEnabled,
-                onBionicReadingEnabledChange = r.viewModel::saveBionicReadingEnabled,
-                onComicModeChange = r.viewModel::saveComicMode,
+                onDeleteCustomFont = { id -> viewModel.deleteCustomFont(id) },
+                onBackgroundSelect = viewModel::selectReaderBackground,
+                onAddBackgroundColor = viewModel::addCustomReaderBackgroundColor,
+                onAddBackgroundImage = viewModel::addCustomReaderBackgroundImage,
+                onDeleteBackground = viewModel::deleteCustomReaderBackground,
+                onThemeEditModeChange = viewModel::selectThemeEditMode,
+                onPreserveEpubBackgroundChange = viewModel::savePreserveEpubBackground,
+                onPageImageCropChange = viewModel::savePageImageCrop,
+                onMarginLeftChange = { viewModel.saveMarginLeft(it) },
+                onMarginRightChange = { viewModel.saveMarginRight(it) },
+                onMarginTopChange = { viewModel.saveMarginTop(it) },
+                onMarginBottomChange = { viewModel.saveMarginBottom(it) },
+                onMarginLeftPreview = viewModel::previewMarginLeft,
+                onMarginRightPreview = viewModel::previewMarginRight,
+                onMarginTopPreview = viewModel::previewMarginTop,
+                onMarginBottomPreview = viewModel::previewMarginBottom,
+                onCornerMarginsChange = viewModel::saveReaderCornerMargins,
+                onCornerMarginsPreview = viewModel::previewReaderCornerMargins,
+                currentParagraphSpacing = editorThemeSettings.paragraphSpacing,
+                currentFirstLineIndent = editorThemeSettings.firstLineIndent,
+                onParagraphSpacingChange = { viewModel.saveParagraphSpacing(it) },
+                onParagraphSpacingPreview = viewModel::previewParagraphSpacing,
+                onFirstLineIndentChange = { viewModel.saveFirstLineIndent(it) },
+                onFirstLineIndentPreview = viewModel::previewFirstLineIndent,
+                onLayoutPreviewActiveChange = { epubLayoutPreviewActive = it },
+                readerTopLeftContent = uiState.readerTopLeftContent,
+                readerTopRightContent = uiState.readerTopRightContent,
+                readerBottomLeftContent = uiState.readerBottomLeftContent,
+                readerBottomRightContent = uiState.readerBottomRightContent,
+                volumeKeyUpAction = uiState.volumeKeyUpAction,
+                volumeKeyDownAction = uiState.volumeKeyDownAction,
+                bookmarkRemarkPromptEnabled = uiState.bookmarkRemarkPromptEnabled,
+                bionicReadingEnabled = uiState.bionicReadingEnabled,
+                comicModeEnabled = uiState.comicModeEnabled,
+                screenSleepTimeoutSeconds = uiState.screenSleepTimeoutSeconds,
+                readerEdgeTapMode = uiState.readerEdgeTapMode,
+                onReaderCornerContentChange = viewModel::saveReaderCornerContent,
+                onVolumeKeyActionsChange = { up, down -> viewModel.saveVolumeKeyActions(up, down) },
+                onBookmarkRemarkPromptEnabledChange = viewModel::saveBookmarkRemarkPromptEnabled,
+                onBionicReadingEnabledChange = viewModel::saveBionicReadingEnabled,
+                onComicModeChange = viewModel::saveComicMode,
                 onScreenSleepTimeoutChange = { seconds ->
-                    r.viewModel.saveScreenSleepTimeoutSeconds(seconds)
+                    viewModel.saveScreenSleepTimeoutSeconds(seconds)
                     if (seconds != DataStoreManager.SCREEN_SLEEP_TIMEOUT_FOLLOW_SYSTEM &&
-                        !Settings.System.canWrite(r.context)
+                        !Settings.System.canWrite(context)
                     ) {
-                        r.requestWriteSettingsPermission()
+                        requestWriteSettingsPermission()
                     }
                 },
-                onReaderEdgeTapModeChange = r.viewModel::saveReaderEdgeTapMode,
-                onTextColorChange = { r.viewModel.saveReaderTextColor(it) },
+                onReaderEdgeTapModeChange = viewModel::saveReaderEdgeTapMode,
+                onTextColorChange = { viewModel.saveReaderTextColor(it) },
                 onResetSettings = {
-                    if (r.isBookLayout) r.viewModel.resetBookLayoutReaderSettings()
-                    else r.viewModel.resetAdvancedReaderSettings()
+                    if (isBookLayout) viewModel.resetBookLayoutReaderSettings()
+                    else viewModel.resetAdvancedReaderSettings()
                 },
-                eInkModeEnabled = r.eInkMode,
+                eInkModeEnabled = eInkMode,
                 onDismiss = {
-                    r.viewModel.selectThemeEditMode(r.nightDisplay)
-                    r.showAdvancedSheet = false
-                    r.requestCloseAdvanced = false
+                    viewModel.selectThemeEditMode(nightDisplay)
+                    showAdvancedSheet = false
+                    requestCloseAdvanced = false
                 }
             )
         }
 
-        r.epubNavigationRequest?.takeIf {
-            it.operationId == r.visibleEpubNavigationId &&
-                r.epubNavigationStage != EpubNavigationStage.ANIMATING &&
-                (it.showLoadingPage || r.isBookLayoutContinuousScroll)
+        epubNavigationRequest?.takeIf {
+            it.operationId == visibleEpubNavigationId &&
+                epubNavigationStage != EpubNavigationStage.ANIMATING &&
+                (it.showLoadingPage || isBookLayoutContinuousScroll)
         }?.let { request ->
             EpubNavigationLoadingOverlay(
-                chapterTitle = r.uiState.chapterTitles
+                chapterTitle = uiState.chapterTitles
                     .getOrNull(request.targetChapterIndex)
                     .orEmpty()
                     .ifBlank {
-                        r.context.getString(
+                        context.getString(
                             R.string.reader_chapter_fallback,
                             request.targetChapterIndex + 1
                         )
                     },
-                stage = r.epubNavigationStage,
-                backgroundColor = r.composeBgColor,
-                contentColor = Color(r.readerTextColorInt),
-                onCancel = { r.clearCancelledEpubNavigation(r.epubNavigationRequest) },
-                compact = r.isBookLayoutContinuousScroll,
+                stage = epubNavigationStage,
+                backgroundColor = composeBgColor,
+                contentColor = Color(readerTextColorInt),
+                onCancel = { clearCancelledEpubNavigation(epubNavigationRequest) },
+                compact = isBookLayoutContinuousScroll,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
 
-        r.failedEpubNavigation?.let { (request, reason) ->
+        failedEpubNavigation?.let { (request, reason) ->
             EpubNavigationFailureBar(
                 reason = reason,
-                backgroundColor = r.composeBgColor,
-                contentColor = Color(r.readerTextColorInt),
+                backgroundColor = composeBgColor,
+                contentColor = Color(readerTextColorInt),
                 onRetry = {
-                    r.failedEpubNavigation = null
-                    r.submitEpubNavigation(
+                    failedEpubNavigation = null
+                    submitEpubNavigation(
                         request.origin,
                         request.targetChapterIndex,
                         request.destination,
@@ -13424,30 +13617,30 @@ private fun ReaderMenuAndSheetsSection() {
                     )
                 },
                 onDismiss = {
-                    r.failedEpubNavigation = null
-                    r.clearCancelledEpubNavigation(request)
+                    failedEpubNavigation = null
+                    clearCancelledEpubNavigation(request)
                 },
                 onSwitchLayout = {
-                    r.failedEpubNavigation = null
-                    r.viewModel.fallbackFromUnsupportedEpubWebView()
+                    failedEpubNavigation = null
+                    viewModel.fallbackFromUnsupportedEpubWebView()
                 },
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
-        r.epubRenderFailure?.takeIf { r.isBookLayout }?.let { failure ->
+        epubRenderFailure?.takeIf { isBookLayout }?.let { failure ->
             EpubRenderFailureOverlay(
                 failure = failure,
-                backgroundColor = r.composeBgColor,
-                contentColor = Color(r.readerTextColorInt),
-                onRetry = { r.epubRenderFailure = null; r.epubRetryToken++ },
+                backgroundColor = composeBgColor,
+                contentColor = Color(readerTextColorInt),
+                onRetry = { epubRenderFailure = null; epubRetryToken++ },
                 onSwitchLayout = {
                     failure.lastSuccessfulPosition?.let {
-                        r.viewModel.onEpubPageCommitted(it.chapterIndex, it.pageIndex, it.pageCount, it.locatorJson)
+                        viewModel.onEpubPageCommitted(it.chapterIndex, it.pageIndex, it.pageCount, it.locatorJson)
                     }
-                    r.epubRenderFailure = null
-                    r.viewModel.fallbackFromUnsupportedEpubWebView()
+                    epubRenderFailure = null
+                    viewModel.fallbackFromUnsupportedEpubWebView()
                 },
-                onClose = r.exitReader
+                onClose = exitReader
             )
         }
     }
@@ -13456,23 +13649,212 @@ private fun ReaderMenuAndSheetsSection() {
 @Composable
 private fun ReaderOverlaysSection() {
     val r = LocalReaderScreenRefs.current ?: return
+    val activeReaderGlassBackdrop = r.activeReaderGlassBackdrop!!
+    val annotationTagState = r.annotationTagState!!
+    val appIsDark = r.appIsDark!!
+    val autoReadingActive = r.autoReadingActive!!
+    val autoReadingAtChapterEnd = r.autoReadingAtChapterEnd!!
+    val autoReadingAvailable = r.autoReadingAvailable!!
+    val autoReadingOriginalTransition = r.autoReadingOriginalTransition!!
+    val autoReadingOriginalWritingMode = r.autoReadingOriginalWritingMode!!
+    val autoReadingPaused = r.autoReadingPaused!!
+    val availableAnnotationTags = r.availableAnnotationTags!!
+    val bookLayoutSpreadEligible = r.bookLayoutSpreadEligible!!
+    val bookmarkExitAlphaAnimation = r.bookmarkExitAlphaAnimation!!
+    val bookmarkExitOffsetAnimation = r.bookmarkExitOffsetAnimation!!
+    val bookmarkPullActive = r.bookmarkPullActive!!
+    val bookmarkPullDistancePx = r.bookmarkPullDistancePx!!
+    val bookmarkPullSettleMode = r.bookmarkPullSettleMode!!
+    val bookmarkPullStartedBookmarked = r.bookmarkPullStartedBookmarked!!
+    val bookmarkPullSupported = r.bookmarkPullSupported!!
+    val bookmarkRemarkTags = r.bookmarkRemarkTags!!
+    val bookmarkRemarkText = r.bookmarkRemarkText!!
+    val bookmarkSettleAnimation = r.bookmarkSettleAnimation!!
+    val bookmarks = r.bookmarks!!
+    val cancelActiveSearch = r.cancelActiveSearch!!
+    val capsuleBgColor = r.capsuleBgColor!!
+    val capsuleContentColor = r.capsuleContentColor!!
+    val catalogDragReturnLocation = r.catalogDragReturnLocation!!
+    val catalogProgressColor = r.catalogProgressColor!!
+    val changeSourceList = r.changeSourceList!!
+    val clearActiveTextSelection = r.clearActiveTextSelection!!
+    val completeReaderExit = r.completeReaderExit!!
+    val composeBgColor = r.composeBgColor!!
+    val context = r.context!!
+    val continuousReturnAnchor = r.continuousReturnAnchor!!
+    val continuousScrollRequests = r.continuousScrollRequests!!
+    val continuousSearchHighlight = r.continuousSearchHighlight!!
+    val continuousSelectionController = r.continuousSelectionController!!
+    val continuousVisibleCharacters = r.continuousVisibleCharacters!!
+    val customBackgroundThemeColorInt = r.customBackgroundThemeColorInt!!
+    val density = r.density!!
+    val dictionaryAppOptions = r.dictionaryAppOptions!!
+    val dictionaryLookupText = r.dictionaryLookupText!!
+    val dismissReaderImagePreview = r.dismissReaderImagePreview!!
+    val eInkMode = r.eInkMode!!
+    val editingNote = r.editingNote!!
+    val editorAutomaticTextColorInt = r.editorAutomaticTextColorInt!!
+    val editorBackgroundColorInt = r.editorBackgroundColorInt!!
+    val editorBackgroundImagePath = r.editorBackgroundImagePath!!
+    val editorThemeSettings = r.editorThemeSettings!!
+    val effectiveLineGuide = r.effectiveLineGuide!!
+    val effectivePageTransition = r.effectivePageTransition!!
+    val effectivePreserveEpubBackground = r.effectivePreserveEpubBackground!!
+    val epubDictionarySelection = r.epubDictionarySelection!!
+    val epubLayoutPreviewActive = r.epubLayoutPreviewActive!!
+    val epubLocatorRequest = r.epubLocatorRequest!!
+    val epubNavigationRequest = r.epubNavigationRequest!!
+    val epubNavigationStage = r.epubNavigationStage!!
+    val epubPageRequest = r.epubPageRequest!!
+    val epubRenderFailure = r.epubRenderFailure!!
+    val epubRetryToken = r.epubRetryToken!!
+    val epubSearchRequest = r.epubSearchRequest!!
+    val epubSearchRequestToken = r.epubSearchRequestToken!!
+    val epubSession = r.epubSession!!
+    val excerptRequest = r.excerptRequest!!
+    val exitReader = r.exitReader!!
+    val exportThemeLauncher = r.exportThemeLauncher!!
+    val failedEpubNavigation = r.failedEpubNavigation!!
+    val floatingSubtitlesEnabled = r.floatingSubtitlesEnabled!!
+    val footnoteBubble = r.footnoteBubble!!
+    val footnoteProgress = r.footnoteProgress!!
+    val forceNativeGlassFallback = r.forceNativeGlassFallback!!
+    val hasSearched = r.hasSearched!!
+    val highlightRules = r.highlightRules!!
+    val highlightScanState = r.highlightScanState!!
+    val highlightSettings = r.highlightSettings!!
+    val importThemeLauncher = r.importThemeLauncher!!
+    val isAnySheetOpen = r.isAnySheetOpen!!
+    val isBookLayout = r.isBookLayout!!
+    val isBookLayoutContinuousScroll = r.isBookLayoutContinuousScroll!!
+    val isContinuousScrollMode = r.isContinuousScrollMode!!
+    val isCurrentPageBookmarked = r.isCurrentPageBookmarked!!
+    val isLiquidGlass = r.isLiquidGlass!!
+    val isMarkdownNative = r.isMarkdownNative!!
+    val isRefreshingOnlineBook = r.isRefreshingOnlineBook!!
+    val isSearching = r.isSearching!!
+    val isSearchingSources = r.isSearchingSources!!
+    val isSelectionDragging = r.isSelectionDragging!!
+    val isVerticalWriting = r.isVerticalWriting!!
+    val lineGuideAvailable = r.lineGuideAvailable!!
+    val linkReturnLocation = r.linkReturnLocation!!
+    val linkReturnToken = r.linkReturnToken!!
+    val listeningResumePrompt = r.listeningResumePrompt!!
+    val localDictionaryQuery = r.localDictionaryQuery!!
+    val menuBgColor = r.menuBgColor!!
+    val menuContentColor = r.menuContentColor!!
+    val menuLayout = r.menuLayout!!
+    val menuReappearKey = r.menuReappearKey!!
+    val motionEnabled = r.motionEnabled!!
+    val nativeBookPages = r.nativeBookPages!!
+    val nativeContinuousViewport = r.nativeContinuousViewport!!
+    val navigateEpub = r.navigateEpub!!
+    val nightDisplay = r.nightDisplay!!
+    val noteInputText = r.noteInputText!!
+    val notes = r.notes!!
+    val openAdvancedAfterThemeClose = r.openAdvancedAfterThemeClose!!
+    val originalSpreadState = r.originalSpreadState!!
+    val pendingBookmarkRemarkId = r.pendingBookmarkRemarkId!!
+    val pendingExportThemeId = r.pendingExportThemeId!!
+    val pendingExternalLink = r.pendingExternalLink!!
+    val pendingSelection = r.pendingSelection!!
+    val publisherPaintSuiteActive = r.publisherPaintSuiteActive!!
+    val purifyDialogText = r.purifyDialogText!!
+    val purifyRulesLauncher = r.purifyRulesLauncher!!
+    val readViewRef = r.readViewRef!!
+    val readerGlassContentScrim = r.readerGlassContentScrim!!
+    val readerImagePreview = r.readerImagePreview!!
+    val readerImagePreviewProgress = r.readerImagePreviewProgress!!
+    val readerRootSize = r.readerRootSize!!
+    val readerRootWindowPosition = r.readerRootWindowPosition!!
+    val readerTextColorInt = r.readerTextColorInt!!
+    val readerTtsPosition = r.readerTtsPosition!!
+    val renderedFootnote = r.renderedFootnote!!
+    val rendererBookPages = r.rendererBookPages!!
+    val rendererPageKey = r.rendererPageKey!!
+    val rendererVisibleCharacters = r.rendererVisibleCharacters!!
+    val renderingTheme = r.renderingTheme!!
+    val replaceSelection = r.replaceSelection!!
+    val requestCloseAdvanced = r.requestCloseAdvanced!!
+    val requestCloseHighlightRules = r.requestCloseHighlightRules!!
+    val requestCloseNoteInput = r.requestCloseNoteInput!!
+    val requestCloseNotesList = r.requestCloseNotesList!!
+    val requestCloseSearch = r.requestCloseSearch!!
+    val requestCloseTheme = r.requestCloseTheme!!
+    val requestCloseToc = r.requestCloseToc!!
+    val requestTtsStart = r.requestTtsStart!!
+    val requestWriteSettingsPermission = r.requestWriteSettingsPermission!!
+    val returnToLinkedSource = r.returnToLinkedSource!!
+    val returnToTtsProgress = r.returnToTtsProgress!!
+    val scope = r.scope!!
+    val searchQuery = r.searchQuery!!
+    val searchResultQuery = r.searchResultQuery!!
+    val searchResults = r.searchResults!!
+    val selectionCrossPage = r.selectionCrossPage!!
+    val selectionState = r.selectionState!!
+    val showAdvancedSheet = r.showAdvancedSheet!!
+    val showChangeSourceDialog = r.showChangeSourceDialog!!
+    val showDictionaryAppPicker = r.showDictionaryAppPicker!!
+    val showHighlightRules = r.showHighlightRules!!
+    val showMenuSettings = r.showMenuSettings!!
+    val showNoteInput = r.showNoteInput!!
+    val showNotesList = r.showNotesList!!
+    val showQuickPurifyDialog = r.showQuickPurifyDialog!!
+    val showReplaceInput = r.showReplaceInput!!
+    val showSearch = r.showSearch!!
+    val showThemeSheet = r.showThemeSheet!!
+    val showToc = r.showToc!!
+    val showTtsExitDialog = r.showTtsExitDialog!!
+    val showTxtEncodingDialog = r.showTxtEncodingDialog!!
+    val showTxtTocDialog = r.showTxtTocDialog!!
+    val showWebSearch = r.showWebSearch!!
+    val sideRailItemSize = r.sideRailItemSize!!
+    val sideRailItemWidth = r.sideRailItemWidth!!
+    val startTtsFromCurrentPage = r.startTtsFromCurrentPage!!
+    val submitEpubNavigation = r.submitEpubNavigation!!
+    val submitSearch = r.submitSearch!!
+    val supportsBookLayout = r.supportsBookLayout!!
+    val supportsEpubFeatures = r.supportsEpubFeatures!!
+    val toggleBookmarkForCurrentPage = r.toggleBookmarkForCurrentPage!!
+    val ttsCatalogBounds = r.ttsCatalogBounds!!
+    val ttsCurrentPage = r.ttsCurrentPage!!
+    val ttsFooterTop = r.ttsFooterTop!!
+    val ttsRevealKey = r.ttsRevealKey!!
+    val ttsStartPrompt = r.ttsStartPrompt!!
+    val ttsState = r.ttsState!!
+    val txtEditorLauncher = r.txtEditorLauncher!!
+    val uiState = r.uiState!!
+    val useSideReaderMenu = r.useSideReaderMenu!!
+    val visibleEpubNavigationId = r.visibleEpubNavigationId!!
+    val viewModel = r.viewModel!!
+    val bookId = r.bookId!!
+    val readerActive = r.readerActive!!
+    val beginManualReaderNavigation = r.beginManualReaderNavigation!!
+    val captureReaderLocation: (Int, Int, String?, Float?) -> ReaderLinkLocation = r.captureReaderLocation!!
+    val captureReaderLocationHere: () -> ReaderLinkLocation = r.captureReaderLocationHere!!
+    val clearCancelledEpubNavigation = r.clearCancelledEpubNavigation!!
+    val dismissSelectionMenu = r.dismissSelectionMenu!!
+    val jumpToContinuousChapter = r.jumpToContinuousChapter!!
+    val resetSelectionSubmenus = r.resetSelectionSubmenus!!
+    val showExcerpt = r.showExcerpt!!
+    val stopAutoReading = r.stopAutoReading!!
 
     // ── 笔记/高亮列表 ──
     NotesListSheet(
-        visible = r.showNotesList,
-        requestClose = r.requestCloseNotesList,
-        glassBackdrop = r.activeReaderGlassBackdrop,
-        forceSolid = r.forceNativeGlassFallback,
-        r.notes = r.viewModel.notes.collectAsState().value.let { all -> remember(all) { all.filterNot { it.isInkStroke } } },
+        visible = showNotesList,
+        requestClose = requestCloseNotesList,
+        glassBackdrop = activeReaderGlassBackdrop,
+        forceSolid = forceNativeGlassFallback,
+        notes = viewModel.notes.collectAsState().value.let { all -> remember(all) { all.filterNot { it.isInkStroke } } },
         onNoteClick = noteClick@ { note ->
             if (note.isStale) {
-                Toast.makeText(r.context, R.string.markdown_original_changed, Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, R.string.markdown_original_changed, Toast.LENGTH_SHORT).show()
                 return@noteClick
             }
-            r.beginManualReaderNavigation()
-            if (r.isBookLayout) {
-                val chapterTextLength = r.viewModel.getChapterTextLength(note.chapterIndex).coerceAtLeast(1)
-                val chapterHref = r.epubSession?.chapterHref(note.chapterIndex).orEmpty()
+            beginManualReaderNavigation()
+            if (isBookLayout) {
+                val chapterTextLength = viewModel.getChapterTextLength(note.chapterIndex).coerceAtLeast(1)
+                val chapterHref = epubSession?.chapterHref(note.chapterIndex).orEmpty()
                 val locatorJson = note.startLocatorJson
                     ?.takeIf { isEpubLocatorForChapter(it, chapterHref) }
                     ?: createEpubFallbackLocator(
@@ -13480,77 +13862,77 @@ private fun ReaderOverlaysSection() {
                         charOffset = note.startPosition,
                         chapterTextLength = chapterTextLength,
                         exact = note.selectedText,
-                        chapterText = r.viewModel.getChapterText(note.chapterIndex)
+                        chapterText = viewModel.getChapterText(note.chapterIndex)
                     )
-                r.epubSearchRequest = null
-                r.epubPageRequest = null
-                r.epubLocatorRequest = null
-                r.navigateEpub(
+                epubSearchRequest = null
+                epubPageRequest = null
+                epubLocatorRequest = null
+                navigateEpub(
                     EpubNavigationOrigin.NOTE,
                     note.chapterIndex,
                     locatorJson?.let { EpubNavigationDestination.Locator(it) }
                         ?: EpubNavigationDestination.ChapterStart,
                     true
                 )
-            } else if (r.isContinuousScrollMode) {
-                r.scope.launch {
-                    val resolved = r.viewModel.resolveReaderNoteForNavigation(note) ?: return@launch
-                    r.continuousScrollRequests.value = ContinuousScrollRequest(
+            } else if (isContinuousScrollMode) {
+                scope.launch {
+                    val resolved = viewModel.resolveReaderNoteForNavigation(note) ?: return@launch
+                    continuousScrollRequests.value = ContinuousScrollRequest(
                         resolved.chapterIndex, characterOffset = resolved.startPosition
                     )
                 }
             } else {
-                r.scope.launch {
-                    val resolved = r.viewModel.resolveReaderNoteForNavigation(note) ?: return@launch
-                    r.readViewRef.value?.jumpToCharacter(resolved.chapterIndex, resolved.startPosition)
+                scope.launch {
+                    val resolved = viewModel.resolveReaderNoteForNavigation(note) ?: return@launch
+                    readViewRef.value?.jumpToCharacter(resolved.chapterIndex, resolved.startPosition)
                 }
             }
-            r.showNotesList = false
-            r.requestCloseNotesList = false
+            showNotesList = false
+            requestCloseNotesList = false
         },
-        onEditTags = r.annotationTagState::edit,
-        onShareNote = { note -> r.showExcerpt(note.selectedText, note.note, note.chapterIndex) },
-        onDeleteNote = { note -> r.viewModel.deleteNote(note) },
-        onDismiss = { r.showNotesList = false; r.requestCloseNotesList = false }
+        onEditTags = annotationTagState::edit,
+        onShareNote = { note -> showExcerpt(note.selectedText, note.note, note.chapterIndex) },
+        onDeleteNote = { note -> viewModel.deleteNote(note) },
+        onDismiss = { showNotesList = false; requestCloseNotesList = false }
     )
 
     LocalDictionarySheet(
-        query = r.localDictionaryQuery,
-        glassBackdrop = r.activeReaderGlassBackdrop,
-        forceSolid = r.forceNativeGlassFallback || r.eInkMode,
+        query = localDictionaryQuery,
+        glassBackdrop = activeReaderGlassBackdrop,
+        forceSolid = forceNativeGlassFallback || eInkMode,
         onDismiss = {
-            r.localDictionaryQuery = null
-            r.dismissSelectionMenu()
+            localDictionaryQuery = null
+            dismissSelectionMenu()
         },
         onExternal = {
-            val request = r.localDictionaryQuery?.let { prepareDictionaryLookup(r.context, it) }
+            val request = localDictionaryQuery?.let { prepareDictionaryLookup(context, it) }
             if (request == null || request.apps.isEmpty()) {
-                Toast.makeText(r.context, R.string.dictionary_no_app, Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, R.string.dictionary_no_app, Toast.LENGTH_SHORT).show()
             } else {
-                r.dictionaryLookupText = request.normalizedText
-                r.dictionaryAppOptions = request.apps
-                r.showDictionaryAppPicker = true
-                r.localDictionaryQuery = null
+                dictionaryLookupText = request.normalizedText
+                dictionaryAppOptions = request.apps
+                showDictionaryAppPicker = true
+                localDictionaryQuery = null
             }
         },
         onWebSearch = {
-            val query = r.localDictionaryQuery.orEmpty()
-            r.localDictionaryQuery = null
-            r.dismissSelectionMenu()
-            r.searchQuery = query
-            r.showWebSearch = true
+            val query = localDictionaryQuery.orEmpty()
+            localDictionaryQuery = null
+            dismissSelectionMenu()
+            searchQuery = query
+            showWebSearch = true
         }
     )
 
     // ── 文字选择自定义菜单 ──
     fun selectionForAction(): SelectionState? {
-        val menu = r.selectionState ?: return null
+        val menu = selectionState ?: return null
         if (menu.annotationOnly) return menu
-        if (!r.isContinuousScrollMode || r.isMarkdownNative) return menu
-        val current = r.continuousSelectionController.currentSelection()
-        val text = r.continuousSelectionController.activeView?.text
+        if (!isContinuousScrollMode || isMarkdownNative) return menu
+        val current = continuousSelectionController.currentSelection()
+        val text = continuousSelectionController.activeView?.text
         if (current == null || text == null || current.chapterIndex != menu.chapterIndex) {
-            r.dismissSelectionMenu()
+            dismissSelectionMenu()
             return null
         }
         return menu.copy(charStart = current.start, charEnd = current.end,
@@ -13558,60 +13940,60 @@ private fun ReaderOverlaysSection() {
     }
     val replaceSelectedAnnotationColor: (String, Int) -> Unit = { type, slot ->
         selectionForAction()?.let { selection ->
-            applyAnnotationColor(r.viewModel, selection, type, slot)
+            applyAnnotationColor(viewModel, selection, type, slot)
         }
-        r.selectionState = null
-        r.clearActiveTextSelection()
+        selectionState = null
+        clearActiveTextSelection()
     }
     val removeSelectedAnnotation: (String) -> Unit = { type ->
         selectionForAction()?.let { selection ->
-            removeAnnotation(r.viewModel, selection, type)
+            removeAnnotation(viewModel, selection, type)
         }
-        r.selectionState = null
-        r.clearActiveTextSelection()
+        selectionState = null
+        clearActiveTextSelection()
     }
     SelectionMenuOverlay(
-        state = r.selectionState.takeIf { r.localDictionaryQuery == null },
-        readerTheme = r.renderingTheme,
-        glassBackdrop = r.activeReaderGlassBackdrop,
-        forceSolidSurface = r.forceNativeGlassFallback,
-        isDragging = r.isSelectionDragging,
-        dismissOnBackgroundTap = !r.isVerticalWriting,
-        reappearKey = r.menuReappearKey,
-        r.showDictionaryAppPicker = r.showDictionaryAppPicker,
-        showSettings = r.showMenuSettings,
-        r.dictionaryAppOptions = r.dictionaryAppOptions,
-        isTxtBook = r.uiState.book?.format?.name == "TXT",
-        selectionMenuItems = r.uiState.selectionMenuItems,
-        onDismiss = { r.dismissSelectionMenu() },
+        state = selectionState.takeIf { localDictionaryQuery == null },
+        readerTheme = renderingTheme,
+        glassBackdrop = activeReaderGlassBackdrop,
+        forceSolidSurface = forceNativeGlassFallback,
+        isDragging = isSelectionDragging,
+        dismissOnBackgroundTap = !isVerticalWriting,
+        reappearKey = menuReappearKey,
+        showDictionaryAppPicker = showDictionaryAppPicker,
+        showSettings = showMenuSettings,
+        dictionaryAppOptions = dictionaryAppOptions,
+        isTxtBook = uiState.book?.format?.name == "TXT",
+        selectionMenuItems = uiState.selectionMenuItems,
+        onDismiss = { dismissSelectionMenu() },
         onHighlight = {
             selectionForAction()?.let { selection ->
-                createSelectionAnnotation(r.viewModel, selection, "highlight")?.let { r.annotationTagState.quickTarget = it to false }
+                createSelectionAnnotation(viewModel, selection, "highlight")?.let { annotationTagState.quickTarget = it to false }
             }
-            r.selectionState = null
-            r.resetSelectionSubmenus()
-            r.clearActiveTextSelection()
+            selectionState = null
+            resetSelectionSubmenus()
+            clearActiveTextSelection()
         },
         onUnderline = {
             selectionForAction()?.let { selection ->
-                createSelectionAnnotation(r.viewModel, selection, "underline")?.let { r.annotationTagState.quickTarget = it to false }
+                createSelectionAnnotation(viewModel, selection, "underline")?.let { annotationTagState.quickTarget = it to false }
             }
-            r.selectionState = null
-            r.resetSelectionSubmenus()
-            r.clearActiveTextSelection()
+            selectionState = null
+            resetSelectionSubmenus()
+            clearActiveTextSelection()
         },
         onNote = {
-            val fresh = if (r.isBookLayout || r.isContinuousScrollMode) null else r.readViewRef.value?.getSelectionInfo()
+            val fresh = if (isBookLayout || isContinuousScrollMode) null else readViewRef.value?.getSelectionInfo()
             if (fresh != null) {
-                r.pendingSelection = PendingSelection(
+                pendingSelection = PendingSelection(
                     fresh.selectedText, fresh.chapterIndex,
                     fresh.startPosition,
                     fresh.endPosition
                 )
-                r.showNoteInput = true
+                showNoteInput = true
             } else {
                 selectionForAction()?.let { selection ->
-                    r.pendingSelection = PendingSelection(
+                    pendingSelection = PendingSelection(
                         selection.selectedText,
                         selection.chapterIndex,
                         selection.charStart,
@@ -13619,102 +14001,102 @@ private fun ReaderOverlaysSection() {
                         selection.startLocatorJson,
                         selection.endLocatorJson
                     )
-                    r.showNoteInput = true
+                    showNoteInput = true
                 }
             }
-            r.selectionState = null
-            r.clearActiveTextSelection()
+            selectionState = null
+            clearActiveTextSelection()
         },
         onExcerpt = {
             selectionForAction()?.let { selection ->
-                val fresh = if (selection.annotationOnly || r.isBookLayout || r.isContinuousScrollMode) null
-                    else r.readViewRef.value?.getSelectionInfo()
-                r.showExcerpt(fresh?.selectedText ?: selection.selectedText,
+                val fresh = if (selection.annotationOnly || isBookLayout || isContinuousScrollMode) null
+                    else readViewRef.value?.getSelectionInfo()
+                showExcerpt(fresh?.selectedText ?: selection.selectedText,
                     selection.existingNote?.note.orEmpty(), fresh?.chapterIndex ?: selection.chapterIndex)
             }
-            r.dismissSelectionMenu()
+            dismissSelectionMenu()
         },
         onSearch = {
-            val query = if (r.isBookLayout || r.isContinuousScrollMode) {
+            val query = if (isBookLayout || isContinuousScrollMode) {
                 selectionForAction()?.selectedText
             } else {
-                r.readViewRef.value?.getSelectionInfo()?.selectedText ?: selectionForAction()?.selectedText
+                readViewRef.value?.getSelectionInfo()?.selectedText ?: selectionForAction()?.selectedText
             }
             if (query != null) {
-                r.showSearch = true
-                r.searchQuery = query
-                r.submitSearch(query)
+                showSearch = true
+                searchQuery = query
+                submitSearch(query)
             }
-            r.selectionState = null
-            r.clearActiveTextSelection()
+            selectionState = null
+            clearActiveTextSelection()
         },
         onWebSearch = {
-            val query = if (r.isBookLayout || r.isContinuousScrollMode) {
+            val query = if (isBookLayout || isContinuousScrollMode) {
                 selectionForAction()?.selectedText
             } else {
-                r.readViewRef.value?.getSelectionInfo()?.selectedText ?: selectionForAction()?.selectedText
+                readViewRef.value?.getSelectionInfo()?.selectedText ?: selectionForAction()?.selectedText
             }
             if (!query.isNullOrBlank()) {
-                r.searchQuery = query
-                r.showWebSearch = true
+                searchQuery = query
+                showWebSearch = true
             }
-            r.selectionState = null
-            r.clearActiveTextSelection()
+            selectionState = null
+            clearActiveTextSelection()
         },
         onDictionary = {
             try {
-                val fresh = if (r.isBookLayout || r.isContinuousScrollMode) null else r.readViewRef.value?.getSelectionInfo()
+                val fresh = if (isBookLayout || isContinuousScrollMode) null else readViewRef.value?.getSelectionInfo()
                 val text = fresh?.selectedText ?: selectionForAction()?.selectedText
                 if (!text.isNullOrBlank()) {
-                    r.showDictionaryAppPicker = false
-                    r.epubDictionarySelection = selectionForAction()?.takeIf { r.isBookLayout }?.let { selection ->
+                    showDictionaryAppPicker = false
+                    epubDictionarySelection = selectionForAction()?.takeIf { isBookLayout }?.let { selection ->
                         val start = selection.startLocatorJson
                         val end = selection.endLocatorJson
                         if (start != null && end != null) {
                             EpubDictionarySelection(start, end, selection.selectedText)
                         } else null
                     }
-                    r.localDictionaryQuery = text
+                    localDictionaryQuery = text
                 }
             } catch (throwable: Throwable) {
                 Log.w(DICTIONARY_LOOKUP_TAG, "Failed to open dictionary app picker", throwable)
-                Toast.makeText(r.context, R.string.dictionary_no_app, Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, R.string.dictionary_no_app, Toast.LENGTH_SHORT).show()
             }
         },
         onDictionaryAppSelected = { appOption ->
             if (selectionForAction() == null) return@SelectionMenuOverlay
-            if (launchDictionaryLookup(r.context, r.dictionaryLookupText, appOption)) {
-                r.selectionState = null
-                r.resetSelectionSubmenus()
-                r.clearActiveTextSelection()
+            if (launchDictionaryLookup(context, dictionaryLookupText, appOption)) {
+                selectionState = null
+                resetSelectionSubmenus()
+                clearActiveTextSelection()
             }
         },
         onCopy = {
-            val fresh = if (r.isBookLayout || r.isContinuousScrollMode) null else r.readViewRef.value?.getSelectionInfo()
+            val fresh = if (isBookLayout || isContinuousScrollMode) null else readViewRef.value?.getSelectionInfo()
             val text = fresh?.selectedText ?: selectionForAction()?.selectedText ?: return@SelectionMenuOverlay
-            val clipboard = r.context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("selected", text))
-            r.selectionState = null
-            r.clearActiveTextSelection()
+            selectionState = null
+            clearActiveTextSelection()
         },
         onViewNote = {
             // 🔥 查看/修改笔记：打开 NoteInputSheet 预填原笔记文字
             val existing = selectionForAction()?.existingNote
             if (existing != null) {
-                r.editingNote = existing
-                r.noteInputText = existing.note
-                r.showNoteInput = true
+                editingNote = existing
+                noteInputText = existing.note
+                showNoteInput = true
             }
-            r.selectionState = null
-            r.clearActiveTextSelection()
+            selectionState = null
+            clearActiveTextSelection()
         },
         onEditHighlightTags = {
-            selectionForAction()?.overlappingHighlights?.firstOrNull()?.syncId?.takeIf { it.isNotEmpty() }?.let { r.annotationTagState.editingTarget = it to false }
-            r.selectionState = null
+            selectionForAction()?.overlappingHighlights?.firstOrNull()?.syncId?.takeIf { it.isNotEmpty() }?.let { annotationTagState.editingTarget = it to false }
+            selectionState = null
         },
         onEditUnderlineTags = {
-            selectionForAction()?.overlappingUnderlines?.firstOrNull()?.syncId?.takeIf { it.isNotEmpty() }?.let { r.annotationTagState.editingTarget = it to false }
-            r.selectionState = null
+            selectionForAction()?.overlappingUnderlines?.firstOrNull()?.syncId?.takeIf { it.isNotEmpty() }?.let { annotationTagState.editingTarget = it to false }
+            selectionState = null
         },
         onChangeHighlightColor = { slot ->
             replaceSelectedAnnotationColor("highlight", slot)
@@ -13724,10 +14106,10 @@ private fun ReaderOverlaysSection() {
         },
         onChangeUnderlineStyle = { mode ->
             selectionForAction()?.let { selection ->
-                updateUnderlineStyle(r.viewModel, selection, mode)
+                updateUnderlineStyle(viewModel, selection, mode)
             }
-            r.selectionState = null
-            r.clearActiveTextSelection()
+            selectionState = null
+            clearActiveTextSelection()
         },
         onDeleteHighlight = {
             removeSelectedAnnotation("highlight")
@@ -13736,92 +14118,92 @@ private fun ReaderOverlaysSection() {
             removeSelectedAnnotation("underline")
         },
         onPurify = {
-            val fresh = if (r.isBookLayout) null else r.readViewRef.value?.getSelectionInfo()
-            val text = fresh?.selectedText ?: r.selectionState?.selectedText
-            r.selectionState = null
-            r.clearActiveTextSelection()
+            val fresh = if (isBookLayout) null else readViewRef.value?.getSelectionInfo()
+            val text = fresh?.selectedText ?: selectionState?.selectedText
+            selectionState = null
+            clearActiveTextSelection()
             if (!text.isNullOrBlank()) {
-                r.purifyDialogText = text
-                r.showQuickPurifyDialog = true
+                purifyDialogText = text
+                showQuickPurifyDialog = true
             }
         },
         onReplace = {
             // 替换功能：仅TXT书籍支持
-            if (r.uiState.book?.format?.name != "TXT") {
-                Toast.makeText(r.context, R.string.replace_not_available, Toast.LENGTH_SHORT).show()
+            if (uiState.book?.format?.name != "TXT") {
+                Toast.makeText(context, R.string.replace_not_available, Toast.LENGTH_SHORT).show()
                 return@SelectionMenuOverlay
             }
-            val fresh = if (r.isBookLayout || r.isContinuousScrollMode) null else r.readViewRef.value?.getSelectionInfo()
+            val fresh = if (isBookLayout || isContinuousScrollMode) null else readViewRef.value?.getSelectionInfo()
             val text = fresh?.selectedText ?: selectionForAction()?.selectedText
             if (text != null) {
                 val chapterIndex = fresh?.chapterIndex ?: selectionForAction()?.chapterIndex
                 val readerStart = fresh?.startPosition ?: selectionForAction()?.charStart
                 val readerEnd = fresh?.endPosition ?: selectionForAction()?.charEnd
                 val sourceRange = if (chapterIndex != null && readerStart != null && readerEnd != null) {
-                    r.viewModel.resolveTxtSourceRange(chapterIndex, readerStart, readerEnd)
+                    viewModel.resolveTxtSourceRange(chapterIndex, readerStart, readerEnd)
                 } else {
                     null
                 }
-                r.replaceSelection = ReplaceSelectionInfo(
+                replaceSelection = ReplaceSelectionInfo(
                     selectedText = text,
                     chapterIndex = chapterIndex,
                     charStart = sourceRange?.start,
                     charEnd = sourceRange?.endExclusive
                 )
             }
-            r.selectionState = null
-            r.clearActiveTextSelection()
+            selectionState = null
+            clearActiveTextSelection()
             if (text != null) {
-                r.scope.launch {
+                scope.launch {
                     // The selection glass must leave the layout tree before the replacement
                     // overlay starts sampling the reader backdrop.
                     withFrameNanos { }
                     withFrameNanos { }
-                    r.showReplaceInput = true
+                    showReplaceInput = true
                 }
             }
         },
         onMenuSettings = {
             if (selectionForAction() == null) return@SelectionMenuOverlay
-            r.showMenuSettings = true
+            showMenuSettings = true
         }
     )
 
     // ── 浮动菜单设置 Dialog ──
-    r.excerptRequest?.let { request ->
-        ExcerptSheet(request, onClose = { r.excerptRequest = null }, glassBackdrop = r.activeReaderGlassBackdrop)
+    excerptRequest?.let { request ->
+        ExcerptSheet(request, onClose = { excerptRequest = null }, glassBackdrop = activeReaderGlassBackdrop)
     }
 
     SelectionMenuSettingsDialog(
-        visible = r.showMenuSettings,
-        backdrop = r.activeReaderGlassBackdrop,
-        currentItems = r.uiState.selectionMenuItems,
-        onDismiss = { r.showMenuSettings = false },
+        visible = showMenuSettings,
+        backdrop = activeReaderGlassBackdrop,
+        currentItems = uiState.selectionMenuItems,
+        onDismiss = { showMenuSettings = false },
         onSave = { items ->
-            r.viewModel.saveSelectionMenuItems(items)
-            r.showMenuSettings = false
+            viewModel.saveSelectionMenuItems(items)
+            showMenuSettings = false
         }
     )
 
     // ── 替换输入 Sheet ──
     ReaderReplaceInputSheet(
-        visible = r.showReplaceInput,
-        glassBackdrop = r.activeReaderGlassBackdrop,
-        selection = r.replaceSelection,
-        r.viewModel = r.viewModel,
+        visible = showReplaceInput,
+        glassBackdrop = activeReaderGlassBackdrop,
+        selection = replaceSelection,
+        viewModel = viewModel,
         onDismiss = {
-            r.showReplaceInput = false
-            r.replaceSelection = null
+            showReplaceInput = false
+            replaceSelection = null
         }
     )
-    if (r.showQuickPurifyDialog) {
-        var rulePattern by remember(r.purifyDialogText) { mutableStateOf(r.purifyDialogText) }
+    if (showQuickPurifyDialog) {
+        var rulePattern by remember(purifyDialogText) { mutableStateOf(purifyDialogText) }
         var ruleReplacement by remember { mutableStateOf("") }
         var onlyThisBook by remember { mutableStateOf(true) }
         var isRegex by remember { mutableStateOf(false) }
 
         LiquidGlassAlertDialog(
-            onDismissRequest = { r.showQuickPurifyDialog = false },
+            onDismissRequest = { showQuickPurifyDialog = false },
             title = {
                 Text(
                     text = "一键添加净化规则",
@@ -13871,13 +14253,13 @@ private fun ReaderOverlaysSection() {
                 Button(
                     onClick = {
                         if (rulePattern.isNotBlank()) {
-                            r.scope.launch(Dispatchers.IO) {
-                                val bookName = r.uiState.book?.title
+                            scope.launch(Dispatchers.IO) {
+                                val bookName = uiState.book?.title
                                 val newRule = io.legado.app.data.entities.ReplaceRule(
                                     name = if (onlyThisBook && !bookName.isNullOrBlank()) "$bookName-净化" else "划词净化",
                                     pattern = rulePattern,
                                     replacement = ruleReplacement,
-                                    r.scope = if (onlyThisBook) bookName else null,
+                                    scope = if (onlyThisBook) bookName else null,
                                     isRegex = isRegex,
                                     scopeContent = true,
                                     scopeTitle = false,
@@ -13885,9 +14267,9 @@ private fun ReaderOverlaysSection() {
                                 )
                                 io.legado.app.data.appDb.replaceRuleDao.insert(newRule)
                                 withContext(Dispatchers.Main) {
-                                    r.showQuickPurifyDialog = false
-                                    Toast.makeText(r.context, R.string.add_purify_rule_success, Toast.LENGTH_SHORT).show()
-                                    r.viewModel.reloadCurrentChapter()
+                                    showQuickPurifyDialog = false
+                                    Toast.makeText(context, R.string.add_purify_rule_success, Toast.LENGTH_SHORT).show()
+                                    viewModel.reloadCurrentChapter()
                                 }
                             }
                         }
@@ -13897,7 +14279,7 @@ private fun ReaderOverlaysSection() {
                 }
             },
             dismissButton = {
-                TextButton(onClick = { r.showQuickPurifyDialog = false }) {
+                TextButton(onClick = { showQuickPurifyDialog = false }) {
                     Text("取消", color = AppColors.TextSecondary)
                 }
             }
@@ -13905,87 +14287,87 @@ private fun ReaderOverlaysSection() {
     }
 
     ReaderFirstOpenHints(
-        epub = r.uiState.showEpubLayoutHint,
-        mobi = r.uiState.showMobiLayoutHint,
-        txtEncoding = r.uiState.showTxtEncodingHint,
-        backdrop = r.activeReaderGlassBackdrop,
-        r.viewModel = r.viewModel
+        epub = uiState.showEpubLayoutHint,
+        mobi = uiState.showMobiLayoutHint,
+        txtEncoding = uiState.showTxtEncodingHint,
+        backdrop = activeReaderGlassBackdrop,
+        viewModel = viewModel
     )
 
-    if (!r.uiState.showEpubLayoutHint && !r.uiState.showMobiLayoutHint &&
-        !r.uiState.showTxtEncodingHint && r.readerActive) {
+    if (!uiState.showEpubLayoutHint && !uiState.showMobiLayoutHint &&
+        !uiState.showTxtEncodingHint && readerActive) {
         TtsStartDialog(
-            position = r.ttsStartPrompt,
-            chapterTitle = r.ttsStartPrompt?.let {
-                r.uiState.chapterTitles.getOrNull(it.chapterIndex)?.takeIf(String::isNotBlank)
+            position = ttsStartPrompt,
+            chapterTitle = ttsStartPrompt?.let {
+                uiState.chapterTitles.getOrNull(it.chapterIndex)?.takeIf(String::isNotBlank)
                     ?: stringResource(R.string.chapter_number, it.chapterIndex + 1)
             }.orEmpty(),
-            paperColor = Color(r.customBackgroundThemeColorInt), contentColor = Color(r.readerTextColorInt),
-            r.eInkMode = r.eInkMode, backdrop = r.activeReaderGlassBackdrop,
-            onDismiss = r.viewModel::dismissTtsStart, onChoose = r.viewModel::chooseTtsStart
+            paperColor = Color(customBackgroundThemeColorInt), contentColor = Color(readerTextColorInt),
+            eInkMode = eInkMode, backdrop = activeReaderGlassBackdrop,
+            onDismiss = viewModel::dismissTtsStart, onChoose = viewModel::chooseTtsStart
         )
     }
 
     TtsExitDialog(
-        visible = r.showTtsExitDialog && r.readerActive,
-        r.floatingSubtitlesEnabled = r.floatingSubtitlesEnabled,
-        paperColor = Color(r.customBackgroundThemeColorInt), contentColor = Color(r.readerTextColorInt),
-        r.eInkMode = r.eInkMode, backdrop = r.activeReaderGlassBackdrop,
-        onDismiss = { r.showTtsExitDialog = false },
-        onExit = { keep, remember -> r.viewModel.chooseTtsReaderExit(keep, remember, r.completeReaderExit) }
+        visible = showTtsExitDialog && readerActive,
+        floatingSubtitlesEnabled = floatingSubtitlesEnabled,
+        paperColor = Color(customBackgroundThemeColorInt), contentColor = Color(readerTextColorInt),
+        eInkMode = eInkMode, backdrop = activeReaderGlassBackdrop,
+        onDismiss = { showTtsExitDialog = false },
+        onExit = { keep, remember -> viewModel.chooseTtsReaderExit(keep, remember, completeReaderExit) }
     )
 
     ReaderTxtConfigurationDialogs(
-        r.uiState = r.uiState,
-        showEncoding = r.showTxtEncodingDialog,
-        r.showToc = r.showTxtTocDialog,
-        backdrop = r.activeReaderGlassBackdrop,
-        r.viewModel = r.viewModel,
-        onEncodingDismiss = { r.showTxtEncodingDialog = false },
-        onTocDismiss = { r.showTxtTocDialog = false }
+        uiState = uiState,
+        showEncoding = showTxtEncodingDialog,
+        showToc = showTxtTocDialog,
+        backdrop = activeReaderGlassBackdrop,
+        viewModel = viewModel,
+        onEncodingDismiss = { showTxtEncodingDialog = false },
+        onTocDismiss = { showTxtTocDialog = false }
     )
 
     ReaderExternalLinkDialog(
-        href = r.pendingExternalLink,
-        backdrop = r.activeReaderGlassBackdrop,
-        onDismiss = { r.pendingExternalLink = null },
+        href = pendingExternalLink,
+        backdrop = activeReaderGlassBackdrop,
+        onDismiss = { pendingExternalLink = null },
         onOpen = { href ->
-            r.pendingExternalLink = null
-            openExternalBookLink(r.context, href)
+            pendingExternalLink = null
+            openExternalBookLink(context, href)
         }
     )
 
     
-    if (r.showChangeSourceDialog) {
+    if (showChangeSourceDialog) {
         ChangeSourceDialog(
-            sources = r.changeSourceList,
-            r.isSearching = r.isSearchingSources,
-            backdrop = r.activeReaderGlassBackdrop,
+            sources = changeSourceList,
+            isSearching = isSearchingSources,
+            backdrop = activeReaderGlassBackdrop,
             onSelectSource = { book ->
-                r.showChangeSourceDialog = false
-                r.viewModel.switchOnlineSource(book)
+                showChangeSourceDialog = false
+                viewModel.switchOnlineSource(book)
             },
-            onDismiss = { r.showChangeSourceDialog = false }
+            onDismiss = { showChangeSourceDialog = false }
         )
     }
 
-    if (r.uiState.markdownSourceUpdated && !r.uiState.isLoading) {
+    if (uiState.markdownSourceUpdated && !uiState.isLoading) {
         LiquidGlassAlertDialog(
-            onDismissRequest = r.viewModel::dismissMarkdownUpdate,
-            backdrop = r.activeReaderGlassBackdrop,
+            onDismissRequest = viewModel::dismissMarkdownUpdate,
+            backdrop = activeReaderGlassBackdrop,
             titleText = stringResource(R.string.markdown_source_updated),
             text = { Text(stringResource(R.string.markdown_source_updated_body), color = AppColors.TextSecondary, lineHeight = 22.sp) },
             actions = listOf(
                 AppDialogAction(
                     text = stringResource(R.string.markdown_source_update),
-                    onClick = r.viewModel::updateMarkdownSource,
+                    onClick = viewModel::updateMarkdownSource,
                     role = AppDialogActionRole.Primary,
                     tintedColor = AppColors.Accent,
                     contentColor = AppColors.OnAccent
                 ),
                 AppDialogAction(
                     text = stringResource(R.string.markdown_keep_snapshot),
-                    onClick = r.viewModel::dismissMarkdownUpdate,
+                    onClick = viewModel::dismissMarkdownUpdate,
                     role = AppDialogActionRole.Cancel,
                     contentColor = AppColors.TextPrimary
                 )
@@ -13993,69 +14375,69 @@ private fun ReaderOverlaysSection() {
     }
 
     ReaderSelectionNoteSheet(
-        visible = r.showNoteInput,
-        requestClose = r.requestCloseNoteInput,
-        glassBackdrop = r.activeReaderGlassBackdrop,
-        keepReaderViewport = r.isBookLayout,
-        noteText = r.noteInputText,
-        onTextChange = { r.noteInputText = it },
-        r.editingNote = r.editingNote,
-        availableTags = r.availableAnnotationTags,
-        r.pendingSelection = r.pendingSelection,
-        r.viewModel = r.viewModel,
+        visible = showNoteInput,
+        requestClose = requestCloseNoteInput,
+        glassBackdrop = activeReaderGlassBackdrop,
+        keepReaderViewport = isBookLayout,
+        noteText = noteInputText,
+        onTextChange = { noteInputText = it },
+        editingNote = editingNote,
+        availableTags = availableAnnotationTags,
+        pendingSelection = pendingSelection,
+        viewModel = viewModel,
         onConfirmed = {
-            r.editingNote = null
-            r.pendingSelection = null
-            r.noteInputText = ""
-            r.clearActiveTextSelection()
+            editingNote = null
+            pendingSelection = null
+            noteInputText = ""
+            clearActiveTextSelection()
         },
         onDismissed = {
-            r.showNoteInput = false
-            r.requestCloseNoteInput = false
-            r.pendingSelection = null
-            r.editingNote = null
-            r.noteInputText = ""
+            showNoteInput = false
+            requestCloseNoteInput = false
+            pendingSelection = null
+            editingNote = null
+            noteInputText = ""
         }
     )
 
     ReaderBookmarkRemarkSheet(
-        onCreateTag = r.viewModel::createAnnotationTag,
-        bookmarkId = r.pendingBookmarkRemarkId,
-        text = r.bookmarkRemarkText,
-        backdrop = r.activeReaderGlassBackdrop,
-        keepReaderViewport = r.isBookLayout,
-        onTextChange = { r.bookmarkRemarkText = it },
-        tags = r.bookmarkRemarkTags,
-        availableTags = r.availableAnnotationTags,
-        onTagsChange = { r.bookmarkRemarkTags = it },
+        onCreateTag = viewModel::createAnnotationTag,
+        bookmarkId = pendingBookmarkRemarkId,
+        text = bookmarkRemarkText,
+        backdrop = activeReaderGlassBackdrop,
+        keepReaderViewport = isBookLayout,
+        onTextChange = { bookmarkRemarkText = it },
+        tags = bookmarkRemarkTags,
+        availableTags = availableAnnotationTags,
+        onTagsChange = { bookmarkRemarkTags = it },
         onConfirm = { id, remark ->
-            r.viewModel.updateBookmarkRemarkAndTags(id, remark, r.bookmarkRemarkTags)
-            r.annotationTagState.quickTarget = null
+            viewModel.updateBookmarkRemarkAndTags(id, remark, bookmarkRemarkTags)
+            annotationTagState.quickTarget = null
         },
-        onDismiss = { r.pendingBookmarkRemarkId = null; r.bookmarkRemarkText = "" }
+        onDismiss = { pendingBookmarkRemarkId = null; bookmarkRemarkText = "" }
     )
     ReaderAnnotationTagControls(
-        backdrop = r.activeReaderGlassBackdrop,
-        quickTarget = r.annotationTagState.quickTarget.takeIf { r.pendingBookmarkRemarkId == null },
-        editingTarget = r.annotationTagState.editingTarget,
-        r.bookmarks = r.bookmarks,
-        r.notes = r.notes,
-        availableTags = r.availableAnnotationTags,
-        r.viewModel = r.viewModel,
-        onQuickClick = r.annotationTagState::openQuick,
-        onEditorDismiss = r.annotationTagState::dismissEditor
+        backdrop = activeReaderGlassBackdrop,
+        quickTarget = annotationTagState.quickTarget.takeIf { pendingBookmarkRemarkId == null },
+        editingTarget = annotationTagState.editingTarget,
+        bookmarks = bookmarks,
+        notes = notes,
+        availableTags = availableAnnotationTags,
+        viewModel = viewModel,
+        onQuickClick = annotationTagState::openQuick,
+        onEditorDismiss = annotationTagState::dismissEditor
     )
 
-    if (!r.isBookLayout) {
-        val preview = r.readerImagePreview
-        val session = r.epubSession
+    if (!isBookLayout) {
+        val preview = readerImagePreview
+        val session = epubSession
         if (preview != null && session != null) {
             EpubImagePreviewOverlay(
                 session = session,
-                imageAdjustments = r.uiState.imageAdjustments.forDisplay(r.eInkMode),
+                imageAdjustments = uiState.imageAdjustments.forDisplay(eInkMode),
                 request = preview,
-                progress = r.readerImagePreviewProgress.value,
-                onDismissRequest = r.dismissReaderImagePreview
+                progress = readerImagePreviewProgress.value,
+                onDismissRequest = dismissReaderImagePreview
             )
         }
     }
