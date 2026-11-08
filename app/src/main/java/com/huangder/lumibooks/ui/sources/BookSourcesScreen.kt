@@ -225,7 +225,7 @@ fun BookSourcesScreen(
                         CircularProgressIndicator(
                             modifier = Modifier.size(22.dp),
                             strokeWidth = 2.dp,
-                            color = AppColors.Accent
+                            color = AppColors.TextPrimary
                         )
                         Spacer(Modifier.width(AppSpace.sm))
                     } else {
@@ -239,7 +239,7 @@ fun BookSourcesScreen(
                             },
                             size = 40.dp,
                             iconSize = 20.dp,
-                            contentColor = if (isSearchActive) AppColors.Accent else AppColors.TextPrimary
+                            contentColor = if (isSearchActive) AppColors.TextPrimary else AppColors.TextPrimary
                         )
 
                         // 筛选按钮
@@ -368,8 +368,8 @@ fun BookSourcesScreen(
                         label = { Text("全部 (${allSources.size})", fontSize = AppType.Caption) },
                         shape = AppRoundedCornerShape(AppRadius.capsule),
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = AppColors.Accent.copy(alpha = 0.16f),
-                            selectedLabelColor = AppColors.Accent
+                            selectedContainerColor = AppColors.Divider.copy(alpha = 0.6f),
+                            selectedLabelColor = AppColors.TextPrimary
                         )
                     )
                     groups.forEach { group ->
@@ -384,8 +384,8 @@ fun BookSourcesScreen(
                             label = { Text("$group ($count)", fontSize = AppType.Caption) },
                             shape = AppRoundedCornerShape(AppRadius.capsule),
                             colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = AppColors.Accent.copy(alpha = 0.16f),
-                                selectedLabelColor = AppColors.Accent
+                                selectedContainerColor = AppColors.Divider.copy(alpha = 0.6f),
+                                selectedLabelColor = AppColors.TextPrimary
                             )
                         )
                     }
@@ -566,13 +566,13 @@ private fun SourceItemCard(
                             Box(
                                 modifier = Modifier
                                     .clip(AppRoundedCornerShape(AppRadius.sm))
-                                    .background(AppColors.Accent.copy(alpha = 0.12f))
+                                    .background(AppColors.Divider.copy(alpha = 0.5f))
                                     .padding(horizontal = AppSpace.xs, vertical = 2.dp)
                             ) {
                                 Text(
                                     text = source.bookSourceGroup ?: "",
                                     fontSize = AppType.Caption,
-                                    color = AppColors.Accent,
+                                    color = AppColors.TextPrimary,
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1
                                 )
@@ -596,7 +596,7 @@ private fun SourceItemCard(
                         .clip(AppRoundedCornerShape(AppRadius.sm))
                         .clickable { onToggleExplore() }
                         .background(
-                            if (source.enabledExplore) AppColors.Accent.copy(alpha = 0.12f)
+                            if (source.enabledExplore) AppColors.Divider.copy(alpha = 0.5f)
                             else Color.Transparent
                         )
                         .padding(horizontal = AppSpace.sm, vertical = AppSpace.xs)
@@ -604,14 +604,14 @@ private fun SourceItemCard(
                     Icon(
                         imageVector = AppIcons.Globe,
                         contentDescription = "发现开关",
-                        tint = if (source.enabledExplore) AppColors.Accent else AppColors.TextSecondary.copy(alpha = 0.4f),
+                        tint = if (source.enabledExplore) AppColors.TextPrimary else AppColors.TextSecondary.copy(alpha = 0.4f),
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(AppSpace.xs))
                     Text(
                         text = if (source.enabledExplore) "发现" else "无发现",
                         fontSize = AppType.Caption,
-                        color = if (source.enabledExplore) AppColors.Accent else AppColors.TextSecondary.copy(alpha = 0.5f),
+                        color = if (source.enabledExplore) AppColors.TextPrimary else AppColors.TextSecondary.copy(alpha = 0.5f),
                         fontWeight = if (source.enabledExplore) FontWeight.Bold else FontWeight.Normal
                     )
                 }
@@ -679,7 +679,7 @@ private fun SourceItemCard(
                     onClick = onDebug,
                     size = 36.dp,
                     iconSize = 18.dp,
-                    contentColor = AppColors.Accent
+                    contentColor = AppColors.TextPrimary
                 )
 
                 // 编辑按钮
@@ -769,11 +769,11 @@ private fun RuleBadge(label: String, hasRule: Boolean) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
 
     val bg = if (hasRule) {
-        AppColors.Accent.copy(alpha = if (isLiquidGlass) 0.16f else 0.12f)
+        AppColors.Divider.copy(alpha = if (isLiquidGlass) 0.6f else 0.5f)
     } else {
         AppColors.Divider.copy(alpha = if (isLiquidGlass) 0.20f else 0.40f)
     }
-    val textColor = if (hasRule) AppColors.Accent else AppColors.TextSecondary.copy(alpha = 0.5f)
+    val textColor = if (hasRule) AppColors.TextPrimary else AppColors.TextSecondary.copy(alpha = 0.5f)
 
     Box(
         modifier = Modifier
@@ -834,7 +834,7 @@ private fun ImportUrlDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = AppRoundedCornerShape(AppRadius.md),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = AppColors.Accent,
+                        focusedBorderColor = AppColors.TextPrimary,
                         unfocusedBorderColor = if (isLiquidGlass) Color.White.copy(alpha = 0.2f) else AppColors.Divider,
                         focusedContainerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.08f) else Color.Transparent,
                         unfocusedContainerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.04f) else Color.Transparent
@@ -850,7 +850,7 @@ private fun ImportUrlDialog(
                                 }
                             }
                         ) {
-                            Text("粘贴", fontSize = AppType.Caption, color = AppColors.Accent)
+                            Text("粘贴", fontSize = AppType.Caption, color = AppColors.TextPrimary)
                         }
                     }
                 )
@@ -861,7 +861,7 @@ private fun ImportUrlDialog(
                 text = "开始导入",
                 onClick = { if (urlText.isNotBlank()) onConfirm(urlText.trim()) },
                 enabled = urlText.isNotBlank(),
-                tintedColor = AppColors.Accent,
+                tintedColor = AppColors.TextPrimary,
                 contentColor = AppColors.OnAccent
             )
         },
@@ -967,7 +967,7 @@ private fun SourceDebugDialog(
                         modifier = Modifier.weight(1f),
                         shape = AppRoundedCornerShape(AppRadius.md),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = AppColors.Accent,
+                            focusedBorderColor = AppColors.TextPrimary,
                             unfocusedBorderColor = if (isLiquidGlass) Color.White.copy(alpha = 0.2f) else AppColors.Divider,
                             focusedContainerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.06f) else Color.Transparent,
                             unfocusedContainerColor = if (isLiquidGlass) Color.White.copy(alpha = 0.03f) else Color.Transparent
@@ -987,7 +987,7 @@ private fun SourceDebugDialog(
                     } else {
                         LiquidGlassButton(
                             onClick = { onStartDebug(testKeyword) },
-                            tintedColor = AppColors.Accent,
+                            tintedColor = AppColors.TextPrimary,
                             contentColor = AppColors.OnAccent
                         ) {
                             Icon(AppIcons.Play, contentDescription = null, tint = AppColors.OnAccent, modifier = Modifier.size(18.dp))
@@ -1025,8 +1025,8 @@ private fun SourceDebugDialog(
                             items(debugLogs) { log ->
                                 val logColor = when {
                                     log.contains("Error") || log.contains("失败") || log.contains("异常") -> SourceDangerColor
-                                    log.contains("⇒") || log.contains("︾") || log.contains("︽") -> AppColors.Accent
-                                    log.contains("完成") || log.contains("成功") -> AppColors.Accent
+                                    log.contains("⇒") || log.contains("︾") || log.contains("︽") -> AppColors.TextPrimary
+                                    log.contains("完成") || log.contains("成功") -> AppColors.TextPrimary
                                     else -> AppColors.TextPrimary
                                 }
                                 Text(
@@ -1062,11 +1062,11 @@ private fun SourceDebugDialog(
                             },
                             enabled = debugLogs.isNotEmpty(),
                             compact = true,
-                            contentColor = AppColors.Accent
+                            contentColor = AppColors.TextPrimary
                         ) {
-                            Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = AppColors.Accent, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = AppColors.TextPrimary, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(AppSpace.xs))
-                            Text("复制全部日志", color = AppColors.Accent, fontSize = AppType.Caption)
+                            Text("复制全部日志", color = AppColors.TextPrimary, fontSize = AppType.Caption)
                         }
                         LiquidGlassButton(
                             onClick = onClearLogs,
@@ -1222,7 +1222,7 @@ private fun EditSourceDialog(
                                     }
                                 }
                             },
-                            tintedColor = AppColors.Accent,
+                            tintedColor = AppColors.TextPrimary,
                             contentColor = AppColors.OnAccent
                         )
                     }
@@ -1282,7 +1282,7 @@ private fun EditSourceDialog(
                             .padding(AppSpace.md),
                         verticalArrangement = Arrangement.spacedBy(AppSpace.md)
                     ) {
-                        Text("基础信息", fontWeight = FontWeight.Bold, fontSize = AppType.Body, color = AppColors.Accent)
+                        Text("基础信息", fontWeight = FontWeight.Bold, fontSize = AppType.Body, color = AppColors.TextPrimary)
                         OutlinedTextField(
                             value = name,
                             onValueChange = { name = it },
@@ -1334,7 +1334,7 @@ private fun EditSourceDialog(
                         }
 
                         Spacer(Modifier.height(AppSpace.sm))
-                        Text("搜索规则", fontWeight = FontWeight.Bold, fontSize = AppType.Body, color = AppColors.Accent)
+                        Text("搜索规则", fontWeight = FontWeight.Bold, fontSize = AppType.Body, color = AppColors.TextPrimary)
                         OutlinedTextField(
                             value = searchUrl,
                             onValueChange = { searchUrl = it },
@@ -1372,7 +1372,7 @@ private fun EditSourceDialog(
                         )
 
                         Spacer(Modifier.height(AppSpace.sm))
-                        Text("详情规则", fontWeight = FontWeight.Bold, fontSize = AppType.Body, color = AppColors.Accent)
+                        Text("详情规则", fontWeight = FontWeight.Bold, fontSize = AppType.Body, color = AppColors.TextPrimary)
                         OutlinedTextField(
                             value = ruleInfoTocUrl,
                             onValueChange = { ruleInfoTocUrl = it },
@@ -1389,7 +1389,7 @@ private fun EditSourceDialog(
                         )
 
                         Spacer(Modifier.height(AppSpace.sm))
-                        Text("目录与正文规则", fontWeight = FontWeight.Bold, fontSize = AppType.Body, color = AppColors.Accent)
+                        Text("目录与正文规则", fontWeight = FontWeight.Bold, fontSize = AppType.Body, color = AppColors.TextPrimary)
                         OutlinedTextField(
                             value = ruleTocChapterList,
                             onValueChange = { ruleTocChapterList = it },
@@ -1421,7 +1421,7 @@ private fun EditSourceDialog(
                         )
 
                         Spacer(Modifier.height(AppSpace.sm))
-                        Text("发现规则", fontWeight = FontWeight.Bold, fontSize = AppType.Body, color = AppColors.Accent)
+                        Text("发现规则", fontWeight = FontWeight.Bold, fontSize = AppType.Body, color = AppColors.TextPrimary)
                         OutlinedTextField(
                             value = exploreUrl,
                             onValueChange = { exploreUrl = it },
@@ -1468,9 +1468,9 @@ private fun GlassDropdownMenuItem(
     selected: Boolean = false,
     onClick: () -> Unit
 ) {
-    val bg = if (selected) AppColors.Accent.copy(alpha = 0.14f) else Color.Transparent
-    val textColor = if (selected) AppColors.Accent else AppColors.TextPrimary
-    val iconTint = if (selected) AppColors.Accent else AppColors.TextSecondary
+    val bg = if (selected) AppColors.TextPrimary.copy(alpha = 0.14f) else Color.Transparent
+    val textColor = if (selected) AppColors.TextPrimary else AppColors.TextPrimary
+    val iconTint = if (selected) AppColors.TextPrimary else AppColors.TextSecondary
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1501,7 +1501,7 @@ private fun GlassDropdownMenuItem(
             Icon(
                 imageVector = AppIcons.Check,
                 contentDescription = null,
-                tint = AppColors.Accent,
+                tint = AppColors.TextPrimary,
                 modifier = Modifier.size(16.dp)
             )
         }
@@ -1553,8 +1553,8 @@ private fun ImportSourceConfirmDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(AppRoundedCornerShape(AppRadius.md))
-                            .background(AppColors.Accent.copy(alpha = 0.10f))
-                            .border(1.dp, AppColors.Accent.copy(alpha = 0.25f), AppRoundedCornerShape(AppRadius.md))
+                            .background(AppColors.TextPrimary.copy(alpha = 0.10f))
+                            .border(1.dp, AppColors.TextPrimary.copy(alpha = 0.25f), AppRoundedCornerShape(AppRadius.md))
                     ) {
                         Column(
                             modifier = Modifier.padding(AppSpace.md),
@@ -1563,7 +1563,7 @@ private fun ImportSourceConfirmDialog(
                             Text(
                                 text = "⚠️ 检测到其中 $existingCount 个书源已存在于本地",
                                 fontSize = AppType.BodySmall,
-                                color = AppColors.Accent,
+                                color = AppColors.TextPrimary,
                                 fontWeight = FontWeight.Medium
                             )
                             Row(
@@ -1604,10 +1604,10 @@ private fun ImportSourceConfirmDialog(
                             Box(
                                 modifier = Modifier
                                     .clip(AppRoundedCornerShape(AppRadius.md))
-                                    .background(if (isSelected) AppColors.Accent.copy(alpha = 0.18f) else AppColors.CardBg)
+                                    .background(if (isSelected) AppColors.TextPrimary.copy(alpha = 0.18f) else AppColors.CardBg)
                                     .border(
                                         1.dp,
-                                        if (isSelected) AppColors.Accent else AppColors.Divider.copy(alpha = 0.5f),
+                                        if (isSelected) AppColors.TextPrimary else AppColors.Divider.copy(alpha = 0.5f),
                                         AppRoundedCornerShape(AppRadius.md)
                                     )
                                     .clickable {
@@ -1622,7 +1622,7 @@ private fun ImportSourceConfirmDialog(
                                 Text(
                                     text = grp,
                                     fontSize = AppType.Caption,
-                                    color = if (isSelected) AppColors.Accent else AppColors.TextPrimary,
+                                    color = if (isSelected) AppColors.TextPrimary else AppColors.TextPrimary,
                                     modifier = Modifier.padding(horizontal = AppSpace.sm, vertical = AppSpace.xs)
                                 )
                             }
@@ -1652,7 +1652,7 @@ private fun ImportSourceConfirmDialog(
                     val groupToApply = customGroupText.trim().ifBlank { selectedGroup }
                     onConfirm(groupToApply, overrideExisting)
                 },
-                tintedColor = AppColors.Accent,
+                tintedColor = AppColors.TextPrimary,
                 contentColor = AppColors.OnAccent
             )
         },

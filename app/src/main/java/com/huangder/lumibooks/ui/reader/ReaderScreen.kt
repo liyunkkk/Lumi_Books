@@ -10213,41 +10213,6 @@ private fun TocSheet(
                             .fillMaxSize()
                     )
 
-                    TocReturnToCurrentButton(
-                        visible = showReturnToCurrent,
-                        motionEnabled = motionEnabled,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 16.dp, bottom = 24.dp),
-                        onClick = {
-                            if (currentSourceIndex >= 0) {
-                                scope.launch {
-                                    val nextCollapsed = collapsedGroups - collapsedTocAncestors(
-                                        currentSourceIndex, foldGroups, collapsedGroups
-                                    )
-                                    collapsedGroups = nextCollapsed
-                                    val targetIndex = visibleTocEntries(
-                                        tocEntries, foldGroups, nextCollapsed
-                                    ).indexOfFirst { it.sourceIndex == currentSourceIndex }
-                                    if (targetIndex >= 0) {
-                                        withFrameNanos { }
-                                        tocListState.scrollToItem(targetIndex)
-                                        withFrameNanos { }
-                                        val layout = tocListState.layoutInfo
-                                        val targetItem = layout.visibleItemsInfo
-                                            .firstOrNull { it.index == targetIndex }
-                                        if (targetItem != null) {
-                                            val centeredOffset = layout.viewportStartOffset +
-                                                (layout.viewportEndOffset - layout.viewportStartOffset - targetItem.size) / 2
-                                            tocListState.scrollBy(
-                                                (targetItem.offset - centeredOffset).toFloat()
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    )
                 }
             } else {
                 Box(Modifier.weight(1f)) {
@@ -11694,7 +11659,6 @@ private fun findOverlappingNotes(
 }
 
 // ── 选择菜单覆盖层 ──
-
 
 private const val DICTIONARY_LOOKUP_TAG = "DictionaryLookup"
 

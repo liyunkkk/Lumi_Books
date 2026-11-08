@@ -625,9 +625,12 @@ fun MainNavGraph(
                     sourceBounds = sourceBounds,
                     downloadState = homeUiState.downloadStates[book.id]
                 )
-            } else if (!animated) {
-                // External open intents can arrive before HomeViewModel emits its first list.
-                // ReaderViewModel resolves the authoritative local record by ID.
+            } else {
+                // 发现页首次点击「立即阅读」时，这本书可能还没被加入书库
+                // （HomeViewModel 尚未发出首帧列表，或刚入库尚未回流 UI）。
+                // 旧逻辑要求 !animated 才走这条兜底，于是首次点击两个分支都不进、静默无反应，
+                // 必须退出去再点一次才成功。这里无条件兜底：直接开阅读路由，
+                // 由 ReaderViewModel 按 ID 解析权威本地记录。
                 openBookRouteWithoutBook(bookId)
             }
         }
