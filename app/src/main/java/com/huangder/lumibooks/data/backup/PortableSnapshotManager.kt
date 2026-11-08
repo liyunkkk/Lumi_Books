@@ -234,7 +234,9 @@ class PortableSnapshotManager internal constructor(
                             } else {
                                 path
                             }
-                        } ?: book.filePath?.takeIf { it.startsWith("online://") }
+                        } ?: book.filePath?.takeIf {
+                            it.startsWith("legado-online://") || it.startsWith("online://")
+                        }
                             ?: existing?.filePath.orEmpty().takeIf { !replaceAssetDirectories }.orEmpty(),
                         coverPath = book.coverAssetId?.let(assetPaths::get)
                             ?: existing?.coverPath?.takeIf { !replaceAssetDirectories },
