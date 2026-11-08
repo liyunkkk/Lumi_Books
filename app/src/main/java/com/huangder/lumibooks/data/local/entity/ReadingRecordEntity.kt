@@ -1,6 +1,5 @@
 package com.huangder.lumibooks.data.local.entity
 
-import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -20,7 +19,5 @@ data class ReadingRecordEntity(
     val startTime: Long,
     val endTime: Long,
     val sourceDeviceId: String = "",
-    val updatedAt: Long = endTime,
-    @ColumnInfo(defaultValue = "0")
-    val listeningDuration: Long = 0
+    val updatedAt: Long = endTime
 )
