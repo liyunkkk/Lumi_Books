@@ -4103,11 +4103,11 @@ private fun ReaderScreenContent(
                 onDismiss = { footnoteBubble = null }
             )
         }
+
+        // ── 覆盖层 UI（新旧引擎共享） ──
         }
 
         Box(Modifier.fillMaxSize()) {
-
-        // ── 覆盖层 UI（新旧引擎共享） ──
         com.huangder.lumibooks.ui.components.LiquidGlassMenuHost(
             modifier = Modifier.fillMaxSize(),
             backdrop = activeReaderGlassBackdrop
@@ -5403,6 +5403,9 @@ private fun ReaderScreenContent(
         }
     }
 
+        }
+
+        Box(Modifier.fillMaxSize()) {
     // ── 笔记/高亮列表 ──
     NotesListSheet(
         visible = showNotesList,
@@ -5486,9 +5489,6 @@ private fun ReaderScreenContent(
             searchQuery = query
             showWebSearch = true
         }
-        }
-
-        Box(Modifier.fillMaxSize()) {
     )
 
     // ── 文字选择自定义菜单 ──
