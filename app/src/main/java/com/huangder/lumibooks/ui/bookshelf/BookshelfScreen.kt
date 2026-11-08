@@ -189,6 +189,10 @@ import kotlinx.coroutines.launch
 private fun bookshelfCoverAspectRatio(compactLayout: Boolean): Float =
     if (compactLayout) 0.66f else 0.75f
 
+/** 按布局模式取封面比例；紧凑网格(CompactGrid=3) 用更高的 0.66，其余 0.75。 */
+private fun bookshelfCoverAspectRatio(layoutMode: Int): Float =
+    bookshelfCoverAspectRatio(layoutMode == 3)
+
 @Composable
 fun BookshelfScreen(
     initialLayoutMode: Int? = null,
@@ -1921,6 +1925,7 @@ internal fun BookshelfCollection(
                             previewBooks = folderPreviewBooks[folder.id].orEmpty(),
                             enabled = !isEditing,
                             contextMenuState = folderContextMenuState,
+                            layoutMode = layoutMode,
                             onHaptic = onHaptic,
                             onClick = { onFolderClick(folder) },
                         )
@@ -1949,7 +1954,7 @@ internal fun BookshelfCollection(
                             play = playEntranceAnimation,
                             index = folders.size + books.size + 2
                         ) {
-                            AddBookItem(compactLayout = compactLayout, onClick = onAddBook)
+                            AddBookItem(layoutMode = layoutMode, onClick = onAddBook)
                         }
                     }
                 }
@@ -3031,6 +3036,7 @@ private fun FolderGridItem(
     previewBooks: List<Book?>,
     enabled: Boolean,
     contextMenuState: FolderContextMenuState,
+    layoutMode: Int,
     onHaptic: () -> Unit,
     onClick: () -> Unit
 ) {
@@ -3076,7 +3082,7 @@ private fun FolderGridItem(
             previewBooks = previewBooks,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(bookshelfCoverAspectRatio(compactLayout))
+                .aspectRatio(bookshelfCoverAspectRatio(layoutMode))
                 .onGloballyPositioned { coordinates -> coverCoordinates[0] = coordinates }
                 .graphicsLayer {
                     scaleX = pressScale
@@ -3173,7 +3179,7 @@ private fun AddBookListItem(onClick: () -> Unit) {
 
 @Composable
 private fun AddBookItem(
-    compactLayout: Boolean = false,
+    layoutMode: Int = 2,
     onClick: () -> Unit
 ) {
     val coverCorner = if (LocalAppTheme.current == "liquid_glass") 16.dp else AppRadius.sm
@@ -3184,7 +3190,7 @@ private fun AddBookItem(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(bookshelfCoverAspectRatio(compactLayout))
+                .aspectRatio(bookshelfCoverAspectRatio(layoutMode))
                 .clip(coverShape)
                 .background(AppColors.PageBg),
             contentAlignment = Alignment.Center
