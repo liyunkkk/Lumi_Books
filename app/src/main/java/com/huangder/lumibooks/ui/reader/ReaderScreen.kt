@@ -3019,7 +3019,7 @@ private fun ReaderScreenContent(
     // NavHost keeps the outgoing reader composed during pop animations; it must not
     // overwrite the home screen's system-bar style after navigation has switched.
 
-    // 拆分支持：把共享状态打包传给两个 section（直接赋值，不进 lambda，无捕获开销）
+    // 拆分支持：共享状态打包给两个 section（直接赋值，不进 lambda）
     val readerRefs = ReaderScreenRefs()
     readerRefs.activeReaderGlassBackdrop = activeReaderGlassBackdrop
     readerRefs.annotationTagState = annotationTagState
@@ -3043,13 +3043,13 @@ private fun ReaderScreenContent(
     readerRefs.bookmarkRemarkText = bookmarkRemarkText
     readerRefs.bookmarkSettleAnimation = bookmarkSettleAnimation
     readerRefs.bookmarks = bookmarks
-    readerRefs.cancelActiveSearch = ::cancelActiveSearch
+    readerRefs.cancelActiveSearch = cancelActiveSearch
     readerRefs.capsuleBgColor = capsuleBgColor
     readerRefs.capsuleContentColor = capsuleContentColor
     readerRefs.catalogDragReturnLocation = catalogDragReturnLocation
     readerRefs.catalogProgressColor = catalogProgressColor
     readerRefs.changeSourceList = changeSourceList
-    readerRefs.clearActiveTextSelection = { clearActiveTextSelection() }
+    readerRefs.clearActiveTextSelection = clearActiveTextSelection
     readerRefs.completeReaderExit = completeReaderExit
     readerRefs.composeBgColor = composeBgColor
     readerRefs.context = context
@@ -3120,7 +3120,7 @@ private fun ReaderScreenContent(
     readerRefs.motionEnabled = motionEnabled
     readerRefs.nativeBookPages = nativeBookPages
     readerRefs.nativeContinuousViewport = nativeContinuousViewport
-    readerRefs.navigateEpub = ::navigateEpub
+    readerRefs.navigateEpub = navigateEpub
     readerRefs.nightDisplay = nightDisplay
     readerRefs.noteInputText = noteInputText
     readerRefs.notes = notes
@@ -3156,8 +3156,8 @@ private fun ReaderScreenContent(
     readerRefs.requestCloseToc = requestCloseToc
     readerRefs.requestTtsStart = requestTtsStart
     readerRefs.requestWriteSettingsPermission = requestWriteSettingsPermission
-    readerRefs.returnToLinkedSource = ::returnToLinkedSource
-    readerRefs.returnToTtsProgress = ::returnToTtsProgress
+    readerRefs.returnToLinkedSource = returnToLinkedSource
+    readerRefs.returnToTtsProgress = returnToTtsProgress
     readerRefs.scope = scope
     readerRefs.searchQuery = searchQuery
     readerRefs.searchResultQuery = searchResultQuery
@@ -3182,12 +3182,12 @@ private fun ReaderScreenContent(
     readerRefs.showWebSearch = showWebSearch
     readerRefs.sideRailItemSize = sideRailItemSize
     readerRefs.sideRailItemWidth = sideRailItemWidth
-    readerRefs.startTtsFromCurrentPage = ::startTtsFromCurrentPage
-    readerRefs.submitEpubNavigation = ::submitEpubNavigation
-    readerRefs.submitSearch = ::submitSearch
+    readerRefs.startTtsFromCurrentPage = startTtsFromCurrentPage
+    readerRefs.submitEpubNavigation = submitEpubNavigation
+    readerRefs.submitSearch = submitSearch
     readerRefs.supportsBookLayout = supportsBookLayout
     readerRefs.supportsEpubFeatures = supportsEpubFeatures
-    readerRefs.toggleBookmarkForCurrentPage = ::toggleBookmarkForCurrentPage
+    readerRefs.toggleBookmarkForCurrentPage = toggleBookmarkForCurrentPage
     readerRefs.ttsCatalogBounds = ttsCatalogBounds
     readerRefs.ttsCurrentPage = ttsCurrentPage
     readerRefs.ttsFooterTop = ttsFooterTop
@@ -3201,17 +3201,8 @@ private fun ReaderScreenContent(
     readerRefs.viewModel = viewModel
     readerRefs.bookId = bookId
     readerRefs.readerActive = readerActive
-    readerRefs.beginManualReaderNavigation = ::beginManualReaderNavigation
-    readerRefs.captureReaderLocation = { chapter, page, locator, fraction ->
-        captureReaderLocation(chapter, page, locator, fraction)
-    }
+    readerRefs.captureReaderLocation = { c, p, l, f -> captureReaderLocation(c, p, l, f) }
     readerRefs.captureReaderLocationHere = { captureReaderLocation() }
-    readerRefs.clearCancelledEpubNavigation = ::clearCancelledEpubNavigation
-    readerRefs.dismissSelectionMenu = ::dismissSelectionMenu
-    readerRefs.jumpToContinuousChapter = ::jumpToContinuousChapter
-    readerRefs.resetSelectionSubmenus = ::resetSelectionSubmenus
-    readerRefs.showExcerpt = ::showExcerpt
-    readerRefs.stopAutoReading = ::stopAutoReading
     androidx.compose.runtime.CompositionLocalProvider(LocalReaderScreenRefs provides readerRefs) {
     if (readerActive) {
         ReaderSystemBarStyle(
@@ -4211,16 +4202,17 @@ private fun ReaderScreenContent(
             if (!uiState.useNewEngine) {
                 LegacyWebViewContent(uiState, viewModel, composeBgColor)
             }
+        }
         ReaderMenuAndSheetsSection()
-        ReaderOverlaysSection()
-    }
+    ReaderOverlaysSection()
 }
 }
-}
-
 }
 }
 
+}
+
+}
 @Composable
 private fun ReaderExternalLinkDialog(
     href: String?,
@@ -7891,7 +7883,6 @@ internal fun extractChapterImages(chapterText: CharSequence?): List<String> {
                 "data-src" -> foundDataSrc = attrVal
                 "src" -> foundSrc = attrVal
             }
-        }
         val bestUrl = listOf(foundDataOriginal, foundDataSrc, foundSrc).firstOrNull { candidate ->
             candidate.isNotBlank() && !candidate.startsWith("data:image") && !candidate.endsWith("loading.gif", ignoreCase = true)
         } ?: foundSrc
@@ -11873,11 +11864,6 @@ private fun rememberReaderWindowLifecycle(
 }
 
 
-// ── ReaderScreenContent 拆分支持：共享状态容器 ──
-// 上游 2.3.11 的 ReaderScreenContent 局部变量达 294 个，超过 DEX 单方法 255 参数上限，
-// ART 校验 ReaderScreenKt 失败（VerifyError），打开任何书即崩溃。
-// 方案：菜单/弹层两个 section 移到独立 @Composable，共享状态经 ReaderScreenRefs 传递；
-// section 开头一次性解构，之后代码与原实现完全一致（无 r. 前缀，可空性消除）。
 private class ReaderScreenRefs {
     var activeReaderGlassBackdrop: Backdrop?? = null
     var annotationTagState: com.huangder.lumibooks.ui.reader.ReaderAnnotationTagState? = null
@@ -11901,14 +11887,14 @@ private class ReaderScreenRefs {
     var bookmarkRemarkText: String? = null
     var bookmarkSettleAnimation: androidx.compose.animation.core.Animatable<*, *>? = null
     var bookmarks: List<com.huangder.lumibooks.domain.model.Bookmark>? = null
-    var cancelActiveSearch: () -> Unit? = null
+    var cancelActiveSearch: (() -> Unit)? = null
     var capsuleBgColor: androidx.compose.ui.graphics.Color? = null
     var capsuleContentColor: androidx.compose.ui.graphics.Color? = null
     var catalogDragReturnLocation: Any?? = null
     var catalogProgressColor: androidx.compose.ui.graphics.Color? = null
     var changeSourceList: List<io.legado.app.data.entities.SearchBook>? = null
     var clearActiveTextSelection: (() -> Any?)? = null
-    var completeReaderExit: (Boolean) -> Unit? = null
+    var completeReaderExit: ((Boolean) -> Unit)? = null
     var composeBgColor: androidx.compose.ui.graphics.Color? = null
     var context: android.content.Context? = null
     var continuousReturnAnchor: androidx.compose.runtime.MutableState<ContinuousViewportAnchor?>? = null
@@ -11920,7 +11906,7 @@ private class ReaderScreenRefs {
     var density: androidx.compose.ui.unit.Density? = null
     var dictionaryAppOptions: List<DictionaryAppOption>? = null
     var dictionaryLookupText: String? = null
-    var dismissReaderImagePreview: () -> Unit? = null
+    var dismissReaderImagePreview: (() -> Unit)? = null
     var eInkMode: Boolean? = null
     var editingNote: com.huangder.lumibooks.domain.model.Note?? = null
     var editorAutomaticTextColorInt: Int? = null
@@ -11942,7 +11928,7 @@ private class ReaderScreenRefs {
     var epubSearchRequestToken: Int? = null
     var epubSession: com.huangder.lumibooks.util.epub.BookRenderSession?? = null
     var excerptRequest: ExcerptRequest?? = null
-    var exitReader: () -> Unit? = null
+    var exitReader: (() -> Unit)? = null
     var exportThemeLauncher: androidx.activity.compose.ManagedActivityResultLauncher<*, *>? = null
     var failedEpubNavigation: Any?? = null
     var floatingSubtitlesEnabled: Boolean? = null
@@ -11950,7 +11936,7 @@ private class ReaderScreenRefs {
     var footnoteProgress: androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>? = null
     var forceNativeGlassFallback: Boolean? = null
     var hasSearched: Boolean? = null
-    var highlightRules: List<HighlightRule>? = null
+    var highlightRules: List<com.huangder.lumibooks.data.local.entity.HighlightRuleEntity>? = null
     var highlightScanState: Any?? = null
     var highlightSettings: Any?? = null
     var importThemeLauncher: androidx.activity.compose.ManagedActivityResultLauncher<*, *>? = null
@@ -12000,7 +11986,7 @@ private class ReaderScreenRefs {
     var readerTextColorInt: Int? = null
     var readerTtsPosition: com.huangder.lumibooks.tts.ReaderTtsPosition? = null
     var renderedFootnote: ReaderFootnoteBubble?? = null
-    var rendererBookPages: com.huangder.lumibooks.ui.reader.engine.ReaderBookPages?? = null
+    var rendererBookPages: com.huangder.lumibooks.ui.reader.engine.ReaderBookPages? = null
     var rendererPageKey: Any? = null
     var rendererVisibleCharacters: Any?? = null
     var renderingTheme: String?? = null
@@ -12012,7 +11998,7 @@ private class ReaderScreenRefs {
     var requestCloseSearch: Boolean? = null
     var requestCloseTheme: Boolean? = null
     var requestCloseToc: Boolean? = null
-    var requestTtsStart: () -> Unit? = null
+    var requestTtsStart: (() -> Unit)? = null
     var requestWriteSettingsPermission: Any?? = null
     var returnToLinkedSource: (() -> Unit)? = null
     var returnToTtsProgress: (() -> Unit)? = null
@@ -12040,12 +12026,12 @@ private class ReaderScreenRefs {
     var showWebSearch: Boolean? = null
     var sideRailItemSize: androidx.compose.ui.unit.DpSize?? = null
     var sideRailItemWidth: androidx.compose.ui.unit.Dp?? = null
-    var startTtsFromCurrentPage: (Boolean) -> Unit? = null
+    var startTtsFromCurrentPage: ((Boolean) -> Unit)? = null
     var submitEpubNavigation: ((EpubNavigationOrigin, Int, EpubNavigationDestination, Boolean) -> Unit)? = null
-    var submitSearch: (String) -> Unit? = null
+    var submitSearch: ((String) -> Unit)? = null
     var supportsBookLayout: Boolean? = null
     var supportsEpubFeatures: Boolean? = null
-    var toggleBookmarkForCurrentPage: (showToast: Boolean) -> Unit? = null
+    var toggleBookmarkForCurrentPage: ((showToast: Boolean) -> Unit)? = null
     var ttsCatalogBounds: Rect?? = null
     var ttsCurrentPage: Any?? = null
     var ttsFooterTop: Float?? = null
@@ -12059,15 +12045,8 @@ private class ReaderScreenRefs {
     var viewModel: com.huangder.lumibooks.ui.reader.ReaderViewModel? = null
     var bookId: String? = null
     var readerActive: Boolean? = null
-    var beginManualReaderNavigation: (() -> Unit)? = null
     var captureReaderLocation: ((Int, Int, String?, Float?) -> ReaderLinkLocation)? = null
     var captureReaderLocationHere: (() -> ReaderLinkLocation)? = null
-    var clearCancelledEpubNavigation: ((EpubNavigationRequest?) -> Unit)? = null
-    var dismissSelectionMenu: (() -> Unit)? = null
-    var jumpToContinuousChapter: ((Int, Float) -> Unit)? = null
-    var resetSelectionSubmenus: (() -> Unit)? = null
-    var showExcerpt: ((String, String, Int) -> Unit)? = null
-    var stopAutoReading: (() -> Unit)? = null
 }
 
 private val LocalReaderScreenRefs = androidx.compose.runtime.staticCompositionLocalOf<ReaderScreenRefs?> { null }
@@ -12103,7 +12082,7 @@ private fun ReaderMenuAndSheetsSection() {
     val catalogDragReturnLocation = r.catalogDragReturnLocation!!
     val catalogProgressColor = r.catalogProgressColor!!
     val changeSourceList = r.changeSourceList!!
-    val clearActiveTextSelection: () -> Any? = r.clearActiveTextSelection!!
+    val clearActiveTextSelection = r.clearActiveTextSelection!!
     val completeReaderExit = r.completeReaderExit!!
     val composeBgColor = r.composeBgColor!!
     val context = r.context!!
@@ -12255,15 +12234,9 @@ private fun ReaderMenuAndSheetsSection() {
     val viewModel = r.viewModel!!
     val bookId = r.bookId!!
     val readerActive = r.readerActive!!
-    val beginManualReaderNavigation = r.beginManualReaderNavigation!!
     val captureReaderLocation: (Int, Int, String?, Float?) -> ReaderLinkLocation = r.captureReaderLocation!!
     val captureReaderLocationHere: () -> ReaderLinkLocation = r.captureReaderLocationHere!!
-    val clearCancelledEpubNavigation = r.clearCancelledEpubNavigation!!
-    val dismissSelectionMenu = r.dismissSelectionMenu!!
-    val jumpToContinuousChapter = r.jumpToContinuousChapter!!
-    val resetSelectionSubmenus = r.resetSelectionSubmenus!!
-    val showExcerpt = r.showExcerpt!!
-    val stopAutoReading = r.stopAutoReading!!
+    Box(Modifier.fillMaxSize()) {
 
         // 底部系统手势排除：正文边距为 0 时最后几行会伸进系统手势导航预留区，
         // 且下滑唤出的临时导航栏显示期间会吃掉该区域的触摸（表现为"最后几行时灵时不灵"）。
@@ -13644,6 +13617,7 @@ private fun ReaderMenuAndSheetsSection() {
             )
         }
     }
+    }
 }
 
 @Composable
@@ -13677,7 +13651,7 @@ private fun ReaderOverlaysSection() {
     val catalogDragReturnLocation = r.catalogDragReturnLocation!!
     val catalogProgressColor = r.catalogProgressColor!!
     val changeSourceList = r.changeSourceList!!
-    val clearActiveTextSelection: () -> Any? = r.clearActiveTextSelection!!
+    val clearActiveTextSelection = r.clearActiveTextSelection!!
     val completeReaderExit = r.completeReaderExit!!
     val composeBgColor = r.composeBgColor!!
     val context = r.context!!
@@ -13829,15 +13803,9 @@ private fun ReaderOverlaysSection() {
     val viewModel = r.viewModel!!
     val bookId = r.bookId!!
     val readerActive = r.readerActive!!
-    val beginManualReaderNavigation = r.beginManualReaderNavigation!!
     val captureReaderLocation: (Int, Int, String?, Float?) -> ReaderLinkLocation = r.captureReaderLocation!!
     val captureReaderLocationHere: () -> ReaderLinkLocation = r.captureReaderLocationHere!!
-    val clearCancelledEpubNavigation = r.clearCancelledEpubNavigation!!
-    val dismissSelectionMenu = r.dismissSelectionMenu!!
-    val jumpToContinuousChapter = r.jumpToContinuousChapter!!
-    val resetSelectionSubmenus = r.resetSelectionSubmenus!!
-    val showExcerpt = r.showExcerpt!!
-    val stopAutoReading = r.stopAutoReading!!
+    Box(Modifier.fillMaxSize()) {
 
     // ── 笔记/高亮列表 ──
     NotesListSheet(
@@ -14440,5 +14408,6 @@ private fun ReaderOverlaysSection() {
                 onDismissRequest = dismissReaderImagePreview
             )
         }
+    }
     }
 }
