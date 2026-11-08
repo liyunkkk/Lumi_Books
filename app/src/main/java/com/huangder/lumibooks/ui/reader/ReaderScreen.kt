@@ -3043,13 +3043,13 @@ private fun ReaderScreenContent(
     readerRefs.bookmarkRemarkText = bookmarkRemarkText
     readerRefs.bookmarkSettleAnimation = bookmarkSettleAnimation
     readerRefs.bookmarks = bookmarks
-    readerRefs.cancelActiveSearch = cancelActiveSearch
+    readerRefs.cancelActiveSearch = ::cancelActiveSearch
     readerRefs.capsuleBgColor = capsuleBgColor
     readerRefs.capsuleContentColor = capsuleContentColor
     readerRefs.catalogDragReturnLocation = catalogDragReturnLocation
     readerRefs.catalogProgressColor = catalogProgressColor
     readerRefs.changeSourceList = changeSourceList
-    readerRefs.clearActiveTextSelection = clearActiveTextSelection
+    readerRefs.clearActiveTextSelection = { clearActiveTextSelection() }
     readerRefs.completeReaderExit = completeReaderExit
     readerRefs.composeBgColor = composeBgColor
     readerRefs.context = context
@@ -3120,7 +3120,7 @@ private fun ReaderScreenContent(
     readerRefs.motionEnabled = motionEnabled
     readerRefs.nativeBookPages = nativeBookPages
     readerRefs.nativeContinuousViewport = nativeContinuousViewport
-    readerRefs.navigateEpub = navigateEpub
+    readerRefs.navigateEpub = ::navigateEpub
     readerRefs.nightDisplay = nightDisplay
     readerRefs.noteInputText = noteInputText
     readerRefs.notes = notes
@@ -3156,8 +3156,8 @@ private fun ReaderScreenContent(
     readerRefs.requestCloseToc = requestCloseToc
     readerRefs.requestTtsStart = requestTtsStart
     readerRefs.requestWriteSettingsPermission = requestWriteSettingsPermission
-    readerRefs.returnToLinkedSource = returnToLinkedSource
-    readerRefs.returnToTtsProgress = returnToTtsProgress
+    readerRefs.returnToLinkedSource = ::returnToLinkedSource
+    readerRefs.returnToTtsProgress = ::returnToTtsProgress
     readerRefs.scope = scope
     readerRefs.searchQuery = searchQuery
     readerRefs.searchResultQuery = searchResultQuery
@@ -3182,12 +3182,12 @@ private fun ReaderScreenContent(
     readerRefs.showWebSearch = showWebSearch
     readerRefs.sideRailItemSize = sideRailItemSize
     readerRefs.sideRailItemWidth = sideRailItemWidth
-    readerRefs.startTtsFromCurrentPage = startTtsFromCurrentPage
-    readerRefs.submitEpubNavigation = submitEpubNavigation
-    readerRefs.submitSearch = submitSearch
+    readerRefs.startTtsFromCurrentPage = ::startTtsFromCurrentPage
+    readerRefs.submitEpubNavigation = ::submitEpubNavigation
+    readerRefs.submitSearch = ::submitSearch
     readerRefs.supportsBookLayout = supportsBookLayout
     readerRefs.supportsEpubFeatures = supportsEpubFeatures
-    readerRefs.toggleBookmarkForCurrentPage = toggleBookmarkForCurrentPage
+    readerRefs.toggleBookmarkForCurrentPage = ::toggleBookmarkForCurrentPage
     readerRefs.ttsCatalogBounds = ttsCatalogBounds
     readerRefs.ttsCurrentPage = ttsCurrentPage
     readerRefs.ttsFooterTop = ttsFooterTop
@@ -3201,17 +3201,17 @@ private fun ReaderScreenContent(
     readerRefs.viewModel = viewModel
     readerRefs.bookId = bookId
     readerRefs.readerActive = readerActive
-    readerRefs.beginManualReaderNavigation = beginManualReaderNavigation
+    readerRefs.beginManualReaderNavigation = ::beginManualReaderNavigation
     readerRefs.captureReaderLocation = { chapter, page, locator, fraction ->
         captureReaderLocation(chapter, page, locator, fraction)
     }
     readerRefs.captureReaderLocationHere = { captureReaderLocation() }
-    readerRefs.clearCancelledEpubNavigation = clearCancelledEpubNavigation
-    readerRefs.dismissSelectionMenu = dismissSelectionMenu
-    readerRefs.jumpToContinuousChapter = jumpToContinuousChapter
-    readerRefs.resetSelectionSubmenus = resetSelectionSubmenus
-    readerRefs.showExcerpt = showExcerpt
-    readerRefs.stopAutoReading = stopAutoReading
+    readerRefs.clearCancelledEpubNavigation = ::clearCancelledEpubNavigation
+    readerRefs.dismissSelectionMenu = ::dismissSelectionMenu
+    readerRefs.jumpToContinuousChapter = ::jumpToContinuousChapter
+    readerRefs.resetSelectionSubmenus = ::resetSelectionSubmenus
+    readerRefs.showExcerpt = ::showExcerpt
+    readerRefs.stopAutoReading = ::stopAutoReading
     androidx.compose.runtime.CompositionLocalProvider(LocalReaderScreenRefs provides readerRefs) {
     if (readerActive) {
         ReaderSystemBarStyle(
@@ -11907,12 +11907,12 @@ private class ReaderScreenRefs {
     var catalogDragReturnLocation: Any?? = null
     var catalogProgressColor: androidx.compose.ui.graphics.Color? = null
     var changeSourceList: List<io.legado.app.data.entities.SearchBook>? = null
-    var clearActiveTextSelection: (() -> Unit)? = null
+    var clearActiveTextSelection: (() -> Any?)? = null
     var completeReaderExit: (Boolean) -> Unit? = null
     var composeBgColor: androidx.compose.ui.graphics.Color? = null
     var context: android.content.Context? = null
     var continuousReturnAnchor: androidx.compose.runtime.MutableState<ContinuousViewportAnchor?>? = null
-    var continuousScrollRequests: androidx.compose.runtime.MutableState<ContinuousScrollRequest?>? = null
+    var continuousScrollRequests: kotlinx.coroutines.flow.MutableStateFlow<ContinuousScrollRequest?>? = null
     var continuousSearchHighlight: ContinuousSearchHighlight?? = null
     var continuousSelectionController: ContinuousSelectionController? = null
     var continuousVisibleCharacters: androidx.compose.runtime.MutableState<List<ReaderVisibleCharacters>>? = null
@@ -11934,7 +11934,7 @@ private class ReaderScreenRefs {
     var epubLayoutPreviewActive: Boolean? = null
     var epubLocatorRequest: EpubLocatorRequest?? = null
     var epubNavigationRequest: EpubNavigationRequest?? = null
-    var epubNavigationStage: Int?? = null
+    var epubNavigationStage: EpubNavigationStage? = null
     var epubPageRequest: EpubPageRequest?? = null
     var epubRenderFailure: EpubRenderFailure?? = null
     var epubRetryToken: Int? = null
@@ -12041,7 +12041,7 @@ private class ReaderScreenRefs {
     var sideRailItemSize: androidx.compose.ui.unit.DpSize?? = null
     var sideRailItemWidth: androidx.compose.ui.unit.Dp?? = null
     var startTtsFromCurrentPage: (Boolean) -> Unit? = null
-    var submitEpubNavigation: ((EpubNavigationRequest) -> Unit)? = null
+    var submitEpubNavigation: ((EpubNavigationOrigin, Int, EpubNavigationDestination, Boolean) -> Unit)? = null
     var submitSearch: (String) -> Unit? = null
     var supportsBookLayout: Boolean? = null
     var supportsEpubFeatures: Boolean? = null
@@ -12103,7 +12103,7 @@ private fun ReaderMenuAndSheetsSection() {
     val catalogDragReturnLocation = r.catalogDragReturnLocation!!
     val catalogProgressColor = r.catalogProgressColor!!
     val changeSourceList = r.changeSourceList!!
-    val clearActiveTextSelection = r.clearActiveTextSelection!!
+    val clearActiveTextSelection: () -> Any? = r.clearActiveTextSelection!!
     val completeReaderExit = r.completeReaderExit!!
     val composeBgColor = r.composeBgColor!!
     val context = r.context!!
@@ -13677,7 +13677,7 @@ private fun ReaderOverlaysSection() {
     val catalogDragReturnLocation = r.catalogDragReturnLocation!!
     val catalogProgressColor = r.catalogProgressColor!!
     val changeSourceList = r.changeSourceList!!
-    val clearActiveTextSelection = r.clearActiveTextSelection!!
+    val clearActiveTextSelection: () -> Any? = r.clearActiveTextSelection!!
     val completeReaderExit = r.completeReaderExit!!
     val composeBgColor = r.composeBgColor!!
     val context = r.context!!
