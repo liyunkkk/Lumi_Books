@@ -630,6 +630,8 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             dataStoreManager.saveHomeScreenMode(normalized)
         }
+    }
+
     fun setSpineSharpCovers(sharp: Boolean) {
         _uiState.value = _uiState.value.copy(spineSharpCovers = sharp)
         viewModelScope.launch { dataStoreManager.saveSpineSharpCovers(sharp) }
