@@ -1134,7 +1134,7 @@ fun MainNavGraph(
                                             requestOpenBook(book, sourceBounds)
                                         },
                                         onTabBarVisibleChange = { visible -> tabBarVisible = visible },
-                                        onNavigateToStatistics = { selectTab(2) },
+                                        onNavigateToStatistics = { selectTab(3) },
                                         onNavigateToBookshelf = { selectTab(1) },
                                         onImportClick = {
                                             importRequestFolderId = null
