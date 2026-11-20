@@ -1,5 +1,6 @@
 package com.huangder.lumibooks.ui.bookshelf
 
+import com.huangder.lumibooks.ui.animation.pagePushToolbarItem
 import com.huangder.lumibooks.ui.icons.ControlIcon
 
 import com.huangder.lumibooks.ui.theme.cardOutline
@@ -110,6 +111,7 @@ import com.huangder.lumibooks.ui.theme.resolveAppFontFamily
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
+import com.huangder.lumibooks.ui.animation.finishWithPush
 
 @AndroidEntryPoint
 class BookshelfCategoriesActivity : ComponentActivity() {
@@ -172,7 +174,7 @@ class BookshelfCategoriesActivity : ComponentActivity() {
             ) {
                 ConfigurableActivityBack(
                     predictiveBackEnabled = predictiveBackEnabled,
-                    onBack = { finish() }
+                    onBack = { finishWithPush() }
                 )
                 Surface(modifier = Modifier.fillMaxSize(), color = AppColors.PageBg) {
                     LiquidGlassDialogHost(modifier = Modifier.fillMaxSize()) {
@@ -209,7 +211,7 @@ class BookshelfCategoriesActivity : ComponentActivity() {
                                 )
                                 finish()
                             },
-                            onBack = { finish() }
+                            onBack = { finishWithPush() }
                         )
                     }
                 }
@@ -700,6 +702,7 @@ private fun CategoriesPageHeader(
             imageVector = if (closeButton) AppIcons.X else directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
             contentDescription = stringResource(if (closeButton) R.string.close else R.string.back),
             onClick = onBack,
+            modifier = Modifier.pagePushToolbarItem(),
             settingsBackButton = !compactPanel
         )
         Spacer(Modifier.width(20.dp))
@@ -713,7 +716,7 @@ private fun CategoriesPageHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
-        com.huangder.lumibooks.edition.EditionTagManagementButton(com.huangder.lumibooks.domain.model.TagTypes.BOOK)
+        com.huangder.lumibooks.edition.EditionTagManagementButton(com.huangder.lumibooks.domain.model.TagTypes.BOOK, modifier = Modifier.pagePushToolbarItem())
     }
 }
 
@@ -924,6 +927,7 @@ private fun CategoryBooksPage(
         }
     }
     var showBatchTagSheet by remember { mutableStateOf(false) }
+    var metadataRepairBookIds by remember { mutableStateOf<Set<String>?>(null) }
     var showBatchMoveSheet by remember { mutableStateOf(false) }
     var tagTargetBook by remember { mutableStateOf<Book?>(null) }
     var editingBook by remember { mutableStateOf<Book?>(null) }
@@ -936,7 +940,12 @@ private fun CategoryBooksPage(
     LaunchedEffect(operationState.importMessage, operationState.error) {
         val message = operationState.error ?: operationState.importMessage
         if (message != null) {
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            val text = if (operationState.error == null && operationState.archiveNoticePending) {
+                message + "\n" + context.getString(R.string.archive_book_location_hint)
+            } else {
+                message
+            }
+            Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
             if (operationState.error != null) viewModel.clearError() else viewModel.clearImportMessage()
         }
     }
@@ -1056,6 +1065,9 @@ private fun CategoryBooksPage(
                             com.huangder.lumibooks.ui.components.SelectionAction(AppIcons.Tag, stringResource(R.string.tag_sheet_title)) {
                                 showBatchTagSheet = true
                             },
+                            com.huangder.lumibooks.ui.components.SelectionAction(AppIcons.TextT, stringResource(R.string.book_metadata_repair_action)) {
+                                metadataRepairBookIds = selectedBookIds.toSet()
+                            },
                             com.huangder.lumibooks.ui.components.SelectionAction(AppIcons.Trash, stringResource(R.string.delete), destructive = true) {
                                 pendingDeleteBooks = books.filter { it.id in selectedBookIds }
                             }
@@ -1171,6 +1183,10 @@ private fun CategoryBooksPage(
             }
         )
     }
+    metadataRepairBookIds?.let { bookIds ->
+        BookMetadataRepairSheet(bookIds, viewModel, onDismiss = { metadataRepairBookIds = null })
+    }
+
     if (showBatchTagSheet) {
         BatchBookTagSheet(
             bookIds = selectedBookIds,
@@ -1259,7 +1275,26 @@ private fun CategoryBooksPage(
             )
         }
     }
-
+    if (showDeleteConfirm) {
+        val targets = pendingDeleteBooks.ifEmpty {
+            books.filter { it.id in selectedBookIds }
+        }
+        CloudAwareBookDeleteDialog(
+            bookCount = targets.size,
+            hasRemoteBooks = targets.any { it.remoteFileName != null },
+            hasLocalCopies = targets.any { !it.isCloudOnly },
+            onDismiss = {
+                showDeleteConfirm = false
+                pendingDeleteBooks = emptyList()
+            },
+            onDelete = { mode ->
+                pendingDeleteMode = mode
+                pendingDeleteBooks = targets
+                deletingBookIds = targets.mapTo(mutableSetOf()) { it.id }
+                showDeleteConfirm = false
+            }
+        )
+    }
 }
 
 @Composable

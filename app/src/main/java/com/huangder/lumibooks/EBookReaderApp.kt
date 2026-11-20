@@ -21,6 +21,7 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import com.huangder.lumibooks.data.sync.WebdavAutoSyncScheduler
 import com.huangder.lumibooks.util.diagnostics.DiagnosticLevel
 import com.huangder.lumibooks.util.diagnostics.DiagnosticLogger
@@ -55,6 +56,9 @@ class EBookReaderApp : Application(), Application.ActivityLifecycleCallbacks, Co
     lateinit var hiddenLibrarySession: com.huangder.lumibooks.privacy.HiddenLibrarySession
 
     @Inject
+    lateinit var readingJournalRecorder: dagger.Lazy<com.huangder.lumibooks.reading.journal.ReadingJournalRecorder>
+
+    @Inject
     lateinit var editionAccess: dagger.Lazy<com.huangder.lumibooks.edition.PremiumAccess>
 
     override val workManagerConfiguration: Configuration
@@ -86,6 +90,7 @@ class EBookReaderApp : Application(), Application.ActivityLifecycleCallbacks, Co
         ))
         LaunchThemeController.synchronizeLauncherComponents(this)
         registerActivityLifecycleCallbacks(this)
+        registerActivityLifecycleCallbacks(com.huangder.lumibooks.ui.animation.PagePushTransitions)
         floatingSubtitleOverlayController.start()
         webdavAutoSyncScheduler.start()
         applicationScope.launch(Dispatchers.IO) {
@@ -142,6 +147,8 @@ class EBookReaderApp : Application(), Application.ActivityLifecycleCallbacks, Co
                 applicationScope.launch {
                     PDFBoxResourceLoader.init(this@EBookReaderApp)
                     widgetRefreshCoordinator.start()
+                    readingJournalRecorder.get().start()
+                    dataStoreManager.hasAcceptedBundledPolicies.first { it }
                     editionAccess.get().start()
                 }
             }

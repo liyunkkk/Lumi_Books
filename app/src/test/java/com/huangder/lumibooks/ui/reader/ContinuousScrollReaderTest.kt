@@ -28,9 +28,14 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.dp
 import com.huangder.lumibooks.domain.model.ReaderTextAlignment
+import com.huangder.lumibooks.replacement.ReplacementProgram
+import com.huangder.lumibooks.replacement.ReplacementRule
 import com.huangder.lumibooks.ui.reader.engine.ResolvedReaderTypeface
+import com.huangder.lumibooks.util.epub.epub3Entries
+import com.huangder.lumibooks.util.epub.writeEpub
 import com.huangder.lumibooks.util.parser.EpubParser
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +46,7 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.rules.TemporaryFolder
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
@@ -50,6 +56,7 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ContinuousScrollReaderTest {
     @get:Rule val compose = createComposeRule()
+    @get:Rule val temporaryFolder = TemporaryFolder()
     private val text = (1..120).joinToString("\n") { "Paragraph $it: reading text with a stable character anchor." }
     private val targetOffset = text.indexOf("Paragraph 70:")
     private val requests = MutableStateFlow<ContinuousScrollRequest?>(null)
@@ -92,7 +99,7 @@ class ContinuousScrollReaderTest {
         onMenuToggle: () -> Unit = {},
         ttsSentence: androidx.compose.runtime.State<TtsSentencePosition?> = mutableStateOf(null),
         ttsFollow: androidx.compose.runtime.State<Boolean> = mutableStateOf(true),
-        ttsFollowUserPageTurns: Boolean = false,
+        ttsManualResume: androidx.compose.runtime.State<TtsSentencePosition?> = mutableStateOf(null),
         onManualScrollStarted: () -> Unit = {},
         notes: List<com.huangder.lumibooks.domain.model.Note> = emptyList(),
         onChapterVisible: (Int, Float) -> Unit = { _, _ -> }
@@ -137,7 +144,7 @@ class ContinuousScrollReaderTest {
                     bodyFontWeight = bodyFontWeight.value,
                     ttsCurrentSentence = ttsSentence.value,
                     ttsFollowEnabled = ttsFollow.value,
-                    ttsFollowUserPageTurns = ttsFollowUserPageTurns,
+                    ttsManualResumeSentence = ttsManualResume.value,
                     onManualScrollStarted = onManualScrollStarted
                 )
             }
@@ -299,7 +306,11 @@ class ContinuousScrollReaderTest {
         }
         loadChapter = { _, _ -> mixed }
         show(lineHeight = 2f)
-        compose.waitUntil(15_000) { restored }
+        // Restoring the anchor can finish while the item still shows its decode placeholder.
+        compose.waitUntil(15_000) {
+            restored && descendants(composeRoot.rootView).filterIsInstance<ContinuousSelectableTextView>()
+                .any { it.isAttachedToWindow && it.layout != null && it.text.toString() == mixed.toString() }
+        }
         compose.runOnIdle {
             val layout = visibleTextView().layout
             val small = layout.getLineForOffset(mixed.indexOf('\uFFFC'))
@@ -525,6 +536,62 @@ class ContinuousScrollReaderTest {
             }
         } finally {
             gate.countDown()
+        }
+    }
+
+    @Test fun replacementRevisionReloadsTheVisibleEpubChapter() {
+        val epub = temporaryFolder.newFile("replacement.epub")
+        writeEpub(epub, epub3Entries() + ("OPS/Text/chapter 1.xhtml" to
+            """<html xmlns="http://www.w3.org/1999/xhtml"><body>
+                <p id="start">门外的小<b>明</b>抬起头。</p>
+                </body></html>"""))
+        val parser = EpubParser(androidx.test.core.app.ApplicationProvider.getApplicationContext())
+        try {
+            runBlocking { parser.parse(epub.absolutePath) }
+            assertTrue(parser.isReflowableChapter(0))
+            val decoded = parser.getChapterContent(0, 400, 0)
+            assertTrue("Unexpected decoded EPUB text: $decoded", "小明" in decoded)
+            val enabled = ReplacementProgram(listOf(ReplacementRule("rename", find = "小明", replacement = "阿明")))
+            val edited = enabled.applyToReaderText(decoded, txt = false)
+            assertTrue("Unexpected replacement result: ${edited.display}", "阿明" in edited.display)
+            assertEquals(edited.display, edited.styledDisplay(decoded).toString())
+            currentChapter = 0
+            chapterCount = 1
+            val revision = mutableStateOf(0L)
+            val program = AtomicReference(ReplacementProgram.Empty)
+            val loadedText = AtomicReference("")
+            loadChapter = { _, _ ->
+                loadedText.set("loading ${program.get().active}")
+                program.get().applyToReaderText(decoded, txt = false).styledDisplay(decoded)
+                    .also { loadedText.set(it.toString()) }
+            }
+            show(revision = revision)
+            fun shows(word: String) = descendants(composeRoot.rootView)
+                .filterIsInstance<ContinuousSelectableTextView>()
+                .any { it.isAttachedToWindow && word in it.text }
+            compose.waitUntil(15_000) { restored && shows("小明") }
+
+            compose.runOnIdle {
+                program.set(enabled)
+                revision.value = 1L
+            }
+            compose.waitForIdle()
+            try {
+                compose.waitUntil(5_000) { "阿明" in loadedText.get() }
+            } catch (e: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError("Revision ${revision.value}, decoded: $decoded, loader returned: ${loadedText.get()}", e)
+            }
+            compose.waitUntil(15_000) { shows("阿明") }
+            compose.runOnIdle {
+                assertEquals(0, list.firstVisibleItemIndex)
+                assertFalse("小明" in visibleTextView().text)
+                program.set(ReplacementProgram.Empty)
+                revision.value = 2L
+            }
+            compose.waitForIdle()
+            compose.waitUntil(15_000) { shows("小明") }
+        } finally {
+            parser.close()
         }
     }
 
@@ -946,7 +1013,7 @@ class ContinuousScrollReaderTest {
         }
     }
 
-    @Test fun enabledPageFollowResumesAfterAudioAdoptsTheManualScrollDestination() {
+    @Test fun resumingFollowKeepsTheSettledViewportUntilTheSpokenRangeChanges() {
         currentChapter = 0
         chapterCount = 1
         fun sentence(paragraph: Int): TtsSentencePosition {
@@ -954,24 +1021,28 @@ class ContinuousScrollReaderTest {
             return TtsSentencePosition(0, start, text.indexOf('\n', start).takeIf { it >= 0 } ?: text.length)
         }
         val highlighted = mutableStateOf<TtsSentencePosition?>(sentence(70))
-        var manualScrollStarted = false
-        var manualPositionReported = false
-        show(ttsSentence = highlighted, ttsFollowUserPageTurns = true,
-            onManualScrollStarted = { manualScrollStarted = true },
-            onChapterVisible = { _, _ -> if (manualScrollStarted) manualPositionReported = true })
+        val following = mutableStateOf(true)
+        val resumedAt = mutableStateOf<TtsSentencePosition?>(null)
+        show(ttsSentence = highlighted, ttsFollow = following, ttsManualResume = resumedAt)
         compose.waitUntil(15_000) { restored && list.firstVisibleItemScrollOffset > 1_000 }
-        compose.onRoot().performTouchInput { swipeUp(durationMillis = 300) }
-        compose.waitUntil(15_000) { manualPositionReported }
-        var browsingOffset = 0
+        var settledOffset = 0
         compose.runOnIdle {
-            browsingOffset = list.firstVisibleItemScrollOffset
-            highlighted.value = sentence(100)
+            following.value = false
+            highlighted.value = sentence(90)
         }
         compose.waitForIdle()
         compose.runOnIdle {
-            assertTrue("Following should resume with the new audio position",
-                list.firstVisibleItemScrollOffset > browsingOffset + 500)
+            settledOffset = list.firstVisibleItemScrollOffset
+            resumedAt.value = highlighted.value
+            following.value = true
         }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertEquals(settledOffset, list.firstVisibleItemScrollOffset)
+            highlighted.value = sentence(110)
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { assertTrue(list.firstVisibleItemScrollOffset > settledOffset + 500) }
     }
 
     @Test fun crossChapterFlingKeepsItsSettledPositionAfterParentProgressFeedback() {

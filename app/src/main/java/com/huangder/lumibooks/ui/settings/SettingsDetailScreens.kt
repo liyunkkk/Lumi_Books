@@ -47,6 +47,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -156,8 +157,8 @@ import com.huangder.lumibooks.ui.theme.LocalMotionEnabled
 import com.huangder.lumibooks.ui.theme.LocalUseMaterial3Theme
 import com.huangder.lumibooks.tts.ExternalTtsConfig
 import com.huangder.lumibooks.tts.FloatingSubtitleSettings
+import com.huangder.lumibooks.tts.FloatingSubtitleStyle
 import com.huangder.lumibooks.tts.TtsProviderSelection
-import com.huangder.lumibooks.tts.TtsStartChoice
 import com.huangder.lumibooks.ui.components.LiquidGlassSwitch
 import com.huangder.lumibooks.ui.components.LiquidGlassAlertDialog
 import com.huangder.lumibooks.ui.components.LiquidGlassDialogHost
@@ -218,6 +219,7 @@ fun DetailPage(
     title: String,
     onBack: () -> Unit,
     targetSection: String? = null,
+    actions: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass"
@@ -256,6 +258,7 @@ fun DetailPage(
                         CollapsingSettingsScaffold(
                             title = title,
                             onBack = onBack,
+                            actions = actions,
                             modifier = Modifier.fillMaxSize()
                         ) {
                             content()
@@ -297,6 +300,19 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
     SettingsSectionTitle(stringResource(R.string.settings_section_reader_layout), "reading_layout")
     DetailCard {
         DropdownSettingRow(
+            label = stringResource(R.string.default_reader_layout),
+            options = listOf(
+                "reader_layout" to stringResource(R.string.reader_layout_editor_reader),
+                "book_layout" to stringResource(R.string.reader_layout_editor_book)
+            ),
+            selected = uiState.defaultRenderMode.storageValue,
+            onSelect = { value ->
+                com.huangder.lumibooks.util.epub.EpubRenderMode.fromStorage(value)
+                    ?.let(viewModel::saveDefaultRenderMode)
+            }
+        )
+        SettingsDivider()
+        DropdownSettingRow(
             label = stringResource(R.string.label_reader_theme),
             options = readerThemeOptions,
             selected = if (uiState.eInkModeEnabled) "day" else uiState.readerTheme,
@@ -305,14 +321,12 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
         SettingsDivider()
         SettingsSwitchRow(
             label = stringResource(R.string.label_two_page_spread),
-            supportingText = stringResource(R.string.two_page_spread_description),
             checked = uiState.twoPageSpreadEnabled,
             onCheckedChange = viewModel::saveTwoPageSpreadEnabled
         )
         SettingsDivider()
         SettingsSwitchRow(
             label = stringResource(R.string.apply_to_body_only),
-            supportingText = stringResource(R.string.apply_to_body_only_desc),
             checked = uiState.applyToBodyOnly,
             onCheckedChange = viewModel::saveApplyToBodyOnly
         )
@@ -321,8 +335,7 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
     Spacer(Modifier.height(8.dp))
     DetailCard {
         SettingsNavigationRow(
-            label = stringResource(R.string.reader_theme_suite_settings_title),
-            supportingText = stringResource(R.string.reader_theme_suite_settings_description)
+            label = stringResource(R.string.reader_theme_suite_settings_title)
         ) {
             context.startActivity(
                 Intent(context, ReaderSettingsPreviewActivity::class.java)
@@ -331,8 +344,7 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
         }
         SettingsDivider()
         SettingsNavigationRow(
-            label = stringResource(R.string.reader_page_animation_settings_title),
-            supportingText = stringResource(R.string.reader_page_animation_settings_description)
+            label = stringResource(R.string.reader_page_animation_settings_title)
         ) {
             context.startActivity(
                 Intent(context, ReaderSettingsPreviewActivity::class.java)
@@ -349,24 +361,16 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
             selected = uiState.longPressSelectionRange.storageKey,
             onSelect = { viewModel.saveLongPressSelectionRange(LongPressSelectionRange.fromKey(it)) }
         )
-        Text(
-            stringResource(R.string.default_selection_range_description),
-            fontSize = AppType.Caption,
-            color = AppColors.TextSecondary,
-            modifier = Modifier.padding(start = AppSpace.md, end = AppSpace.md, bottom = AppSpace.sm)
-        )
         SettingsDivider()
         SettingsNavigationRow(
             label = stringResource(R.string.selection_menu_settings),
-            supportingText = stringResource(R.string.selection_menu_settings_description),
             icon = AppIcons.List
         ) {
             context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "selection_menu"))
         }
         SettingsDivider()
         SettingsNavigationRow(
-            stringResource(R.string.highlight_color_palette),
-            stringResource(R.string.highlight_color_palette_desc)
+            label = stringResource(R.string.highlight_color_palette)
         ) {
             context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "highlight_color"))
         }
@@ -388,29 +392,19 @@ fun ReadingSettingsDetail(viewModel: SettingsViewModel) {
 
     SettingsSectionTitle(stringResource(R.string.settings_section_listening), "reading_listening")
     DetailCard {
-        SettingsNavigationRow(stringResource(R.string.tts_engine_selection), selectedEngineLabel) { showEngineDialog = true }
+        SettingsNavigationRow(
+            label = stringResource(R.string.tts_engine_selection),
+            value = selectedEngineLabel
+        ) { showEngineDialog = true }
         SettingsDivider()
         SettingsNavigationRow(
-            stringResource(R.string.title_floating_subtitle_settings),
-            stringResource(R.string.floating_subtitle_settings_entry_desc)
+            label = stringResource(R.string.title_floating_subtitle_settings)
         ) {
             context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "floating_subtitle"))
         }
         SettingsDivider()
         SettingsNavigationRow(
-            stringResource(R.string.settings_listening_preferences),
-            listOf(
-                stringResource(when (uiState.ttsStartChoice) {
-                    TtsStartChoice.CURRENT_PAGE -> R.string.tts_start_current_page
-                    TtsStartChoice.SAVED_POSITION -> R.string.tts_start_saved_position
-                    null -> R.string.tts_start_ask_each_time
-                }),
-                stringResource(when (uiState.ttsContinueOnReaderExit) {
-                    true -> R.string.tts_exit_continue
-                    false -> R.string.tts_exit_stop
-                    null -> R.string.tts_start_ask_each_time
-                })
-            ).joinToString(" · ")
+            label = stringResource(R.string.settings_listening_preferences)
         ) {
             context.startActivity(Intent(context, DetailActivity::class.java).putExtra("category", "listening_preferences"))
         }
@@ -576,7 +570,7 @@ private fun ReadingSettingsBasicDetail(viewModel: SettingsViewModel) {
     val uiState by viewModel.uiState.collectAsState()
 
     DetailCard {
-        SettingsSliderItem(label = stringResource(R.string.label_font_size), value = uiState.fontSize, range = 12f..28f, valueText = "${uiState.fontSize.toInt()} sp", step = 1f) { viewModel.saveFontSize(it) }
+        SettingsSliderItem(label = stringResource(R.string.label_font_size), value = uiState.fontSize, range = ReaderThemeSettings.FONT_SIZE_RANGE, valueText = "${uiState.fontSize.toInt()} sp", step = 1f) { viewModel.saveFontSize(it) }
         SettingsDivider()
         SettingsSliderItem(label = stringResource(R.string.label_line_height), value = uiState.lineHeight, range = ReaderThemeSettings.LINE_HEIGHT_RANGE, valueText = String.format("%.1fx", uiState.lineHeight)) { viewModel.saveLineHeight(it) }
         SettingsDivider()
@@ -602,6 +596,7 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var showPermissionDialog by rememberSaveable { mutableStateOf(!Settings.canDrawOverlays(context)) }
     var showColorDialog by rememberSaveable { mutableStateOf(false) }
+    var showHighlightColorDialog by rememberSaveable { mutableStateOf(false) }
     var valueEditor by remember { mutableStateOf<FloatingSubtitleValueEditor?>(null) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -676,10 +671,73 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
                 DisclosureChevron()
             }
         }
+        SettingsDivider()
+        SettingsSwitchRow(
+            label = stringResource(R.string.floating_subtitle_locked),
+            supportingText = stringResource(R.string.floating_subtitle_locked_desc),
+            checked = settings.locked,
+            onCheckedChange = { viewModel.saveFloatingSubtitleSettings(settings.copy(locked = it)) }
+        )
+    }
+
+    val lyricsStyle = settings.style == FloatingSubtitleStyle.LYRICS
+    FloatingSubtitleSectionTitle(stringResource(R.string.floating_subtitle_style_section))
+    DetailCard {
+        SettingsSwitchRow(
+            label = stringResource(R.string.floating_subtitle_lyrics_style),
+            supportingText = stringResource(R.string.floating_subtitle_lyrics_style_desc),
+            checked = lyricsStyle,
+            onCheckedChange = { enabled ->
+                viewModel.saveFloatingSubtitleSettings(settings.copy(
+                    style = if (enabled) FloatingSubtitleStyle.LYRICS else FloatingSubtitleStyle.BAR))
+            }
+        )
+        com.huangder.lumibooks.ui.components.LumiReveal(lyricsStyle) {
+            SettingsDivider()
+            SettingsSwitchRow(
+                label = stringResource(R.string.floating_subtitle_show_next_line),
+                checked = settings.showNextLine,
+                onCheckedChange = { viewModel.saveFloatingSubtitleSettings(settings.copy(showNextLine = it)) }
+            )
+            SettingsDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { showHighlightColorDialog = true }.padding(AppSpace.md),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(stringResource(R.string.floating_subtitle_highlight_color), fontSize = AppType.Body, color = AppColors.TextPrimary, modifier = Modifier.weight(1f))
+                Box(
+                    Modifier.size(28.dp)
+                        .clip(AppRoundedCornerShape(6.dp))
+                        .background(Color(parseAppAccentArgb(settings.highlightColorHex)))
+                        .border(1.dp, AppColors.Divider, AppRoundedCornerShape(6.dp))
+                )
+                Spacer(Modifier.width(AppSpace.sm))
+                DisclosureChevron()
+            }
+        }
+        SettingsDivider()
+        SettingsSliderItem(
+            label = stringResource(R.string.floating_subtitle_font_size),
+            value = settings.fontSizeSp,
+            range = FloatingSubtitleSettings.MIN_FONT_SIZE_SP..FloatingSubtitleSettings.MAX_FONT_SIZE_SP,
+            valueText = stringResource(R.string.floating_subtitle_sp_value, settings.fontSizeSp.roundToInt()),
+            step = 1f,
+            verticalPadding = 12.dp,
+            onValueClick = {
+                valueEditor = FloatingSubtitleValueEditor(
+                    field = FloatingSubtitleValueField.FONT_SIZE,
+                    title = context.getString(R.string.floating_subtitle_font_size),
+                    value = settings.fontSizeSp,
+                    range = FloatingSubtitleSettings.MIN_FONT_SIZE_SP..FloatingSubtitleSettings.MAX_FONT_SIZE_SP,
+                    unit = "sp"
+                )
+            },
+            onDragChange = { viewModel.previewFloatingSubtitleSettings(settings.copy(fontSizeSp = it)) }
+        ) { viewModel.saveFloatingSubtitleSettings(settings.copy(fontSizeSp = it)) }
     }
 
     FloatingSubtitleSectionTitle(stringResource(R.string.floating_subtitle_position_section))
-    DetailCard(horizontalPadding = 12.dp) {
+    DetailCard {
         SettingsSliderItem(
             label = stringResource(R.string.floating_subtitle_x_position),
             value = settings.xFraction * 100f,
@@ -720,7 +778,7 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
     }
 
     FloatingSubtitleSectionTitle(stringResource(R.string.floating_subtitle_background_section))
-    DetailCard(horizontalPadding = 12.dp) {
+    DetailCard {
         Row(
             modifier = Modifier.fillMaxWidth().clickable { showColorDialog = true }.padding(AppSpace.md),
             verticalAlignment = Alignment.CenterVertically
@@ -782,7 +840,7 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
     val visibleWidthDp = settings.widthDp.coerceIn(FloatingSubtitleSettings.MIN_WIDTH_DP, maxWidthDp)
 
     FloatingSubtitleSectionTitle(stringResource(R.string.floating_subtitle_size_section))
-    DetailCard(horizontalPadding = 12.dp) {
+    DetailCard {
         SettingsSliderItem(
             label = stringResource(R.string.floating_subtitle_width),
             value = visibleWidthDp,
@@ -801,6 +859,8 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
             },
             onDragChange = { viewModel.previewFloatingSubtitleSettings(settings.copy(widthDp = it)) }
         ) { viewModel.saveFloatingSubtitleSettings(settings.copy(widthDp = it)) }
+        com.huangder.lumibooks.ui.components.LumiReveal(!lyricsStyle) {
+        Column {
         SettingsDivider()
         SettingsSliderItem(
             label = stringResource(R.string.floating_subtitle_height),
@@ -820,18 +880,34 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
             },
             onDragChange = { viewModel.previewFloatingSubtitleSettings(settings.copy(heightDp = it)) }
         ) { viewModel.saveFloatingSubtitleSettings(settings.copy(heightDp = it)) }
+        }
+        }
     }
 
     if (showColorDialog) {
         ThemeColorDialog(
             initialColorHex = settings.backgroundColorHex,
             dialogTitle = stringResource(R.string.floating_subtitle_background_color),
-            resetText = stringResource(R.string.app_accent_color_reset),
+            resetText = stringResource(R.string.floating_subtitle_color_reset),
             resetColorHex = FloatingSubtitleSettings.DEFAULT_BACKGROUND_COLOR,
             onDismiss = { showColorDialog = false },
             onConfirm = {
                 showColorDialog = false
                 viewModel.saveFloatingSubtitleSettings(settings.copy(backgroundColorHex = it))
+            }
+        )
+    }
+
+    if (showHighlightColorDialog) {
+        ThemeColorDialog(
+            initialColorHex = settings.highlightColorHex,
+            dialogTitle = stringResource(R.string.floating_subtitle_highlight_color),
+            resetText = stringResource(R.string.floating_subtitle_color_reset),
+            resetColorHex = FloatingSubtitleSettings.DEFAULT_HIGHLIGHT_COLOR,
+            onDismiss = { showHighlightColorDialog = false },
+            onConfirm = {
+                showHighlightColorDialog = false
+                viewModel.saveFloatingSubtitleSettings(settings.copy(highlightColorHex = it))
             }
         )
     }
@@ -857,6 +933,7 @@ fun FloatingSubtitleSettingsDetail(viewModel: SettingsViewModel) {
                     FloatingSubtitleValueField.CORNER_RADIUS -> settings.copy(cornerRadiusDp = value)
                     FloatingSubtitleValueField.WIDTH -> settings.copy(widthDp = value)
                     FloatingSubtitleValueField.HEIGHT -> settings.copy(heightDp = value)
+                    FloatingSubtitleValueField.FONT_SIZE -> settings.copy(fontSizeSp = value)
                 }
                 viewModel.saveFloatingSubtitleSettings(updated)
                 valueEditor = null
@@ -961,7 +1038,6 @@ private fun TxtTocRulesManagerRow(viewModel: SettingsViewModel) {
 
     SettingsNavigationRow(
         label = stringResource(R.string.txt_toc_rules_label),
-        supportingText = stringResource(R.string.txt_toc_library_summary, rules.size, thirdPartyRules.size),
         onClick = { dialogVisible = true }
     )
 
@@ -1103,7 +1179,8 @@ private enum class FloatingSubtitleValueField {
     BACKGROUND_OPACITY,
     CORNER_RADIUS,
     WIDTH,
-    HEIGHT
+    HEIGHT,
+    FONT_SIZE
 }
 
 private data class FloatingSubtitleValueEditor(
@@ -1246,6 +1323,10 @@ fun DisplayDetail(viewModel: SettingsViewModel) {
             supportingText = when (uiState.appIconStyle) {
                 AppIconStyle.LUMI_CHAN.storedValue -> stringResource(R.string.icon_style_lumi_chan)
                 AppIconStyle.CLASSIC.storedValue -> stringResource(R.string.icon_style_classic)
+                AppIconStyle.LUMI_2_DARK.storedValue ->
+                    stringResource(R.string.icon_style_lumi2) + " · " + stringResource(R.string.dark_mode_dark)
+                AppIconStyle.LUMI_2_AUTO.storedValue ->
+                    stringResource(R.string.icon_style_lumi2) + " · " + stringResource(R.string.icon_style_appearance_auto)
                 else -> stringResource(R.string.icon_style_lumi2)
             }
         ) {
@@ -2704,8 +2785,8 @@ fun AboutDetail(viewModel: SettingsViewModel) {
             onDecline = {
                 (context as? android.app.Activity)?.finishAffinity()
             },
-            onViewTerms = { openDoc(context.getString(R.string.terms_of_service), "terms.html") },
-            onViewPrivacy = { openDoc(context.getString(R.string.privacy_policy), "privacy.html") }
+            onViewTerms = { BundledPolicy.TERMS.open(context, update.termsVersion) },
+            onViewPrivacy = { BundledPolicy.PRIVACY.open(context, update.privacyVersion) }
         )
     }
 
@@ -2713,25 +2794,19 @@ fun AboutDetail(viewModel: SettingsViewModel) {
     if (update.showAppUpdateDialog) {
         AppUpdateDialog(
             appVersion = update.appVersion,
+            downloadUrl = update.releaseUrl,
             updateTitle = update.updateTitle,
             updateMessage = update.updateMessage,
             changelog = update.changelog,
             force = update.isForceUpdate,
-            onDownload = {
-                val opened = runCatching {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(update.releaseUrl))
-                    context.startActivity(intent)
-                }.isSuccess
-                if (!opened) {
-                    Toast.makeText(context, R.string.network_error, Toast.LENGTH_LONG).show()
-                } else if (!update.isForceUpdate) {
-                    viewModel.dismissAppUpdateDialog()
-                }
+            onDownloadStarted = {
+                if (!update.isForceUpdate) viewModel.dismissAppUpdateDialog()
             },
             onLater = { if (!update.isForceUpdate) viewModel.dismissAppUpdateDialog() },
             onIgnoreVersion = if (update.isForceUpdate) null else viewModel::ignoreCurrentAppUpdate
         )
     }
+    val renderUpdatePreviewControl = rememberUpdatePreviewControl(update.showAppUpdateDialog)
 
     LumiAboutHeader(
         unlocked = uiState.lumiEasterEggUnlocked,
@@ -2742,6 +2817,8 @@ fun AboutDetail(viewModel: SettingsViewModel) {
     )
 
     Spacer(Modifier.height(AppSpace.md))
+
+    renderUpdatePreviewControl()
 
     DetailCard(horizontalPadding = sectionHorizontalPadding) {
         ActionRow(label = stringResource(R.string.title_changelog)) {

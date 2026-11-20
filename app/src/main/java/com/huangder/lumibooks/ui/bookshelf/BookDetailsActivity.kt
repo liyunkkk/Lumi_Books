@@ -12,9 +12,11 @@ import com.huangder.lumibooks.domain.model.ActivityDuration
 import com.huangder.lumibooks.ui.icons.AppIcons
 
 import android.content.Context
+import android.content.ClipData
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
+import androidx.core.content.FileProvider
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.widget.Toast
@@ -124,6 +126,7 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import javax.inject.Inject
+import com.huangder.lumibooks.ui.animation.finishWithPush
 
 @AndroidEntryPoint
 class BookDetailsActivity : ComponentActivity() {
@@ -182,7 +185,7 @@ class BookDetailsActivity : ComponentActivity() {
                 appFontSize = appFontSize,
                 globalFontMode = font
             ) {
-                ConfigurableActivityBack(predictiveBackEnabled = predictiveBack, onBack = { finish() })
+                ConfigurableActivityBack(predictiveBackEnabled = predictiveBack, onBack = { finishWithPush() })
                 val dialogBackdrop = rememberLayerBackdrop()
                 val controlsBackdrop = rememberLayerBackdrop()
                 val activeDialogBackdrop = dialogBackdrop.takeIf { resolvedTheme == "liquid_glass" }
@@ -200,7 +203,7 @@ class BookDetailsActivity : ComponentActivity() {
                                 .background(AppColors.PageBg)
                         )
                         ProvideLiquidGlassBackdrop(activeControlsBackdrop) {
-                            BookDetailsScreen(bookId = bookId, onBack = { finish() }, onOpenReader = { id ->
+                            BookDetailsScreen(bookId = bookId, onBack = { finishWithPush() }, onOpenReader = { id ->
                                 startActivity(Intent(this@BookDetailsActivity, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN_BOOK_ID, id))
                                 finish()
                             })
@@ -325,7 +328,8 @@ fun BookDetailsScreen(
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 FloatingDetailTag(
                     modifier = Modifier.navigationBarsPadding().padding(bottom = 12.dp),
-                    onDelete = { deleteOpen = true }, onEdit = { editing = true }, onMove = { moveOpen = true },
+                    onDelete = { if (!library.isBookDeleteInProgress) deleteOpen = true },
+                    onEdit = { editing = true }, onMove = { moveOpen = true },
                     onNotes = { context.startActivity(Intent(context, BookNotesActivity::class.java).putExtra(BookNotesActivity.EXTRA_BOOK_ID, book.id)) },
                     onRead = { onOpenReader(book.id) }
                 )
@@ -353,6 +357,9 @@ fun BookDetailsScreen(
                 }
             }
             item { com.huangder.lumibooks.ui.statistics.BookReadingArchive(book.id) }
+            if (com.huangder.lumibooks.edition.editionHasReadingJournal) {
+                item { com.huangder.lumibooks.edition.EditionBookJournalEntry(book.id) }
+            }
             item {
                 InfoCard(
                     book,
@@ -401,7 +408,22 @@ fun BookDetailsScreen(
             ))
     }
     if (coverOpen) CustomCoverSourceSheet(book, { coverOpen = false }, { coverOpen = false; coverTarget = book; coverPicker.launch("image/*") }, { coverOpen = false; CoverSearchActivity.start(context, book.id, book.title) })
-
+    if (deleteOpen) CloudAwareBookDeleteDialog(
+        bookCount = 1,
+        hasRemoteBooks = book.remoteFileName != null,
+        hasLocalCopies = !book.isCloudOnly,
+        onDismiss = { deleteOpen = false },
+        onDelete = { mode: BookDeleteMode ->
+            deleteOpen = false
+            homeViewModel.deleteBook(book, mode) { removed, message ->
+                if (message != null) {
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    homeViewModel.clearError()
+                }
+                if (removed) onBack()
+            }
+        }
+    )
 }
 
 @Composable private fun BookHero(book: Book, folder: String, onCover: () -> Unit) {
@@ -464,7 +486,32 @@ fun BookDetailsScreen(
             DetailRow(stringResource(R.string.book_detail_imported), dateText(book.createdAt), false)
             DetailRow(stringResource(R.string.book_detail_last_read), dateText(book.lastReadTime), false)
             LocationDetailRow(book.filePath)
+            if (book.format.isWord && !book.isCloudOnly && !book.isMissing && book.filePath.isNotBlank()) {
+                DetailRow(stringResource(R.string.word_share_original), book.format.name, true) {
+                    shareWordOriginal(context, book)
+                }
+            }
         }
+    }
+}
+
+private fun shareWordOriginal(context: Context, book: Book) {
+    val location = book.filePath
+    val mime = if (book.format == com.huangder.lumibooks.domain.model.BookFormat.DOCX) {
+        com.huangder.lumibooks.domain.model.BookFormat.DOCX_MIME
+    } else com.huangder.lumibooks.domain.model.BookFormat.DOC_MIME
+    runCatching {
+        val uri = if (com.huangder.lumibooks.util.BookFileAccess.isContentUri(location)) Uri.parse(location)
+        else FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(location))
+        val share = Intent(Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newUri(context.contentResolver, book.sourceDisplayName ?: book.title, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(share, context.getString(R.string.word_share_original)))
+    }.onFailure {
+        Toast.makeText(context, R.string.word_error_io, Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -811,7 +858,7 @@ private fun readableBookLocation(filePath: String, internalStorageLabel: String,
     }
 }
 
-private fun compactReadingDuration(durationMillis: Long, unitColor: Color): AnnotatedString {
+internal fun compactReadingDuration(durationMillis: Long, unitColor: Color): AnnotatedString {
     val totalMinutes = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(durationMillis)
     val hours = totalMinutes / 60
     val minutes = totalMinutes % 60

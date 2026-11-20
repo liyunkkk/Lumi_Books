@@ -3,6 +3,7 @@ package com.huangder.lumibooks.ui.reader
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.view.View
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
@@ -47,6 +48,7 @@ class FullScreenTtsScreenTest {
     private var plays = 0
     private var seeks = 0
     private var progressSeeks = 0
+    private var settingsOpened = 0
     private var lastProgress = -1f
     private lateinit var view: View
     private lateinit var dispatcher: OnBackPressedDispatcher
@@ -62,7 +64,8 @@ class FullScreenTtsScreenTest {
                         menus = LocalLiquidGlassMenuHost.current!!
                         FullScreenTtsScreen(state.value, ListeningActions(
                             toggleMode = { state.value = state.value.copy(subtitles = !state.value.subtitles) },
-                            togglePlayback = { plays++ }, seek = { seeks++ }, progress = { progressSeeks++; lastProgress = it }),
+                            togglePlayback = { plays++ }, seek = { seeks++ }, progress = { progressSeeks++; lastProgress = it },
+                            openSettings = { settingsOpened++ }),
                             entered = entered, sessionEnded = ended?.value == true, onExit = { exits++ })
                     }
                 }
@@ -88,6 +91,34 @@ class FullScreenTtsScreenTest {
         control(R.string.tts_full_progress).performTouchInput { swipe(centerLeft + Offset(20f, 0f), centerRight - Offset(20f, 0f), 500) }
         compose.runOnIdle { assertEquals("play", 1, plays); assertEquals("sentence seek", 1, seeks); assertEquals("progress seek", 1, progressSeeks); assertEquals("exit", 0, exits) }
         capture("subtitles")
+    }
+
+    @Test fun settingsButtonIsToTheRightOfLyricsAndDoesNotSwitchDisplayMode() {
+        show()
+        val lyrics = control(R.string.tts_full_subtitles).fetchSemanticsNode().boundsInRoot
+        val settings = control(R.string.tts_page_settings_title)
+        assertTrue(settings.fetchSemanticsNode().boundsInRoot.left >= lyrics.right)
+        settings.performTouchInput { click() }
+        compose.runOnIdle {
+            assertEquals(1, settingsOpened)
+            assertFalse(state.value.subtitles)
+            assertEquals(0, exits)
+        }
+    }
+
+    @Test fun subtitleSeekGestureCanChangeWhileThePageRemainsOpen() {
+        state.value = state.value.copy(subtitles = true)
+        show()
+        val sentence = compose.onNodeWithTag("sentence-${initialText.sentences.first().id}")
+        sentence.performTouchInput { click() }
+        compose.runOnIdle { assertEquals("default single tap only reveals controls", 0, seeks) }
+        sentence.performTouchInput { doubleClick() }
+        compose.runOnIdle {
+            assertEquals(1, seeks)
+            state.value = state.value.copy(seekGesture = SubtitleSeekGesture.SINGLE_TAP)
+        }
+        sentence.performTouchInput { click() }
+        compose.runOnIdle { assertEquals("single tap now seeks", 2, seeks); assertEquals(0, exits) }
     }
 
     @Test fun smallDragAndCancelledLargeDragRestoreButCoverDragDismissesOnce() {
@@ -210,6 +241,41 @@ class FullScreenTtsScreenTest {
         compose.mainClock.autoAdvance = true
         next.performTouchInput { doubleClick() }
         compose.runOnIdle { assertEquals(1, seeks) }
+    }
+
+    @Test fun shortSubtitleReachesFullBrightnessBeforePlaybackMovesOn() {
+        val shortChapter = chapter.copy(text = "First sentence. OK. Next sentence.")
+        val page = TtsPageContent(TtsPageLocation(0, 0), shortChapter.text, null, null)
+        val text = listeningText(shortChapter, page, null)
+        state.value = state.value.copy(subtitles = true, text = text, cover = null)
+        show(animated = true)
+        val shortRow = compose.onNodeWithTag("sentence-${text.sentences[1].id}")
+        fun brightestRed(): Float {
+            val bounds = shortRow.fetchSemanticsNode().boundsInRoot
+            return compose.runOnIdle {
+                val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                try {
+                    view.draw(Canvas(bitmap))
+                    (bounds.top.toInt() until bounds.bottom.toInt()).maxOf { y ->
+                        (bounds.left.toInt() until bounds.right.toInt()).maxOf { x ->
+                            Color.red(bitmap.getPixel(x, y)) / 255f
+                        }
+                    }
+                } finally {
+                    bitmap.recycle()
+                }
+            }
+        }
+        assertTrue("upcoming subtitle is dim", brightestRed() < .8f)
+
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle { state.value = state.value.copy(text = text.copy(focus = 1)) }
+        advance(48)
+        assertTrue("short subtitle is fully bright while spoken", brightestRed() > .95f)
+
+        compose.runOnIdle { state.value = state.value.copy(text = text.copy(focus = 2)) }
+        compose.mainClock.autoAdvance = true
+        compose.onNodeWithTag("sentence-${text.sentences[2].id}").assertIsDisplayed()
     }
 
     @Test fun changingChaptersKeepsOutgoingSubtitlesUntilTheTransitionCompletes() {

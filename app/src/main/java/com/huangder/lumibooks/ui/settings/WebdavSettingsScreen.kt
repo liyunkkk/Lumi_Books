@@ -66,6 +66,7 @@ import java.util.Locale
 fun WebdavSettingsDetail(
     viewModel: SettingsViewModel,
     requestLocalNetworkPermission: RequestLocalNetworkPermission,
+    onOpenLogs: () -> Unit = {},
     onConfigure: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -164,6 +165,11 @@ fun WebdavSettingsDetail(
                     }
                 }
                 WebdavSecondaryButton(
+                    label = stringResource(R.string.webdav_status_view_logs),
+                    icon = AppIcons.FileText,
+                    onClick = onOpenLogs
+                )
+                WebdavSecondaryButton(
                     label = stringResource(R.string.webdav_disable),
                     icon = AppIcons.CloudSlash,
                     onClick = { viewModel.disableWebdav(clearKey = false) }
@@ -213,7 +219,8 @@ fun WebdavConfigurationDetail(
             syncBookFiles = currentConfig.syncBookFiles,
             syncProfileAndSettings = currentConfig.syncProfileAndSettings,
             syncLibraryOrganization = currentConfig.syncLibraryOrganization,
-            syncReadingData = currentConfig.syncReadingData
+            syncReadingData = currentConfig.syncReadingData,
+            syncReadingProgressOnly = currentConfig.syncReadingProgressOnly
         )
         viewModel.enableWebdav(config, password)
         onSaved()
@@ -574,6 +581,14 @@ private fun WebdavSyncContentSelector(
             checked = config.syncReadingData,
             onCheckedChange = { onContentChange(WebdavSyncContent.READING_DATA, it) }
         )
+        if (config.syncReadingData) {
+            WebdavSyncContentRow(
+                title = stringResource(R.string.webdav_progress_only_title),
+                description = stringResource(R.string.webdav_progress_only_description),
+                checked = config.syncReadingProgressOnly,
+                onCheckedChange = { onContentChange(WebdavSyncContent.READING_PROGRESS_ONLY, it) }
+            )
+        }
     }
 }
 

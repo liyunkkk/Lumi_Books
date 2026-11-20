@@ -18,7 +18,12 @@ val releaseStartupTrace = providers.gradleProperty("lumiStartupTrace")
 val forceOss = providers.gradleProperty("lumi.oss").map { it.toBooleanStrict() }.orElse(false)
 val premiumEdition = !forceOss.get() && file("src/premium/java").isDirectory
 // KSP/Hilt outputs must not survive a switch to a source set with fewer declarations.
-layout.buildDirectory.set(layout.projectDirectory.dir("build/${if (premiumEdition) "official" else "oss"}"))
+// Concurrent verification in this checkout needs separate generated resources and classes.
+val buildTag = providers.gradleProperty("lumi.buildTag").orNull
+require(buildTag == null || buildTag.matches(Regex("[A-Za-z0-9_-]+"))) { "Invalid lumi.buildTag" }
+layout.buildDirectory.set(layout.projectDirectory.dir(
+    "build/${if (premiumEdition) "official" else "oss"}${buildTag?.let { "/$it" }.orEmpty()}"
+))
 
 android {
     namespace = "com.huangder.lumibooks"
@@ -107,6 +112,22 @@ android {
                 assets.srcDir("src/premium/assets")
             }
         }
+        getByName("debug") {
+            if (premiumEdition) {
+                java.srcDir("src/premium/debug/java")
+                res.srcDir("src/premium/debug/res")
+            }
+        }
+        // Only the debug build type includes the development controls.
+        listOf("release", "benchmark", "diagnostic").forEach { buildType ->
+            getByName(buildType) {
+                java.srcDir("src/nonDebug/java")
+                if (premiumEdition) java.srcDir("src/premium/nonDebug/java")
+            }
+        }
+        getByName("testDebug") {
+            if (premiumEdition) java.srcDir("src/premium/debug/test")
+        }
         getByName("test") {
             java.srcDir(if (premiumEdition) "src/premium/test" else "src/oss/test")
         }
@@ -194,6 +215,8 @@ dependencies {
     implementation("androidx.webkit:webkit:1.16.0")
     // 与 Legado 书源解析引擎统一版本，避免选择器/空白处理行为分裂
     implementation("org.jsoup:jsoup:1.16.2")
+    // 上游新增：Word 文档转换
+    implementation(project(path = ":third_party:word-converters", configuration = "shadow"))
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

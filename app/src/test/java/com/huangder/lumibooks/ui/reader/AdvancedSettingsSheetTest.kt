@@ -1,6 +1,8 @@
 package com.huangder.lumibooks.ui.reader
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
@@ -9,7 +11,12 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -33,7 +40,7 @@ import org.robolectric.annotation.GraphicsMode
 class AdvancedSettingsSheetTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun bookLayoutShowsSpacingAndCommitsChanges() = verifyBookSpacing()
+    @Test fun imageOnlyBookStillShowsTextPreviewAndCommitsSpacingChanges() = verifyBookSpacing(withImage = true)
 
     @Test
     @Config(qualifiers = "en-rUS-w891dp-h411dp-xxhdpi")
@@ -65,8 +72,7 @@ class AdvancedSettingsSheetTest {
                 onReaderCornerContentChange = { _, _ -> }, onTextColorChange = {}, onResetSettings = {}, onDismiss = {}
             )
         }
-        compose.onNodeWithText(context.getString(R.string.reader_settings_page_layout))
-            .performScrollTo().performClick()
+        openTab(R.string.reader_settings_tab_page)
         val marginSlider = compose.onAllNodes(SemanticsMatcher("horizontal margin slider") {
             it.config.getOrNull(SemanticsProperties.ProgressBarRangeInfo)?.range == 0f..160f
         })[0]
@@ -114,8 +120,7 @@ class AdvancedSettingsSheetTest {
                 onReaderCornerContentChange = { _, _ -> }, onTextColorChange = {}, onResetSettings = {}, onDismiss = {}
             )
         }
-        compose.onNodeWithText(context.getString(R.string.reader_settings_text_spacing))
-            .performScrollTo().performClick()
+        openTab(R.string.reader_settings_tab_text)
         val lineSliderMatcher = SemanticsMatcher("line height slider") {
             it.config.getOrNull(SemanticsProperties.ProgressBarRangeInfo)?.range == 0.5f..2.5f
         }
@@ -133,13 +138,59 @@ class AdvancedSettingsSheetTest {
         assertEquals(1, compose.onAllNodes(lineSliderMatcher).fetchSemanticsNodes().size)
     }
 
-    private fun verifyBookSpacing() {
-        val lineHeight = mutableFloatStateOf(1.5f)
-        val letterSpacing = mutableFloatStateOf(0f)
+    @Test fun settingsAreSplitIntoTabbedPages() {
         val context = RuntimeEnvironment.getApplication()
         compose.setContent {
             AdvancedSettingsSheet(
-                visible = true, previewText = "A preview paragraph with enough words to fill several lines.",
+                visible = true, previewText = "Tabbed settings preview.",
+                currentLineHeight = 1.5f, currentLetterSpacing = 0f,
+                currentFontType = "system", currentBackgroundSelection = "day", customBackgrounds = emptyList(),
+                currentMarginLeft = 38f, currentMarginRight = 38f,
+                currentMarginTop = 64f, currentMarginBottom = 64f,
+                currentBgColor = Color.White, currentBackgroundImagePath = null,
+                currentTextColor = Color.Black, currentTextColorOverride = null, currentFontSizeSp = 16f,
+                eInkModeEnabled = true,
+                onLineHeightChange = {}, onLetterSpacingChange = {}, onFontTypeChange = {},
+                onBackgroundSelect = {}, onAddBackgroundColor = { _, _ -> },
+                onAddBackgroundImage = { _, _ -> }, onDeleteBackground = {},
+                onMarginLeftChange = {}, onMarginRightChange = {}, onMarginTopChange = {}, onMarginBottomChange = {},
+                readerTopLeftContent = ReaderCornerContent.NONE, readerTopRightContent = ReaderCornerContent.NONE,
+                readerBottomLeftContent = ReaderCornerContent.NONE, readerBottomRightContent = ReaderCornerContent.NONE,
+                onReaderCornerContentChange = { _, _ -> }, onTextColorChange = {}, onResetSettings = {}, onDismiss = {}
+            )
+        }
+        // E-ink without image adjustments has no appearance content, so that tab is dropped.
+        compose.onNode(tabLabel(R.string.reader_settings_tab_appearance)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.reader_settings_text_spacing)).assertIsDisplayed()
+        openTab(R.string.reader_settings_tab_controls)
+        compose.onNodeWithText(context.getString(R.string.reset_reader_settings))
+            .performScrollTo().assertIsDisplayed()
+        // The text page is two pages away and no longer composed.
+        compose.onAllNodes(hasText(context.getString(R.string.reader_settings_text_spacing)))
+            .assertCountEquals(0)
+    }
+
+    private fun tabLabel(label: Int): SemanticsMatcher =
+        hasText(RuntimeEnvironment.getApplication().getString(label)) and
+            hasAnyAncestor(hasTestTag("reader-advanced-settings-tabs"))
+
+    private fun openTab(label: Int) {
+        compose.onNode(tabLabel(label)).performClick()
+        compose.waitForIdle()
+    }
+
+    private fun verifyBookSpacing(withImage: Boolean = false) {
+        val lineHeight = mutableFloatStateOf(1.5f)
+        val letterSpacing = mutableFloatStateOf(0f)
+        val context = RuntimeEnvironment.getApplication()
+        val previewImage = if (withImage) {
+            BitmapDrawable(context.resources, Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888))
+        } else null
+        compose.setContent {
+            AdvancedSettingsSheet(
+                visible = true,
+                previewText = if (withImage) "" else "A preview paragraph with enough words to fill several lines.",
+                previewImage = previewImage, imageAdjustmentsEnabled = withImage,
                 currentLineHeight = lineHeight.floatValue, currentLetterSpacing = letterSpacing.floatValue,
                 currentFontType = "system", currentBackgroundSelection = "day", customBackgrounds = emptyList(),
                 currentMarginLeft = 38f, currentMarginRight = 38f,
@@ -162,7 +213,7 @@ class AdvancedSettingsSheetTest {
         val labelTopDp = editingLabel.fetchSemanticsNode().boundsInRoot.top / context.resources.displayMetrics.density
         // The compact preview leaves the settings visible, even on a short screen.
         assertTrue("Settings start too low: $labelTopDp", labelTopDp < 400f)
-        compose.onNodeWithText(context.getString(R.string.reader_settings_text_spacing)).performScrollTo().performClick()
+        openTab(R.string.reader_settings_tab_text)
         for (label in listOf(R.string.label_line_height, R.string.label_letter_spacing,
             R.string.label_paragraph_spacing, R.string.label_first_line_indent)) {
             compose.onNodeWithText(context.getString(label)).performScrollTo().assertIsDisplayed()
@@ -182,5 +233,16 @@ class AdvancedSettingsSheetTest {
         compose.onNode(letterSlider).performScrollTo()
             .performSemanticsAction(SemanticsActions.SetProgress) { it(-2f) }
         compose.runOnIdle { assertEquals(-2f, letterSpacing.floatValue, 0.01f) }
+        if (withImage) {
+            val textPreview = compose.onNodeWithText(context.getString(R.string.preview_text).take(18), substring = true)
+            val imagePreview = compose.onNodeWithTag("reader-image-adjustment-preview")
+            textPreview.assertIsDisplayed()
+            imagePreview.assertDoesNotExist()
+            openTab(R.string.reader_settings_tab_appearance)
+            compose.onNodeWithText(context.getString(R.string.reader_image_adjustment))
+                .performScrollTo().performClick()
+            imagePreview.performScrollTo().assertIsDisplayed()
+            textPreview.assertIsDisplayed()
+        }
     }
 }

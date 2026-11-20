@@ -2,6 +2,14 @@ package com.huangder.lumibooks.ui.bookshelf
 import com.huangder.lumibooks.ui.icons.AppIcons
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import com.huangder.lumibooks.ui.components.scrollEdgeFade
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -26,7 +34,6 @@ import com.huangder.lumibooks.ui.discover.OnlineBookRepository
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.huangder.lumibooks.ui.theme.AppRoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -80,6 +87,7 @@ sealed class ContextMenuAction {
     data object ChangeSource : ContextMenuAction()
     data object ToggleHidden : ContextMenuAction()
     data object Archive : ContextMenuAction()
+    data object ToggleWantToRead : ContextMenuAction()
 }
 
 /**
@@ -113,6 +121,8 @@ fun BookContextMenuOverlay(
     /** Shows「隐藏」, or「取消隐藏」in the hidden library; null leaves the item out. */
     onToggleHidden: ((Book) -> Unit)? = null,
     onArchive: ((Book) -> Unit)? = null,
+    /** Adds to or removes from the to-read list; null leaves the item out. */
+    onToggleWantToRead: ((Book) -> Unit)? = null,
     /** The hidden library drops shelf-organising actions (favourite, pin, tags, folders). */
     hiddenLibrary: Boolean = false
 ) {
@@ -183,11 +193,13 @@ fun BookContextMenuOverlay(
                         is ContextMenuAction.ChangeSource -> onChangeSource(book)
                         is ContextMenuAction.ToggleHidden -> onToggleHidden?.invoke(book)
                         is ContextMenuAction.Archive -> onArchive?.invoke(book)
+                        is ContextMenuAction.ToggleWantToRead -> onToggleWantToRead?.invoke(book)
                     }
                 },
                 hiddenLibrary = hiddenLibrary,
                 canToggleHidden = onToggleHidden != null,
                 canArchive = onArchive != null && !hiddenLibrary,
+                canToggleWantToRead = onToggleWantToRead != null && !hiddenLibrary,
                 onEditInfo = {
                     state.dismiss()
                     onEditInfo(book)
@@ -283,6 +295,7 @@ private fun ContextMenuLayout(
     hiddenLibrary: Boolean,
     canToggleHidden: Boolean,
     canArchive: Boolean,
+    canToggleWantToRead: Boolean,
     onEditInfo: () -> Unit
 ) {
     val density = LocalDensity.current
@@ -362,6 +375,8 @@ private fun ContextMenuLayout(
             hiddenLibrary = hiddenLibrary,
             canToggleHidden = canToggleHidden,
             canArchive = canArchive,
+            canToggleWantToRead = canToggleWantToRead,
+            isWantToRead = book.isWantToRead,
             onAction = onAction
         )
         }
@@ -470,6 +485,8 @@ private fun MenuActionsPanel(
     hiddenLibrary: Boolean = false,
     canToggleHidden: Boolean = false,
     canArchive: Boolean = false,
+    canToggleWantToRead: Boolean = false,
+    isWantToRead: Boolean = false,
     onAction: (ContextMenuAction) -> Unit
 ) {
     val shape = AppRoundedCornerShape(
@@ -486,6 +503,15 @@ private fun MenuActionsPanel(
     val menuItems = buildList {
         add(MenuItem(stringResource(R.string.book_details), AppIcons.Info, ContextMenuAction.BookDetails))
         add(MenuItem(readStatusLabel, AppIcons.BookOpen, ContextMenuAction.ToggleReadStatus))
+        if (canToggleWantToRead) {
+            add(
+                MenuItem(
+                    stringResource(if (isWantToRead) R.string.book_remove_want_to_read else R.string.book_want_to_read),
+                    AppIcons.Timer,
+                    ContextMenuAction.ToggleWantToRead
+                )
+            )
+        }
         if (!hiddenLibrary) {
             add(MenuItem(favoriteLabel, favoriteIcon, ContextMenuAction.Favorite))
             add(MenuItem(pinLabel, AppIcons.PushPin, ContextMenuAction.Pin))
@@ -539,24 +565,48 @@ private fun MenuActionsPanel(
         },
         contentAlignment = Alignment.TopStart
         ) {
+        val listPadding = if (compact) 8.dp else 12.dp
+        val itemSpacing = 2.dp
+        val density = LocalDensity.current
+        val listState = rememberLazyListState()
+        // Measured once so the cap follows font scale. When the actions overflow, the
+        // viewport stops halfway through a row: the peeking row plus the edge fade imply
+        // there is more below without any explicit hint.
+        var rowHeightPx by remember { mutableIntStateOf(0) }
+        val maxListHeight = if (rowHeightPx > 0) {
+            val row = with(density) { rowHeightPx.toDp() }
+            val rowWithGap = row + itemSpacing
+            val fullHeight = rowWithGap * menuItems.size - itemSpacing + listPadding * 2
+            if (fullHeight <= ActionsListMaxHeight) fullHeight
+            else {
+                // Top padding, whole rows, then half of the next row.
+                val fullRows = ((ActionsListMaxHeight - listPadding - row * 0.5f) / rowWithGap).toInt().coerceAtLeast(1)
+                listPadding + rowWithGap * fullRows + row * 0.5f
+            }
+        } else ActionsListMaxHeight
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 48.dp, max = 360.dp)
-                .padding(if (compact) 8.dp else 12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+                .heightIn(min = 48.dp, max = maxListHeight)
+                .scrollEdgeFade(listState),
+            contentPadding = PaddingValues(listPadding),
+            verticalArrangement = Arrangement.spacedBy(itemSpacing)
         ) {
-        items(menuItems, key = { it.label }) { item ->
+        itemsIndexed(menuItems, key = { _, item -> item.label }) { index, item ->
             MenuActionItem(
                 label = item.label,
                 icon = item.icon,
                 compact = compact,
+                modifier = if (index == 0) Modifier.onSizeChanged { rowHeightPx = it.height } else Modifier,
                 onClick = { onAction(item.action) }
             )
         }
     }
     }
 }
+
+private val ActionsListMaxHeight = 360.dp
 
 // ─── 单个菜单项（支持错开淡入） ─────────────────────────────────
 
@@ -566,11 +616,12 @@ private fun MenuActionItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     alpha: Float = 1f,
     compact: Boolean = false,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .graphicsLayer { this.alpha = alpha }
             .clip(AppRoundedCornerShape(AppRadius.sm))

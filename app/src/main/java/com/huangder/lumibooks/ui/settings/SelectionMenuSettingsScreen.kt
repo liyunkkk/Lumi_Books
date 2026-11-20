@@ -1,5 +1,6 @@
 package com.huangder.lumibooks.ui.settings
 
+import com.huangder.lumibooks.ui.animation.pagePushToolbarItem
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -154,13 +155,14 @@ fun SelectionMenuSettingsScreen(
                     .fillMaxWidth()
                     .statusBarsPadding()
                     .height(56.dp)
-                    .padding(horizontal = AppSpace.sm),
+                    .padding(horizontal = AppSpace.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 LiquidGlassIconButton(
                     imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
                     contentDescription = stringResource(R.string.back),
                     onClick = onBack,
+                    modifier = Modifier.pagePushToolbarItem(),
                     settingsBackButton = true
                 )
                 Text(

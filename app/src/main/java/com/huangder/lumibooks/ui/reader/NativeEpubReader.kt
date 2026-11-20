@@ -38,6 +38,11 @@ internal data class NativeEpubCallbacks(
     val bookmarkFinish: (Boolean) -> Unit,
     val image: (EpubImagePreviewRequest) -> Unit
 )
+// The native CSS engine currently paints plain annotation rectangles only.
+// Keep styled annotations on the WebView path, which applies their font metrics and paint.
+internal fun nativeEpubDecorationsSupported(notes: List<Note>, chapterIndex: Int): Boolean =
+    notes.none { !it.isStale && it.chapterIndex == chapterIndex && it.styleSnapshotJson != null }
+
 internal data class NativeEpubReaderStyle(val fontSizeSp: Float, val fontType: String, val fontPath: String?,
     val weight: Float, val color: Int?, val paper: Int, val publisherColors: Boolean,
     val top: Float, val right: Float, val bottom: Float, val left: Float,
@@ -180,6 +185,7 @@ internal class NativeEpubSurface(context: Context, private val session: EpubRend
                 onTapLeft = { edge(edgeTap.leftAction) }; onTapRight = { edge(edgeTap.rightAction) }; onTapCenter = { events().menu() }
                 onAnimationComplete = { val direction = currentDirection
                     if (direction != PageAnimationController.Direction.NONE) {
+                        events().manual()
                         current += if (direction == PageAnimationController.Direction.NEXT) 1 else -1
                         selectedRange = null; refreshDecorations(); updateSlots(); publish()
                     }
@@ -317,8 +323,8 @@ internal class NativeEpubSurface(context: Context, private val session: EpubRend
         val target = current + if (direction > 0) 1 else -1
         if (target !in layout!!.pages.indices) { events().manual(); events().chapter(if (direction > 0) 1 else -1); return true }
         if (!canFlip(dir)) return false
-        events().manual(); clearSelection()
-        if (transition == "none") { current = target; updateSlots(); publish() }
+        clearSelection()
+        if (transition == "none") { events().manual(); current = target; updateSlots(); publish() }
         else when (val a = animation) { is CurlPageAnim -> return a.startFromTap(dir); is WavePageAnim -> a.startFromTap(dir); is SlidePageAnim -> a.startFromTap(dir) }
         return true
     }

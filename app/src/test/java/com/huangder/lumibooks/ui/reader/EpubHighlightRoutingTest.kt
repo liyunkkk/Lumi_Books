@@ -8,6 +8,32 @@ import org.junit.Test
 
 class EpubHighlightRoutingTest {
     @Test
+    fun styledNotesUseWebViewWhilePlainNotesKeepNativeRendering() {
+        val styled = note().copy(styleSnapshotJson = """{"fontType":"kaiti"}""")
+        assertFalse(nativeEpubDecorationsSupported(listOf(styled), 0))
+        assertTrue(nativeEpubDecorationsSupported(listOf(note()), 0))
+        assertTrue(nativeEpubDecorationsSupported(listOf(styled.copy(isStale = true)), 0))
+        assertTrue(nativeEpubDecorationsSupported(listOf(styled), 1))
+        assertTrue(nativeEpubDecorationsSupported(emptyList(), 0))
+    }
+
+    @Test
+    fun bundledAndCustomRuleFontsCarryTheirRegisteredFontUrls() {
+        val fonts = mapOf("serif" to "LumiRuleSerif", "kaiti" to "LumiRuleKaiTi",
+            "fangsong" to "LumiRuleFangSong", "custom:font-id" to "LumiRule_font-id")
+        fonts.forEach { (type, family) ->
+            val styled = note().copy(styleSnapshotJson = """{"fontType":"$type"}""")
+            val url = "https://reader.local/$type.ttf"
+            val descriptor = if (type == "kaiti" || type == "fangsong") "400" else "200 900"
+            val style = highlightsJson(listOf(styled), mapOf(type to EpubRuleFont(url, descriptor)))
+                .getJSONObject(0).getJSONObject("ruleStyle")
+            assertEquals(family, style.getString("fontFamily"))
+            assertEquals(url, style.getString("fontUrl"))
+            assertEquals(descriptor, style.getString("fontWeightDescriptor"))
+        }
+    }
+
+    @Test
     fun routesOnlyNotesForTheRenderedChapterAndKeepsOrder() {
         val notes = listOf(
             note(id = 1, chapterIndex = 3, text = "first"),
@@ -63,6 +89,8 @@ class EpubHighlightRoutingTest {
         assertEquals(2, payload.getJSONObject(2).getJSONObject("ruleStyle").getInt("underlineMode"))
         assertFalse(payload.getJSONObject(1).getJSONObject("ruleStyle").has("textColor"))
         assertFalse(payload.getJSONObject(2).getJSONObject("ruleStyle").has("textColor"))
+        assertEquals(2, payload.getJSONObject(1).getJSONObject("ruleStyle").getInt("highlightMode"))
+        assertEquals(2, payload.getJSONObject(2).getJSONObject("ruleStyle").getInt("highlightMode"))
     }
 
     private fun note(

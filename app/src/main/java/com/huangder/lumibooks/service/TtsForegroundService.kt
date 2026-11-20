@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -43,6 +44,7 @@ class TtsForegroundService : Service() {
         const val ACTION_PREVIOUS = "com.huangder.lumibooks.tts.PREVIOUS"
         const val ACTION_NEXT = "com.huangder.lumibooks.tts.NEXT"
         const val ACTION_STOP = "com.huangder.lumibooks.tts.STOP"
+        const val ACTION_UNLOCK_FLOATING = "com.huangder.lumibooks.tts.UNLOCK_FLOATING"
         private const val EXTRA_BOOK_TITLE = "book_title"
         private const val TAG = "TtsForegroundService"
 
@@ -55,6 +57,7 @@ class TtsForegroundService : Service() {
 
     @Inject lateinit var ttsController: TtsController
     @Inject lateinit var notificationManager: TtsNotificationManager
+    @Inject lateinit var floatingSubtitleOverlayController: FloatingSubtitleOverlayController
     @Inject lateinit var bookRepository: BookRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -89,8 +92,8 @@ class TtsForegroundService : Service() {
                     .build()
             )
             setSessionActivity(openAppIntent())
-            // Android 12+：声明本应用的媒体按键广播接收器，系统在本应用不是当前
-            // “媒体按键会话”时（例如按键仍归属其它播放器）也会把耳机按键投递过来。
+            // Android 12+：注册系统用于恢复最近媒体会话的广播接收器。
+            // 活跃播放时的按键仍由系统选择当前媒体会话后投递。
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 setMediaButtonBroadcastReceiver(
                     ComponentName(this@TtsForegroundService, TtsMediaButtonReceiver::class.java)
@@ -105,7 +108,7 @@ class TtsForegroundService : Service() {
             // “Last MediaButtonReceiver”，部分机型（实测 ColorOS）正是按这条记录投递耳机按键。
             // 该 API 在 Android 12+ 标记为 deprecated，但仍会被系统记录，因此继续使用。
             @Suppress("DEPRECATION")
-            setMediaButtonReceiver(mediaButtonReceiverIntent())
+            setMediaButtonReceiver(ttsMediaButtonPendingIntent(this@TtsForegroundService))
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
                     logTransportCommand("media_session_transport", "PLAY")
@@ -199,6 +202,14 @@ class TtsForegroundService : Service() {
                 applyBookMetadata(bookId)
             }
         }
+        serviceScope.launch {
+            floatingSubtitleOverlayController.overlayLocked.drop(1).collect {
+                val state = ttsController.playbackState.value
+                if (foregroundStarted && state != TtsPlaybackState.IDLE) {
+                    postPlaybackNotification(state, ttsController.currentPage.value?.location?.chapterIndex ?: 0)
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -222,6 +233,10 @@ class TtsForegroundService : Service() {
             ACTION_NEXT -> {
                 logTransportCommand("notification", "NEXT")
                 ttsController.skip(forward = true)
+            }
+            ACTION_UNLOCK_FLOATING -> {
+                logTransportCommand("notification", "UNLOCK_FLOATING")
+                floatingSubtitleOverlayController.setLocked(false)
             }
             ACTION_STOP -> {
                 logTransportCommand("notification", "STOP")
@@ -271,7 +286,8 @@ class TtsForegroundService : Service() {
             chapterIndex = chapterIndex,
             isPlaying = state == TtsPlaybackState.PLAYING,
             mediaSessionToken = mediaSession.sessionToken,
-            largeIcon = coverBitmap
+            largeIcon = coverBitmap,
+            floatingLocked = floatingSubtitleOverlayController.overlayLocked.value
         )
 
     private fun postPlaybackNotification(state: TtsPlaybackState, chapterIndex: Int) {
@@ -358,14 +374,6 @@ class TtsForegroundService : Service() {
         Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         },
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-
-    /** Android 11 及以下的媒体按键接收器入口。 */
-    private fun mediaButtonReceiverIntent(): PendingIntent = PendingIntent.getBroadcast(
-        this,
-        1,
-        Intent(Intent.ACTION_MEDIA_BUTTON).setClass(this, TtsMediaButtonReceiver::class.java),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 

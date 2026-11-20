@@ -189,6 +189,11 @@ class SettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            dataStoreManager.defaultRenderMode.collectLatest { mode ->
+                _uiState.update { it.copy(defaultRenderMode = mode) }
+            }
+        }
+        viewModelScope.launch {
             dataStoreManager.lineHeight.collectLatest { value ->
                 _uiState.value = _uiState.value.copy(lineHeight = value)
             }
@@ -544,6 +549,10 @@ class SettingsViewModel @Inject constructor(
     }
 
     // ─── 阅读设置 ───
+
+    fun saveDefaultRenderMode(mode: com.huangder.lumibooks.util.epub.EpubRenderMode) {
+        viewModelScope.launch { dataStoreManager.saveDefaultRenderMode(mode) }
+    }
 
     fun saveFontSize(value: Float) {
         viewModelScope.launch {
@@ -1132,9 +1141,11 @@ class SettingsViewModel @Inject constructor(
             try {
                 com.huangder.lumibooks.util.cache.ReaderCacheStore.get(context).clear()
                 com.huangder.lumibooks.util.kindle.KindleEpubCache.clear(context)
+                com.huangder.lumibooks.util.word.WordEpubCache.clear(context)
                 context.cacheDir.listFiles()?.forEach { entry ->
                     if (entry.name != ExternalTtsAudioCache.DIRECTORY_NAME && entry.name != "reader_cache" &&
-                        entry.name != com.huangder.lumibooks.util.kindle.KindleEpubCache.DIRECTORY) {
+                        entry.name != com.huangder.lumibooks.util.kindle.KindleEpubCache.DIRECTORY &&
+                        entry.name != com.huangder.lumibooks.util.word.WordEpubCache.DIRECTORY) {
                         entry.deleteRecursively()
                     }
                 }

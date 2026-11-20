@@ -90,6 +90,7 @@ import com.huangder.lumibooks.util.diagnostics.DiagnosticSessionManager
 import kotlinx.coroutines.launch
 import java.io.File
 import com.huangder.lumibooks.ui.components.DisclosureChevron
+import com.huangder.lumibooks.ui.animation.finishWithPush
 
 @AndroidEntryPoint
 class FeedbackActivity : ComponentActivity() {
@@ -151,9 +152,9 @@ class FeedbackActivity : ComponentActivity() {
             ) {
                 com.huangder.lumibooks.ui.components.ConfigurableActivityBack(
                     predictiveBackEnabled = predictiveBackEnabled,
-                    onBack = { finish() }
+                    onBack = { finishWithPush() }
                 )
-                FeedbackOverviewPage(onBack = { finish() })
+                FeedbackOverviewPage(onBack = { finishWithPush() })
             }
         }
     }
@@ -703,6 +704,7 @@ private fun issueLabel(type: DiagnosticIssueType): String = when (type) {
     DiagnosticIssueType.TTS -> stringResource(R.string.diagnostic_issue_tts)
     DiagnosticIssueType.SYNC -> stringResource(R.string.diagnostic_issue_sync)
     DiagnosticIssueType.BACKUP -> stringResource(R.string.diagnostic_issue_backup)
+    DiagnosticIssueType.WIDGET -> stringResource(R.string.diagnostic_issue_widget)
     DiagnosticIssueType.OTHER -> stringResource(R.string.diagnostic_issue_other)
 }
 

@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -37,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlin.math.roundToInt
@@ -55,14 +58,18 @@ import com.huangder.lumibooks.util.performance.EpubTurnTrace
 import org.json.JSONArray
 import org.json.JSONObject
 import com.huangder.lumibooks.domain.model.Note
+import com.huangder.lumibooks.domain.model.HighlightRule
 import com.huangder.lumibooks.domain.model.ReaderEdgeTapAction
 import com.huangder.lumibooks.domain.model.ReaderEdgeTapMode
 import com.huangder.lumibooks.domain.model.ReaderTextAlignment
 import com.huangder.lumibooks.domain.model.ReaderThemeSettings
+import com.huangder.lumibooks.ui.reader.engine.ReaderAnnotationStyle
 import com.huangder.lumibooks.ui.reader.engine.TtsSentenceHighlightSpan
 import com.huangder.lumibooks.highlight.RuleStyleJson
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.ByteArrayInputStream
@@ -91,6 +98,7 @@ internal class EpubContentWebView(context: android.content.Context) : WebView(co
         handleReaderSelectionTouch(event) || super.onTouchEvent(event)
 
     var pageIndexSignature: String = ""
+    var footnotePopoverVisible = false
     // Debug-only EpubTurnTrace identity and load clock.
     val traceId = nextTraceId.incrementAndGet()
     var traceLoadStartedAt = 0L
@@ -114,6 +122,8 @@ internal class EpubContentWebView(context: android.content.Context) : WebView(co
         if (released) return
         dismissSelectionUi()
         released = true
+        pendingRuleHighlights?.cancel()
+        footnotePopoverVisible = false
         configurationUpdates.reset()
         documentLifecycle.beginDocument()
         cancelRecoverableLoad()
@@ -138,7 +148,28 @@ internal class EpubContentWebView(context: android.content.Context) : WebView(co
     }
 
     override fun stopLoading() {
+        pendingRuleHighlights?.cancel()
         if (!released) super.stopLoading()
+    }
+
+    private var pendingRuleHighlights: Job? = null
+
+    fun deferForRuleHighlights(
+        scope: CoroutineScope,
+        rules: State<EpubRuleHighlightCache?>,
+        chapter: Int,
+        onReady: () -> Unit
+    ): Boolean {
+        pendingRuleHighlights?.cancel()
+        pendingRuleHighlights = null
+        val cache = rules.value ?: return false
+        if (cache.notes(chapter) != null) return false
+        pendingRuleHighlights = scope.launch {
+            rules.awaitChapter(chapter)
+            pendingRuleHighlights = null
+            if (!released) onReady()
+        }
+        return true
     }
 
     override fun postVisualStateCallback(requestId: Long, callback: VisualStateCallback) {
@@ -185,12 +216,14 @@ internal class EpubContentWebView(context: android.content.Context) : WebView(co
 
     override fun loadUrl(url: String) {
         if (released) return
+        pendingRuleHighlights?.cancel()
         if (EpubTurnTrace.enabled) {
             traceLoadStartedAt = SystemClock.uptimeMillis()
             traceSubresourceCount = 0
             traceSubresourceNanos = 0L
         }
         readerSelectionHandles.clear()
+        footnotePopoverVisible = false
         configurationUpdates.reset()
         // Invalidate queued compositor callbacks immediately, before onPageStarted.
         documentLifecycle.beginDocument()
@@ -524,9 +557,10 @@ internal data class EpubTextSpacing(
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-internal fun EpubWebViewReader(
+internal fun EpubWebViewReaderContent(
     session: BookRenderSession,
     twoPageSpread: Boolean = false,
+    orientationPrewarm: Boolean = false,
     onSpreadChanged: (EpubSpreadState?) -> Unit = {},
     onFocusedPageChanged: (EpubSpreadPage) -> Unit = {},
     layoutPreviewActive: Boolean = false,
@@ -576,10 +610,18 @@ internal fun EpubWebViewReader(
     marginLeftDp: Float = 0f,
     edgeTapMode: ReaderEdgeTapMode = ReaderEdgeTapMode.LEFT_PREVIOUS_RIGHT_NEXT,
     longPressSelectionRange: LongPressSelectionRange = LongPressSelectionRange.DEFAULT,
+    annotationStyle: ReaderAnnotationStyle = ReaderAnnotationStyle.DEFAULT,
     notes: List<Note> = emptyList(),
+    highlightRules: List<HighlightRule> = emptyList(),
+    ruleHighlightsRevision: Long = 0L,
+    loadRuleHighlights: suspend (Int, List<HighlightRule>) -> List<Note> = { _, _ -> emptyList() },
     ttsCurrentSentence: TtsSentencePosition? = null,
     ttsFollowEnabled: Boolean = true,
+    ttsManualResumeSentence: TtsSentencePosition? = null,
+    ttsViewportGeneration: Long? = null,
+    onTtsVisibility: (Long, TtsSentencePosition, Boolean) -> Unit = { _, _, _ -> },
     onManualScrollStarted: () -> Unit = {},
+    onManualScrollSettled: (Int, Int?) -> Unit = { _, _ -> },
     ttsHighlightColor: Int = TtsSentenceHighlightSpan.computeHighlightColor(Color.WHITE),
     searchRequest: EpubSearchRequest? = null,
     locatorRequest: EpubLocatorRequest? = null,
@@ -605,6 +647,9 @@ internal fun EpubWebViewReader(
     onSelectionMenuDismiss: () -> Unit = {},
     onImagePreviewOpen: () -> Unit,
     onChapterTurn: (direction: Int) -> Unit,
+    onBookEnd: () -> Unit = {},
+    onBookEndPull: (Float) -> Unit = {},
+    onBookEndPullEnd: (cancelled: Boolean) -> Unit = {},
     onInternalLink: (chapterIndex: Int, fragment: String?) -> Unit,
     onExternalLink: (href: String) -> Unit,
     onSelection: (EpubSelectionInfo) -> Unit,
@@ -619,9 +664,36 @@ internal fun EpubWebViewReader(
     onAutoScrollEnd: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val ruleScope = rememberCoroutineScope()
+    val latestLoadRuleHighlights = rememberUpdatedState(loadRuleHighlights)
+    val highlightPalette = ReaderHighlightPalette
+    val ruleHighlights = remember(session, highlightRules, ruleHighlightsRevision, customFonts, highlightPalette) {
+        val enabled = highlightRules.filter(HighlightRule::enabled)
+        if (enabled.isEmpty()) null else EpubRuleHighlightCache(
+            scope = ruleScope,
+            loadFonts = {
+                val fonts = enabled.mapNotNull { it.fontType.takeIf(String::isNotBlank) }.toSet()
+                prepareEpubRuleFonts(context, session, fonts, customFonts)
+            },
+            loadNotes = { chapter ->
+                latestLoadRuleHighlights.value(chapter, enabled).map {
+                    it.copy(color = resolveReaderHighlightColor(it.color))
+                }
+            }
+        )
+    }
+    val latestRuleHighlights = rememberUpdatedState(ruleHighlights)
+    LaunchedEffect(ruleHighlights, chapterIndex) {
+        ruleHighlights?.prepare(chapterIndex)?.await()
+        if (chapterIndex + 1 < session.chapterCount) ruleHighlights?.prepare(chapterIndex + 1)
+        if (chapterIndex > 0) ruleHighlights?.prepare(chapterIndex - 1)
+    }
+
     if (twoPageSpread && bookFormat == "EPUB" && !continuousScroll) {
         EpubSpreadContent(
             session = session,
+            backgroundPreparationEnabled = !orientationPrewarm,
             chapterIndex = chapterIndex,
             appearance = EpubSpreadAppearance(
                 fontSizeSp, letterSpacingDp, textSpacing, fontType, fontFilePath, customFonts,
@@ -640,6 +712,8 @@ internal fun EpubWebViewReader(
             pageTransitionDurationMs = pageTransitionDurationMs,
             edgeTapMode = edgeTapMode,
             notes = notes,
+            ruleHighlights = ruleHighlights,
+            annotationStyle = annotationStyle,
             ttsCurrentSentence = ttsCurrentSentence,
             ttsHighlightColor = ttsHighlightColor,
             ttsFollowEnabled = ttsFollowEnabled,
@@ -657,7 +731,8 @@ internal fun EpubWebViewReader(
                 onPageCountConfirmed, onNavigationStage, onNavigationResult, onRenderUnavailable,
                 onCenterTap, onManualScrollStarted, onSelection, onSelectionCleared,
                 onSelectionMenuDismiss, onInternalLink, onExternalLink, onSearchResolved,
-                onImagePreviewOpen, onBookmarkPullStart, onBookmarkPullProgress, onBookmarkPullFinished
+                onImagePreviewOpen, onBookmarkPullStart, onBookmarkPullProgress, onBookmarkPullFinished,
+                onBookEnd, onBookEndPull, onBookEndPullEnd
             ),
             onPageTextProviderReady = onPageTextProviderReady,
             onPageTurnHandlerReady = onPageTurnHandlerReady,
@@ -674,6 +749,8 @@ internal fun EpubWebViewReader(
         value = withContext(Dispatchers.IO) { session.isMediaOnlyPage(chapterIndex) }
     }
     val nativeSettingsSupported = nativeCssEnabled && nativeSession != null && bookFormat == "EPUB" &&
+        (ruleHighlights == null || ruleHighlights.notes(chapterIndex) != null) &&
+        nativeEpubDecorationsSupported(epubNotesWithRules(notes, ruleHighlights, chapterIndex), chapterIndex) &&
         mediaOnlyPage == false &&
         !continuousScroll && pageTransition in setOf("slide", "curl", "wave", "none") &&
         readerBackgroundImagePath == null && !bionicReadingEnabled && chineseMode == "original" &&
@@ -684,6 +761,7 @@ internal fun EpubWebViewReader(
         if (!nativeSettingsSupported) {
             val reasons = buildList {
                 if (!nativeCssEnabled) add("experiment disabled")
+                if (!nativeEpubDecorationsSupported(epubNotesWithRules(notes, ruleHighlights, chapterIndex), chapterIndex)) add("annotation styles")
                 if (nativeSession == null || bookFormat != "EPUB") add("format $bookFormat")
                 if (continuousScroll) add("continuous scroll")
                 if (pageTransition !in setOf("slide", "curl", "wave", "none")) add("transition $pageTransition")
@@ -743,7 +821,8 @@ internal fun EpubWebViewReader(
                 publisherNightShade = publisherPaintOnly && theme == "publisher_night",
                 textSpacing = textSpacing, longPressSelectionRange = longPressSelectionRange),
             pageTransition, pageTransitionDurationMs, edgeTapMode, restoreLocatorJson, restoreProgression, restoreProgressionInclusive, initialFragment,
-            navigationRequest, searchRequest, locatorRequest, pageRequest, notes, ttsCurrentSentence, ttsFollowEnabled,
+            navigationRequest, searchRequest, locatorRequest, pageRequest,
+            epubNotesWithRules(notes, ruleHighlights, chapterIndex), ttsCurrentSentence, ttsFollowEnabled,
             ttsHighlightColor, selectionClearToken, bookmarkPullEnabled, paginationContentIdentity,
             NativeEpubCallbacks(onPageChanged, onPageCountConfirmed, onPaginationConfigured, onChapterTurn, onCenterTap,
                 onManualScrollStarted, onSelection, onSelectionCleared, onInternalLink, onExternalLink, onSearchResolved,
@@ -755,7 +834,7 @@ internal fun EpubWebViewReader(
         return
     }
     // Source classification above parses HTML off the UI thread.
-    val backgroundPreparationEnabled = LocalReaderOpeningComplete.current
+    val backgroundPreparationEnabled = LocalReaderOpeningComplete.current && !orientationPrewarm
     val latestBackgroundPreparationEnabled = rememberUpdatedState(backgroundPreparationEnabled)
     val restorePreloads = remember(session) { mutableStateOf<(() -> Unit)?>(null) }
     LaunchedEffect(backgroundPreparationEnabled, restorePreloads.value) {
@@ -765,6 +844,7 @@ internal fun EpubWebViewReader(
     val latestPageChanged = rememberUpdatedState(onPageChanged)
     val latestPageCountConfirmed = rememberUpdatedState(onPageCountConfirmed)
     val latestManualScrollStarted = rememberUpdatedState(onManualScrollStarted)
+    val latestManualScrollSettled = rememberUpdatedState(onManualScrollSettled)
     val latestAutoScrollEnd = rememberUpdatedState(onAutoScrollEnd)
     val latestBookmarkPullStart = rememberUpdatedState(onBookmarkPullStart)
     val latestBookmarkPullProgress = rememberUpdatedState(onBookmarkPullProgress)
@@ -774,6 +854,9 @@ internal fun EpubWebViewReader(
     val latestSelectionMenuDismiss = rememberUpdatedState(onSelectionMenuDismiss)
     val latestImagePreviewOpen = rememberUpdatedState(onImagePreviewOpen)
     val latestChapterTurn = rememberUpdatedState(onChapterTurn)
+    val latestBookEnd = rememberUpdatedState(onBookEnd)
+    val latestBookEndPull = rememberUpdatedState(onBookEndPull)
+    val latestBookEndPullEnd = rememberUpdatedState(onBookEndPullEnd)
     val latestReleaseHandlerReady = rememberUpdatedState(onReleaseHandlerReady)
     val latestGlassSnapshotProviderReady = rememberUpdatedState(onGlassSnapshotProviderReady)
     val latestInternalLink = rememberUpdatedState(onInternalLink)
@@ -793,12 +876,9 @@ internal fun EpubWebViewReader(
     val latestTextSpacing = rememberUpdatedState(textSpacing)
     val latestFontType = rememberUpdatedState(fontType)
     val latestFontFilePath = rememberUpdatedState(fontFilePath)
-    val ruleFontUrls = remember(session, customFonts) {
-        customFonts.mapNotNull { preset ->
-            session.readerFontUrl(preset.path)?.let { preset.fontTypeKey to it }
-        }.toMap()
-    }
-    val latestRuleFontUrls = rememberUpdatedState(ruleFontUrls)
+    val ruleFonts = rememberEpubRuleFonts(session, notes, customFonts)
+    val latestRuleFonts = rememberUpdatedState(ruleFonts)
+    val latestAnnotationStyle = rememberUpdatedState(annotationStyle)
     val latestBodyFontWeight = rememberUpdatedState(bodyFontWeight)
     val latestTextColorOverride = rememberUpdatedState(textColorOverride)
     val latestTheme = rememberUpdatedState(theme)
@@ -830,8 +910,13 @@ internal fun EpubWebViewReader(
     val latestEdgeTapMode = rememberUpdatedState(edgeTapMode)
     val latestLongPressSelectionRange = rememberUpdatedState(longPressSelectionRange)
     val latestNotes = rememberUpdatedState(notes)
+    fun notesForChapter(chapter: Int) = epubNotesWithRules(latestNotes.value, latestRuleHighlights.value, chapter)
+    fun fontsForHighlights() = latestRuleFonts.value + latestRuleHighlights.value?.fontsByType.orEmpty()
     val latestTtsCurrentSentence = rememberUpdatedState(ttsCurrentSentence)
     val latestTtsFollowEnabled = rememberUpdatedState(ttsFollowEnabled)
+    val latestTtsManualResumeSentence = rememberUpdatedState(ttsManualResumeSentence)
+    val latestTtsVisibility = rememberUpdatedState(onTtsVisibility)
+    val latestTtsViewportGeneration = rememberUpdatedState(ttsViewportGeneration)
     val latestTtsHighlightColor = rememberUpdatedState(ttsHighlightColor)
     val latestLayoutPreviewActive = rememberUpdatedState(layoutPreviewActive)
     val latestSearchRequest = rememberUpdatedState(searchRequest)
@@ -845,6 +930,17 @@ internal fun EpubWebViewReader(
     val webViewState = remember(session) { mutableStateOf<WebView?>(null) }
     val ttsPageViewByChapter = remember(session) { mutableStateOf<Map<Int, WebView>>(emptyMap()) }
     val pageTurnHostState = remember(session) { mutableStateOf<EpubPageTurnHost?>(null) }
+    LaunchedEffect(layoutPreviewActive, pageTurnHostState.value) {
+        val host = pageTurnHostState.value ?: return@LaunchedEffect
+        if (layoutPreviewActive) host.invalidatePreloads("typography_preview")
+        else restorePreloads.value?.invoke()
+    }
+    LaunchedEffect(orientationPrewarm, pageTurnHostState.value) {
+        if (orientationPrewarm) pageTurnHostState.value?.let { host ->
+            host.endLayoutPreview()
+            host.trimOrientationPreloads()
+        }
+    }
     LaunchedEffect(pageTurnHostState.value, chapterIndex, continuousScroll, autoScrollRunning, autoScrollSpeed) {
         val host = pageTurnHostState.value ?: return@LaunchedEffect
         val speed = if (continuousScroll && autoScrollRunning) (32f * autoScrollSpeed).coerceAtLeast(1f) else 0f
@@ -852,14 +948,6 @@ internal fun EpubWebViewReader(
             val view = host.activeWebView
             view.evaluateJavascript("window.LumiReader&&window.LumiReader.setAutoScrollSpeed($speed);", null)
             kotlinx.coroutines.delay(100)
-        }
-    }
-    LaunchedEffect(layoutPreviewActive, pageTurnHostState.value) {
-        if (!layoutPreviewActive) {
-            pageTurnHostState.value?.activeWebView?.evaluateJavascript(
-                "window.LumiReader&&window.LumiReader.reportLayoutStatus();",
-                null
-            )
         }
     }
     val navigationStartHandler = remember(session) {
@@ -953,7 +1041,7 @@ internal fun EpubWebViewReader(
                 val preloadRequestByView = mutableMapOf<EpubContentWebView, EpubPreloadRequest>()
                 val preparedPageByView = mutableMapOf<EpubContentWebView, EpubPreparedPage>()
                 val minimumActivePageSerialByView = mutableMapOf<EpubContentWebView, Long>()
-                val promotedActiveTargetByView = mutableMapOf<EpubContentWebView, EpubPageTarget>()
+                val activePageHandoffByView = mutableMapOf<EpubContentWebView, EpubPageHandoff>()
                 val preloadConfigurationByView = mutableMapOf<EpubContentWebView, String>()
                 val readyTtsPageViewByChapter = mutableMapOf<Int, EpubContentWebView>()
                 val navigationTracker = EpubNavigationOperationTracker()
@@ -1025,6 +1113,7 @@ internal fun EpubWebViewReader(
                         sentence = latestTtsCurrentSentence.value,
                         color = latestTtsHighlightColor.value,
                         follow = latestTtsFollowEnabled.value && latestContinuousScroll.value &&
+                            latestTtsCurrentSentence.value != latestTtsManualResumeSentence.value &&
                             pageTurnHost.activeWebView === view
                     )
                 }
@@ -1041,11 +1130,13 @@ internal fun EpubWebViewReader(
 
                     fun redraw() {
                         if (!isCurrentActivePage()) return
-                        applyHighlights(
-                            view,
-                            epubNotesForChapter(latestNotes.value, target.chapterIndex),
-                            latestRuleFontUrls.value
-                        )
+                        val rules = latestRuleHighlights.value
+                        if (rules == null || rules.notes(target.chapterIndex) != null) {
+                            applyHighlights(
+                                view, notesForChapter(target.chapterIndex),
+                                fontsForHighlights(), latestAnnotationStyle.value
+                            )
+                        }
                         applyCurrentTtsHighlight(view, target.chapterIndex)
                         view.postInvalidateOnAnimation()
                     }
@@ -1260,10 +1351,21 @@ internal fun EpubWebViewReader(
 
                 fun configurePreloadReader(view: EpubContentWebView, request: EpubPreloadRequest) {
                     val target = request.target
+                    if (view.released || preloadRequestByView[view] !== request ||
+                        pageTurnHost.preloadSlotOf(view) == null ||
+                        loadedChapterByView[view] != target.chapterIndex ||
+                        navigationInFlight?.view === view
+                    ) return
+                    if (view.deferForRuleHighlights(ruleScope, latestRuleHighlights, target.chapterIndex) {
+                            configurePreloadReader(view, request)
+                        }
+                    ) return
                     val configurationKey = preloadConfigurationKey(target.chapterIndex)
                     if (loadedChapterByView[view] == target.chapterIndex &&
                         preloadConfigurationByView[view] == configurationKey
                     ) {
+                        applyHighlights(view, notesForChapter(target.chapterIndex),
+                            fontsForHighlights(), latestAnnotationStyle.value)
                         view.evaluateJavascript(
                             "window.LumiReader&&window.LumiReader.preparePage(" +
                                 target.pageIndex.coerceAtLeast(0) + "," +
@@ -1272,19 +1374,14 @@ internal fun EpubWebViewReader(
                         )
                         return
                     }
-                    val isFixedLayout = session.renditionLayout(target.chapterIndex) ==
-                        EpubRenditionLayout.PRE_PAGINATED
+                    val renditionLayout = session.renditionLayout(target.chapterIndex)
                     val pagingMode = epubDocumentPagingMode(
                         latestContinuousScroll.value,
                         latestPageTransition.value,
-                        session.renditionLayout(target.chapterIndex),
+                        renditionLayout,
                         session.isMediaOnlyPage(target.chapterIndex)
                     )
-                    view.settings.textZoom = if (isFixedLayout) {
-                        100
-                    } else {
-                        ((latestFontSizeSp.value / 16f) * 100f).toInt().coerceIn(50, 300)
-                    }
+                    view.settings.textZoom = epubTextZoom(latestFontSizeSp.value, renditionLayout)
                     configureReader(
                         view = view,
                         paginationSignature = latestPaginationSignature.value,
@@ -1322,8 +1419,9 @@ internal fun EpubWebViewReader(
                         marginRightDp = latestMarginRightDp.value,
                         marginBottomDp = latestMarginBottomDp.value,
                         marginLeftDp = latestMarginLeftDp.value,
-                        notes = epubNotesForChapter(latestNotes.value, target.chapterIndex),
-                        ruleFontUrls = latestRuleFontUrls.value,
+                        notes = notesForChapter(target.chapterIndex),
+                        ruleFonts = fontsForHighlights(),
+                        annotationStyle = latestAnnotationStyle.value,
                         locatorRequest = null,
                         pageRequest = EpubPageRequest(
                             token = request.generation,
@@ -1380,7 +1478,7 @@ internal fun EpubWebViewReader(
                     val generation = ++nextPreloadGeneration
                     preparedPageByView.remove(view)
                     minimumActivePageSerialByView.remove(view)
-                    promotedActiveTargetByView.remove(view)
+                    activePageHandoffByView.remove(view)
                     forgetTtsPageView(view)
                     if (target == null) {
                         preloadRequestByView.remove(view)
@@ -1439,32 +1537,22 @@ internal fun EpubWebViewReader(
                     return beyond.takeIf { warmStagingChapter() != it.chapterIndex }
                 }
 
-                // "Beyond" is unknown until the ahead neighbour is ready; only worth waiting for
-                // when the staging view holds another chapter, as right after a crossing.
-                fun warmAheadStillDeciding(): Boolean {
-                    if (latestContinuousScroll.value) return false
-                    val slot = warmAheadSlot()
-                    val ahead = pageTurnHost.preloadTarget(slot) ?: return false
-                    return !pageTurnHost.isPreloadReady(slot) && warmStagingChapter() != ahead.chapterIndex
-                }
-
                 var warmRetries = 0
                 val warmWork = object : Runnable {
                     override fun run() {
-                        if (pageTurnHost.released || navigationInFlight != null || !latestBackgroundPreparationEnabled.value) return
-                        val target = warmPageTarget()
-                        if (target == null) {
-                            if (warmAheadStillDeciding() && warmRetries++ < EPUB_WARM_RETRY_LIMIT) {
-                                pageTurnHost.postDelayed(this, 50L)
-                            } else {
-                                pageTurnHost.discardWarmPage()
-                            }
-                            return
-                        }
-                        if (!pageTurnHost.canPrepareWarmPage() || !pageTurnHost.activeWebView.documentLifecycle.let {
+                        if (pageTurnHost.released || navigationInFlight != null || !latestBackgroundPreparationEnabled.value ||
+                            latestLayoutPreviewActive.value) return
+                        if (!pageTurnHost.canPrepareWarmPage(warmAheadSlot()) || !pageTurnHost.activeWebView.documentLifecycle.let {
                                 it.isStable(it.configurationGeneration, it.layoutRevision) }) {
+                            // Keep an in-flight warm document until the new ahead slot is
+                            // known: it may be adopted instead of loading the chapter again.
                             // The next commit schedules again, so polling stops after a few seconds.
                             if (warmRetries++ < EPUB_WARM_RETRY_LIMIT) pageTurnHost.postDelayed(this, 50L)
+                            return
+                        }
+                        val target = warmPageTarget()
+                        if (target == null) {
+                            pageTurnHost.discardWarmPage()
                             return
                         }
                         if (pageTurnHost.ensureWarmPage()) updatePreload(EpubPageTurnHost.PreloadSlot.WARM, target)
@@ -1474,13 +1562,32 @@ internal fun EpubWebViewReader(
                 fun scheduleWarmPage() {
                     pageTurnHost.removeCallbacks(warmWork)
                     warmRetries = 0
-                    // Decide at the commit itself: during fast turns the host is never idle later.
+                    // The fourth view is independent of the animated sheets.
+                    // Start ahead as soon as the next page is ready, including
+                    // while a prepared automatic cross-chapter turn is moving.
                     pageTurnHost.post(warmWork)
                 }
 
+                val adjacentPreloads = EpubPreloadScheduler(
+                    post = { work, delay -> if (!pageTurnHost.released) pageTurnHost.postDelayed(work, delay) },
+                    remove = { pageTurnHost.removeCallbacks(it) },
+                    foregroundReady = {
+                        !pageTurnHost.released && navigationInFlight == null &&
+                            latestBackgroundPreparationEnabled.value && !latestLayoutPreviewActive.value &&
+                            pageTurnHost.canPrepareAdjacentPage() &&
+                            pageTurnHost.activeWebView.documentLifecycle.let {
+                                it.isStable(it.configurationGeneration, it.layoutRevision)
+                            }
+                    },
+                    prepared = pageTurnHost::hasPreparedPage,
+                    prepare = ::updatePreload,
+                    onAheadReady = ::scheduleWarmPage,
+                    onIdle = ::scheduleWarmPage
+                )
+
                 fun updateAdjacentPreloads(currentChapter: Int, currentPage: Int, pageCount: Int) {
                     if (!latestBackgroundPreparationEnabled.value) return
-                    if (pageTurnHost.released || navigationInFlight != null) return
+                    if (pageTurnHost.released || navigationInFlight != null || latestLayoutPreviewActive.value) return
                     val (previous, next) = epubAdjacentPreloadTargets(
                         currentChapter, currentPage, pageCount, session.chapterCount,
                         latestContinuousScroll.value
@@ -1492,12 +1599,14 @@ internal fun EpubWebViewReader(
                         if (delta != 0) recentTurnDirection = delta
                     }
                     lastPreloadPosition = position
-                    updatePreload(EpubPageTurnHost.PreloadSlot.PREVIOUS, previous)
-                    updatePreload(EpubPageTurnHost.PreloadSlot.NEXT, next)
+                    if (previous == null) updatePreload(EpubPageTurnHost.PreloadSlot.PREVIOUS, null)
+                    if (next == null) updatePreload(EpubPageTurnHost.PreloadSlot.NEXT, null)
+                    adjacentPreloads.update(position, previous, next, recentTurnDirection)
                     scheduleWarmPage()
                 }
 
                 fun invalidateAdjacentPreloads() {
+                    adjacentPreloads.cancel()
                     EpubTurnTrace.log("preload_reset",
                         "prevLoaded" to loadedChapterByView[pageTurnHost.previousWebView],
                         "nextLoaded" to loadedChapterByView[pageTurnHost.nextWebView],
@@ -1534,13 +1643,16 @@ internal fun EpubWebViewReader(
                     } else {
                         activeVisualRequestByView[inFlight.view] =
                             (activeVisualRequestByView[inFlight.view] ?: 0L) + 1L
-                        if (inFlight.request.origin == EpubNavigationOrigin.TTS && !latestTtsFollowEnabled.value) {
-                            promotedActiveTargetByView.remove(inFlight.view)
+                        if (!inFlight.request.restoreSourceOnCancel || !inFlight.destinationApplied) {
+                            activePageHandoffByView.remove(inFlight.view)
                             return
                         }
-                        promotedActiveTargetByView[inFlight.view] = EpubPageTarget(
-                            inFlight.request.sourceChapterIndex,
-                            inFlight.request.sourcePageIndex.coerceAtLeast(0)
+                        if (inFlight.request.origin == EpubNavigationOrigin.TTS && !latestTtsFollowEnabled.value) {
+                            activePageHandoffByView.remove(inFlight.view)
+                            return
+                        }
+                        activePageHandoffByView[inFlight.view] = EpubPageHandoff(
+                            EpubPageTarget(inFlight.request.sourceChapterIndex, inFlight.request.sourcePageIndex.coerceAtLeast(0))
                         )
                         inFlight.view.evaluateJavascript(
                             "window.LumiReader&&window.LumiReader.goToPage(" +
@@ -1715,6 +1827,7 @@ internal fun EpubWebViewReader(
                                         )
                                         navigationInFlight = null
                                         val activeView = pageTurnHost.activeWebView
+                                        pageTurnHost.endLayoutPreview()
                                         if (outgoingView !== activeView && latestContinuousScroll.value) {
                                             outgoingView.evaluateJavascript(
                                                 "window.LumiReader&&window.LumiReader.finishChapterTurn();", null)
@@ -1732,9 +1845,9 @@ internal fun EpubWebViewReader(
                                         activePageCount.value = pageCount
                                         preparedPageByView.remove(activeView)
                                         preloadRequestByView.remove(activeView)
-                                        if (latestContinuousScroll.value) promotedActiveTargetByView.remove(activeView)
-                                        else promotedActiveTargetByView[activeView] = EpubPageTarget(
-                                            inFlight.request.targetChapterIndex, pageIndex)
+                                        if (latestContinuousScroll.value) activePageHandoffByView.remove(activeView)
+                                        else activePageHandoffByView[activeView] = EpubPageHandoff(
+                                            EpubPageTarget(inFlight.request.targetChapterIndex, pageIndex), pageSerial)
                                         pageSerial.takeIf { it >= 0L }?.let {
                                             minimumActivePageSerialByView[activeView] = it
                                         } ?: minimumActivePageSerialByView.remove(activeView)
@@ -1933,25 +2046,24 @@ internal fun EpubWebViewReader(
 
                 fun configureNavigationView(inFlight: EpubNavigationInFlight) {
                     if (navigationInFlight !== inFlight) return
+                    if (inFlight.view.deferForRuleHighlights(ruleScope, latestRuleHighlights,
+                            inFlight.request.targetChapterIndex) { configureNavigationView(inFlight) }
+                    ) return
                     latestNavigationStage.value(
                         inFlight.request.operationId,
                         EpubNavigationStage.CONFIGURING
                     )
                     inFlight.configurationSubmitted = true
-                    val isFixedLayout = session.renditionLayout(
+                    val renditionLayout = session.renditionLayout(
                         inFlight.request.targetChapterIndex
-                    ) == EpubRenditionLayout.PRE_PAGINATED
+                    )
                     val pagingMode = epubDocumentPagingMode(
                         latestContinuousScroll.value,
                         latestPageTransition.value,
-                        session.renditionLayout(inFlight.request.targetChapterIndex),
+                        renditionLayout,
                         session.isMediaOnlyPage(inFlight.request.targetChapterIndex)
                     )
-                    inFlight.view.settings.textZoom = if (isFixedLayout) {
-                        100
-                    } else {
-                        ((latestFontSizeSp.value / 16f) * 100f).toInt().coerceIn(50, 300)
-                    }
+                    inFlight.view.settings.textZoom = epubTextZoom(latestFontSizeSp.value, renditionLayout)
                     configureReader(
                         view = inFlight.view,
                         paginationSignature = latestPaginationSignature.value,
@@ -1991,11 +2103,9 @@ internal fun EpubWebViewReader(
                         marginRightDp = latestMarginRightDp.value,
                         marginBottomDp = latestMarginBottomDp.value,
                         marginLeftDp = latestMarginLeftDp.value,
-                        notes = epubNotesForChapter(
-                            latestNotes.value,
-                            inFlight.request.targetChapterIndex
-                        ),
-                        ruleFontUrls = latestRuleFontUrls.value,
+                        notes = notesForChapter(inFlight.request.targetChapterIndex),
+                        ruleFonts = fontsForHighlights(),
+                        annotationStyle = latestAnnotationStyle.value,
                         locatorRequest = null,
                         pageRequest = null,
                         onConfigured = { configured ->
@@ -2015,6 +2125,7 @@ internal fun EpubWebViewReader(
 
                 fun startNavigation(request: EpubNavigationRequest) {
                     if (pageTurnHost.released) return
+                    if (navigationInFlight?.request == request) return
                     pageTurnHost.removeCallbacks(warmWork)
                     pageTurnHost.discardWarmPage()
                     pageTurnHost.cancelPendingInput("nav_start")
@@ -2038,7 +2149,18 @@ internal fun EpubWebViewReader(
                         return
                     }
                     navigationTracker.begin(request.operationId)
-                    val inPlace = !request.requiresStaging(loadedChapter.value)
+                    val activeView = pageTurnHost.activeWebView
+                    val activeLifecycle = activeView.documentLifecycle
+                    // loadedChapter is assigned when loading starts, not when the document
+                    // and its current configuration are ready. Cold restores must use the
+                    // normal staged configuration/ready/frame pipeline.
+                    val activeDocumentReady = loadedChapterByView[activeView] == request.targetChapterIndex &&
+                        loadingChapterByView[activeView] == null &&
+                        !chapterLoadPending.value &&
+                        configuredKey.value == activeConfigurationKey(request.targetChapterIndex) &&
+                        epubDocumentMessageMatches(activeView.url, session.chapterUrl(request.targetChapterIndex)) &&
+                        activeLifecycle.isStable(activeLifecycle.configurationGeneration, activeLifecycle.layoutRevision)
+                    val inPlace = !request.requiresStaging(loadedChapter.value, activeDocumentReady)
                     val slot = if (inPlace) {
                         null
                     } else {
@@ -2143,7 +2265,7 @@ internal fun EpubWebViewReader(
 
                     preparedPageByView.remove(view)
                     minimumActivePageSerialByView.remove(view)
-                    promotedActiveTargetByView.remove(view)
+                    activePageHandoffByView.remove(view)
                     forgetTtsPageView(view)
                     preloadRequestByView[view] = EpubPreloadRequest(requestedTarget, generation)
                     pageTurnHost.markPreloadLoading(
@@ -2266,6 +2388,7 @@ internal fun EpubWebViewReader(
                                         actualCount,
                                         view
                                     )
+                                    adjacentPreloads.onPrepared()
                                     readyTtsPageViewByChapter[target.chapterIndex] = view
                                     publishTtsPageViews()
                                     applyCurrentTtsHighlight(view, target.chapterIndex)
@@ -2310,7 +2433,20 @@ internal fun EpubWebViewReader(
                         )
                     ) return
                     when (type) {
+                        "footnotePopover" -> view.footnotePopoverVisible = payload.optBoolean("visible")
                         "manualScroll" -> latestManualScrollStarted.value()
+                        "ttsVisibility" -> {
+                            val generation = latestTtsViewportGeneration.value
+                            val sentence = latestTtsCurrentSentence.value
+                            if (generation != null && sentence != null && pageTurnHost.activeWebView === view &&
+                                sentence.chapterIndex == messageChapterIndex &&
+                                sentence.startOffset == payload.optInt("start", -1) &&
+                                sentence.endOffset == payload.optInt("end", -1) && payload.has("visible")) {
+                                latestTtsVisibility.value(generation, sentence, payload.optBoolean("visible"))
+                            }
+                        }
+                        "manualScrollSettled" -> latestManualScrollSettled.value(messageChapterIndex,
+                            payload.optInt("characterOffset", -1).takeIf { it >= 0 })
                         "autoScrollEnd" -> latestAutoScrollEnd.value()
                         "layoutStable", "page" -> {
                             val generation = payload.optLong("configurationGeneration", -1L)
@@ -2332,18 +2468,9 @@ internal fun EpubWebViewReader(
                             ) return
                             val minimumPageSerial = minimumActivePageSerialByView[view]
                             if (!isEpubPageNotificationCurrent(pageSerial, minimumPageSerial)) return
-                            // A promoted preload view may still emit its old
-                            // initial page after the handoff. Its serial can
-                            // match the prepared page, so also require the
-                            // payload to describe the promoted target.
-                            val promotedTarget = promotedActiveTargetByView[view]
-                            if (promotedTarget != null &&
-                                !epubPageNotificationMatchesTarget(
-                                    promotedTarget,
-                                    messageChapterIndex,
-                                    pageIndex
-                                )
-                            ) return
+                            // A notification for the promotion's serial must confirm that page.
+                            // Later serials may describe a new turn on the same document.
+                            if (activePageHandoffByView[view]?.accepts(messageChapterIndex, pageIndex, pageSerial) == false) return
                             fun activeCallbackStillCurrent(): Boolean {
                                 if (!view.documentLifecycle.isCurrent(generation, revision)) return false
                                 if (pageTurnHost.roleOf(view) !=
@@ -2355,14 +2482,7 @@ internal fun EpubWebViewReader(
                                         pageSerial, minimumActivePageSerialByView[view])) {
                                     return false
                                 }
-                                val currentPromotedTarget = promotedActiveTargetByView[view]
-                                if (currentPromotedTarget != null &&
-                                    !epubPageNotificationMatchesTarget(
-                                        currentPromotedTarget,
-                                        messageChapterIndex,
-                                        pageIndex
-                                    )
-                                ) return false
+                                if (activePageHandoffByView[view]?.accepts(messageChapterIndex, pageIndex, pageSerial) == false) return false
                                 return if (requestAtReceipt == null) {
                                     currentRequest == null
                                 } else {
@@ -2393,13 +2513,24 @@ internal fun EpubWebViewReader(
                                             if (activeVisualRequestByView[view] != requestId ||
                                                 !activeCallbackStillCurrent()
                                             ) return@commit
-                            pageTurnHost.setCurrentPage(
-                                messageChapterIndex,
-                                pageIndex,
-                                pageCount
-                            ) {
-                                promotedActiveTargetByView.remove(view)
-                                updateAdjacentPreloads(
+                                            pageTurnHost.setCurrentPage(
+                                                messageChapterIndex,
+                                                pageIndex,
+                                                pageCount
+                                            ) {
+                                                // Reflow can supersede a promoted chapter's delayed
+                                                // commit. Adopt its document before the page callback
+                                                // updates Compose and asks AndroidView to render it.
+                                                if (loadedChapter.value != messageChapterIndex) {
+                                                    loadedChapter.value = messageChapterIndex
+                                                    activeDocumentUrl.value = expectedDocumentUrl
+                                                    configuredKey.value = activeConfigurationKey(messageChapterIndex)
+                                                    chapterLoadPending.value = false
+                                                    readyChapter.value = messageChapterIndex
+                                                }
+                                                pageTurnHost.endLayoutPreview()
+                                                activePageHandoffByView.remove(view)
+                                                updateAdjacentPreloads(
                                                     messageChapterIndex,
                                                     pageIndex,
                                                     pageCount
@@ -2421,16 +2552,13 @@ internal fun EpubWebViewReader(
                                             )
                                             view.markRecoverableLoadReady(messageChapterIndex)
                                             revealStableDocument(view, generation, revision)
-                                            if (!latestLayoutPreviewActive.value) {
-                                                pageTurnHost.endLayoutPreview()
-                                            }
                                         }
                                         when {
                                             pageTurnHost.isAwaitingPreparedActivePage(
                                                 messageChapterIndex,
                                                 pageIndex
                                             ) -> Unit
-                                            pageTurnHost.isAwaitingPage(
+                                            pageTurnHost.hasLayoutPreview() || pageTurnHost.isAwaitingPage(
                                                 messageChapterIndex,
                                                 pageIndex
                                             ) -> view.runAfterNextDraw(commitPage)
@@ -2478,6 +2606,9 @@ internal fun EpubWebViewReader(
                                 latestCenterTap.value()
                             }
                         }
+                        "bookEnd" -> {
+                            if (messageChapterIndex == session.chapterCount - 1) latestBookEnd.value()
+                        }
                         "chapterTurn" -> {
                             val direction = payload.optInt("direction", 0)
                             if (direction == 0) return
@@ -2487,6 +2618,7 @@ internal fun EpubWebViewReader(
                                     "window.LumiReader&&window.LumiReader.cancelChapterTurn();",
                                     null
                                 )
+                                if (direction > 0 && targetChapter >= session.chapterCount) latestBookEnd.value()
                                 return
                             }
                             if (!pageTurnHost.requestTurn(direction)) {
@@ -2671,12 +2803,23 @@ internal fun EpubWebViewReader(
                                     if (type in setOf("ready", "page", "layoutStable", "layoutPending", "pagePrepared")) {
                                         val newerLayout = payload.optLong("layoutRevision", -1L) >
                                             contentView.documentLifecycle.layoutRevision
-                                        if (!contentView.documentLifecycle.observeLayout(
+                                        if (!pageTurnHost.observeDocumentLayout(
+                                                contentView,
                                                 payload.optLong("configurationGeneration", -1L),
                                                 payload.optLong("layoutRevision", -1L),
-                                                stable = type == "layoutStable"
+                                                stable = type == "layoutStable",
+                                                pending = type == "layoutPending"
                                             )) return
-                                        if (newerLayout) promotedActiveTargetByView.remove(contentView)
+                                        if (newerLayout) {
+                                            activePageHandoffByView.remove(contentView)
+                                            if (pageTurnHost.roleOf(contentView) == EpubPageTurnHost.WebViewRole.ACTIVE) {
+                                                // A late font reflow may cancel the promoted page's
+                                                // onPageCommit before it consumes these records. They
+                                                // must not fence the active document to its old page.
+                                                preloadRequestByView.remove(contentView)
+                                                preparedPageByView.remove(contentView)
+                                            }
+                                        }
                                     }
                                     if (type == "pagePrepared") {
                                         handlePreparedMessage(
@@ -2727,7 +2870,7 @@ internal fun EpubWebViewReader(
                             (sourceView as? EpubContentWebView)?.let { contentView ->
                                 contentView.documentLifecycle.beginDocument()
                                 minimumActivePageSerialByView.remove(contentView)
-                                promotedActiveTargetByView.remove(contentView)
+                                activePageHandoffByView.remove(contentView)
                                 contentView.markRecoverableLoadStarted()
                                 contentView.documentLoadStartedAt = SystemClock.elapsedRealtime()
                             }
@@ -2915,7 +3058,7 @@ internal fun EpubWebViewReader(
                             preloadRequestByView.clear()
                             preparedPageByView.clear()
                             minimumActivePageSerialByView.clear()
-                            promotedActiveTargetByView.clear()
+                            activePageHandoffByView.clear()
                             pageTurnHost.release()
                             if (pageTurnHostState.value === pageTurnHost) {
                                 webViewState.value = null
@@ -2975,9 +3118,21 @@ internal fun EpubWebViewReader(
                                 return
                             }
 
-                            val sourceChapter = finishedChapter
+                            configureActiveChapter(contentView, finishedChapter)
+                        }
+
+                        private fun configureActiveChapter(contentView: EpubContentWebView, sourceChapter: Int) {
                             val expectedUrl = session.chapterUrl(sourceChapter).substringBefore('#')
-                            if (url.orEmpty().substringBefore('#') != expectedUrl) return
+                            if (pageTurnHost.released || contentView.released ||
+                                pageTurnHost.activeWebView !== contentView ||
+                                loadedChapter.value != sourceChapter ||
+                                loadedChapterByView[contentView] != sourceChapter ||
+                                contentView.url.orEmpty().substringBefore('#') != expectedUrl
+                            ) return
+                            if (contentView.deferForRuleHighlights(ruleScope, latestRuleHighlights, sourceChapter) {
+                                    configureActiveChapter(contentView, sourceChapter)
+                                }
+                            ) return
                             chapterLoadPending.value = false
                             readyChapter.value = -1
                             val pagingMode = epubDocumentPagingMode(
@@ -2989,6 +3144,9 @@ internal fun EpubWebViewReader(
                             val nativePageTurn = pagingMode.nativePaging
                             val activeLoadAttempt =
                                 contentView.currentStartedRecoverableLoad(sourceChapter)
+                            contentView.settings.textZoom = epubTextZoom(
+                                latestFontSizeSp.value, session.renditionLayout(sourceChapter)
+                            )
                             configureReader(
                                 view = contentView,
                                 paginationSignature = latestPaginationSignature.value,
@@ -3029,8 +3187,9 @@ internal fun EpubWebViewReader(
                                 marginRightDp = latestMarginRightDp.value,
                                 marginBottomDp = latestMarginBottomDp.value,
                                 marginLeftDp = latestMarginLeftDp.value,
-                                notes = epubNotesForChapter(latestNotes.value, sourceChapter),
-                                ruleFontUrls = latestRuleFontUrls.value,
+                                notes = notesForChapter(sourceChapter),
+                                ruleFonts = fontsForHighlights(),
+                                annotationStyle = latestAnnotationStyle.value,
                                 locatorRequest = latestLocatorRequest.value,
                                 pageRequest = latestPageRequest.value,
                                 onConfigured = { configured ->
@@ -3066,7 +3225,7 @@ internal fun EpubWebViewReader(
                     preparedPageByView.remove(view)
                     preloadConfigurationByView.remove(view)
                     minimumActivePageSerialByView.remove(view)
-                    promotedActiveTargetByView.remove(view)
+                    activePageHandoffByView.remove(view)
                     forgetTtsPageView(view)
                 }
                 allWebViews().forEach(::attachWebView)
@@ -3165,7 +3324,7 @@ internal fun EpubWebViewReader(
                     val committedPageCount = promotedPreparedPage?.pageCount
                         ?: hostPageCount.coerceAtLeast(1)
                     if (promotedPreparedPage != null) {
-                        promotedActiveTargetByView[activeView] = target
+                        activePageHandoffByView[activeView] = EpubPageHandoff(target, promotedPreparedPage.pageSerial)
                         // Keep the promoted page's notification serial as a
                         // lower bound for callbacks arriving after promotion.
                         promotedPreparedPage.pageSerial.takeIf { it >= 0L }?.let {
@@ -3176,7 +3335,7 @@ internal fun EpubWebViewReader(
                         // The curl host has already promoted the visual target.
                         // Keep late callbacks from the outgoing page from
                         // overwriting the committed target while WebView catches up.
-                        promotedActiveTargetByView[activeView] = target
+                        activePageHandoffByView[activeView] = EpubPageHandoff(target)
                     }
                     activePageCount.value = committedPageCount
                     pageTurnHost.setCurrentPage(
@@ -3212,7 +3371,16 @@ internal fun EpubWebViewReader(
                     }
                 }
                 pageTurnHost.onSlideLookaheadRequested = { slot, target ->
+                    adjacentPreloads.cancel()
+                    pageTurnHost.removeCallbacks(warmWork)
                     updatePreload(slot, target)
+                    scheduleWarmPage()
+                }
+                pageTurnHost.onBookEnd = { latestBookEnd.value() }
+                pageTurnHost.onBookEndPull = { latestBookEndPull.value(it) }
+                pageTurnHost.onBookEndPullEnd = { latestBookEndPullEnd.value(it) }
+                pageTurnHost.onUnpreparedChapterTurn = { direction ->
+                    latestChapterTurn.value(direction)
                 }
                 pageTurnHost.onSlideVisualPageAdvanced = { target, pageCount ->
                     updateAdjacentPreloads(target.chapterIndex, target.pageIndex, pageCount)
@@ -3240,12 +3408,11 @@ internal fun EpubWebViewReader(
             val activeChapterForNotes = session.chapterIndexForUrl(
                 webView.url.orEmpty()
             ) ?: chapterIndex
-            val isFixedLayout = session.renditionLayout(chapterIndex) ==
-                EpubRenditionLayout.PRE_PAGINATED
             val density = pageTurnHost.resources.displayMetrics.density
             pageTurnHost.setScrollViewportInsets(
                 topPx = if (continuousScroll) (marginTopDp.coerceAtLeast(0f) * density).roundToInt() else 0,
-                bottomPx = if (continuousScroll) (marginBottomDp.coerceAtLeast(0f) * density).roundToInt() else 0
+                bottomPx = if (continuousScroll) (marginBottomDp.coerceAtLeast(0f) * density).roundToInt() else 0,
+                contentOnly = continuousScroll
             )
             if (pageTurnHost.paddingLeft != 0 || pageTurnHost.paddingTop != 0 ||
                 pageTurnHost.paddingRight != 0 || pageTurnHost.paddingBottom != 0
@@ -3303,14 +3470,7 @@ internal fun EpubWebViewReader(
                 opacity = readerBackgroundImageOpacity,
                 blurDp = readerBackgroundImageBlurDp
             )
-            val targetTextZoom = if (isFixedLayout) {
-                100
-            } else {
-                ((fontSizeSp / 16f) * 100f).toInt().coerceIn(50, 300)
-            }
-            if (webView.settings.textZoom != targetTextZoom) {
-                webView.settings.textZoom = targetTextZoom
-            }
+            val targetTextZoom = epubTextZoom(fontSizeSp, session.renditionLayout(chapterIndex))
             val nextConfigKey = configKey(
                 paginationSignature = paginationSignature,
                 viewportSize = hostViewportSize.value,
@@ -3352,6 +3512,8 @@ internal fun EpubWebViewReader(
                 pageRequest = pageRequest
             )
             if (loadedChapter.value != chapterIndex) {
+                pageTurnHost.endLayoutPreview()
+                webView.settings.textZoom = targetTextZoom
                 val firstLoad = loadedChapter.value < 0
                 val targetChapter = chapterIndex
                 val targetUrl = session.chapterUrl(chapterIndex, initialFragment)
@@ -3389,14 +3551,20 @@ internal fun EpubWebViewReader(
                         .withEndAction(loadTarget)
                         .start()
                 }
-            } else if (!chapterLoadPending.value && configuredKey.value != nextConfigKey) {
+            } else if (!chapterLoadPending.value &&
+                (configuredKey.value != nextConfigKey || webView.settings.textZoom != targetTextZoom)
+            ) {
                 val currentLifecycle = webView.documentLifecycle
-                if (latestLayoutPreviewActive.value && currentLifecycle.isStable(
+                val textZoomChanged = webView.settings.textZoom != targetTextZoom
+                if (!orientationPrewarm && (latestLayoutPreviewActive.value || textZoomChanged) && currentLifecycle.isStable(
                         currentLifecycle.configurationGeneration,
                         currentLifecycle.layoutRevision
                     )
                 ) {
                     pageTurnHost.beginLayoutPreview()
+                }
+                if (textZoomChanged) {
+                    webView.settings.textZoom = targetTextZoom
                 }
                 val layoutChanged = configureReader(
                     view = webView,
@@ -3435,8 +3603,11 @@ internal fun EpubWebViewReader(
                     marginRightDp = marginRightDp,
                     marginBottomDp = marginBottomDp,
                     marginLeftDp = marginLeftDp,
-                    notes = epubNotesForChapter(notes, activeChapterForNotes),
-                    ruleFontUrls = ruleFontUrls,
+                    notes = notesForChapter(activeChapterForNotes).takeIf {
+                        ruleHighlights == null || ruleHighlights.notes(activeChapterForNotes) != null
+                    },
+                    ruleFonts = fontsForHighlights(),
+                    annotationStyle = annotationStyle,
                     locatorRequest = locatorRequest,
                     pageRequest = pageRequest
                 )
@@ -3451,9 +3622,12 @@ internal fun EpubWebViewReader(
                 pageTurnHost.allWebViews().forEach { view ->
                     val viewChapter = session.chapterIndexForUrl(view.url.orEmpty())
                     if (viewChapter != null) {
-                        applyHighlights(view, epubNotesForChapter(notes, viewChapter), latestRuleFontUrls.value)
+                        if (ruleHighlights == null || ruleHighlights.notes(viewChapter) != null) {
+                            applyHighlights(view, notesForChapter(viewChapter), fontsForHighlights(), annotationStyle)
+                        }
                         applyTtsHighlight(view, viewChapter, ttsCurrentSentence, ttsHighlightColor,
-                            follow = ttsFollowEnabled && continuousScroll && pageTurnHost.activeWebView === view)
+                            follow = ttsFollowEnabled && continuousScroll && ttsCurrentSentence != ttsManualResumeSentence &&
+                                pageTurnHost.activeWebView === view)
                         view.postInvalidateOnAnimation()
                     }
                 }
@@ -3525,6 +3699,7 @@ internal fun EpubWebViewReader(
     LaunchedEffect(
         ttsCurrentSentence,
         ttsFollowEnabled,
+        ttsManualResumeSentence,
         ttsHighlightColor,
         loadedChapter.value,
         readyChapter.value,
@@ -3536,8 +3711,44 @@ internal fun EpubWebViewReader(
                 view.url.orEmpty().substringBefore('#')
             ) ?: return@forEach
             applyTtsHighlight(view, viewChapter, ttsCurrentSentence, ttsHighlightColor,
-                follow = ttsFollowEnabled && continuousScroll && host.activeWebView === view)
+                follow = ttsFollowEnabled && continuousScroll && ttsCurrentSentence != ttsManualResumeSentence &&
+                    host.activeWebView === view)
             view.postInvalidateOnAnimation()
+        }
+    }
+
+    LaunchedEffect(ttsViewportGeneration, continuousScroll, ttsCurrentSentence, chapterIndex,
+        loadedChapter.value, readyChapter.value, pageTurnHostState.value) {
+        if (!continuousScroll) return@LaunchedEffect
+        val generation = ttsViewportGeneration ?: return@LaunchedEffect
+        val sentence = ttsCurrentSentence ?: return@LaunchedEffect
+        val host = pageTurnHostState.value ?: return@LaunchedEffect
+        val view = host.activeWebView ?: return@LaunchedEffect
+        val url = view.url.orEmpty().substringBefore('#')
+        val activeChapter = session.chapterIndexForUrl(url) ?: return@LaunchedEffect
+        if (activeChapter != chapterIndex) return@LaunchedEffect
+        if (activeChapter != sentence.chapterIndex) {
+            latestTtsVisibility.value(generation, sentence, false)
+            return@LaunchedEffect
+        }
+        repeat(6) {
+            val visible = suspendCancellableCoroutine<Boolean?> { continuation ->
+                view.evaluateJavascript(
+                    "window.LumiReader&&window.LumiReader.isTtsRangeVisible(${sentence.startOffset},${sentence.endOffset});"
+                ) { result ->
+                    if (continuation.isActive) continuation.resume(when (result) {
+                        "true" -> true
+                        "false" -> false
+                        else -> null
+                    })
+                }
+            }
+            if (host.activeWebView !== view || view.url.orEmpty().substringBefore('#') != url) return@LaunchedEffect
+            if (visible != null) {
+                latestTtsVisibility.value(generation, sentence, visible)
+                return@LaunchedEffect
+            }
+            withFrameNanos { }
         }
     }
 
@@ -3629,6 +3840,10 @@ internal fun EpubWebViewReader(
         }
     }
 }
+
+internal fun epubTextZoom(fontSizeSp: Float, layout: EpubRenditionLayout): Int =
+    if (layout == EpubRenditionLayout.PRE_PAGINATED) 100
+    else ((fontSizeSp / 16f) * 100f).toInt().coerceIn(50, 300)
 
 internal fun usesNativeEpubPageTurn(
     session: BookRenderSession,
@@ -3814,13 +4029,15 @@ internal fun configureReader(
     marginRightDp: Float,
     marginBottomDp: Float,
     marginLeftDp: Float,
-    notes: List<Note>,
-    ruleFontUrls: Map<String, String> = emptyMap(),
+    notes: List<Note>?,
+    ruleFonts: Map<String, EpubRuleFont> = emptyMap(),
+    annotationStyle: ReaderAnnotationStyle,
     locatorRequest: EpubLocatorRequest?,
     pageRequest: EpubPageRequest?,
     preparePageRequest: Boolean = false,
     backgroundImageOpacity: Float = 1f,
     backgroundImageBlurDp: Float = 0f,
+    backgroundInHost: Boolean = false,
     onConfigured: ((Boolean) -> Unit)? = null
 ): Boolean {
     val progression = when (session.pageProgressionDirection(chapterIndex)) {
@@ -3870,6 +4087,7 @@ internal fun configureReader(
         .put("chineseTarget", chineseMapping?.second.orEmpty())
         .putOpt("fontFamily", fontFamily)
         .putOpt("fontUrl", readerFontUrl)
+        .put("fontWeightDescriptor", epubReaderFontWeightDescriptor(fontFilePath))
         .put("fontSystemSerifFallback", fontType == "serif")
         .putOpt("fontItalicUrl", if (fontType == "serif" && fontFilePath != null)
             session.readerFontUrl(java.io.File(java.io.File(fontFilePath).parentFile,
@@ -3890,6 +4108,7 @@ internal fun configureReader(
         )
         // 图片背景不能在文档层铺底色（会盖住 WebView 下方的图片层）
         .put("backgroundImage", readerBackgroundHasImage)
+        .put("backgroundInHost", backgroundInHost)
         .putOpt("backgroundUrl", readerBackgroundUrl)
         .put("backgroundImageOpacity", backgroundImageOpacity.coerceIn(0f, 1f))
         .put("backgroundImageBlurDp", backgroundImageBlurDp.coerceIn(0f, 40f))
@@ -3906,6 +4125,12 @@ internal fun configureReader(
         .put("longPressSelectionRange", longPressSelectionRange.storageKey)
         .put("canTurnPrevious", chapterIndex > 0)
         .put("canTurnNext", chapterIndex + 1 < session.chapterCount)
+        .put("scrollViewportInsets", JSONObject()
+            .put("top", if (continuousScroll) marginTopDp.coerceAtLeast(0f) else 0f)
+            .put("bottom", if (continuousScroll) marginBottomDp.coerceAtLeast(0f) else 0f))
+        .put("scrollViewportBackgroundColor", "#" +
+            (((view.parent as? EpubPageTurnHost)?.viewportBackgroundColor ?: android.graphics.Color.WHITE)
+                and 0x00ffffff).toString(16).padStart(6, '0'))
         .put(
             "insets",
             JSONObject()
@@ -3953,6 +4178,13 @@ internal fun configureReader(
             append(config.toString())
             append(");")
         }
+        if (notes != null) {
+            append("window.LumiReader.setHighlights(")
+            append(highlightsJson(notes, ruleFonts).toString())
+            append(",")
+            append(annotationGeometryJson(annotationStyle).toString())
+            append(");")
+        }
         val locatorCommand = locatorRequest?.takeIf { it.chapterIndex == chapterIndex }
             ?.let { "locator:${it.token}" } ?: "initialRestore"
         if (locator != null && lifecycle.issueCommand(locatorCommand)) {
@@ -3986,9 +4218,7 @@ internal fun configureReader(
                 append(");")
             }
         }
-        append("window.LumiReader.setHighlights(")
-        append(highlightsJson(notes, ruleFontUrls).toString())
-        append(");window.LumiReader.reportLayoutStatus();return 'ok';}catch(e){return 'execution_error';}})();")
+        append("window.LumiReader.reportLayoutStatus();return 'ok';}catch(e){return 'execution_error';}})();")
     }
     view.evaluateConfiguration(
         script,
@@ -4077,9 +4307,11 @@ internal suspend fun requestPageText(
 internal fun applyHighlights(
     view: WebView,
     notes: List<Note>,
-    ruleFontUrls: Map<String, String> = emptyMap()
+    ruleFonts: Map<String, EpubRuleFont>,
+    annotationStyle: ReaderAnnotationStyle
 ) {
-    val script = "window.LumiReader&&window.LumiReader.setHighlights(${highlightsJson(notes, ruleFontUrls)});"
+    val script = "window.LumiReader&&window.LumiReader.setHighlights(" +
+        "${highlightsJson(notes, ruleFonts)},${annotationGeometryJson(annotationStyle)});"
     if (view is EpubContentWebView) view.evaluateVisualUpdate("highlights", script)
     else view.evaluateJavascript(script, null)
 }
@@ -4102,9 +4334,17 @@ internal fun applyTtsHighlight(
     else view.evaluateJavascript(command, null)
 }
 
+/** 笔记高亮/划线几何（CSS px 与 dp 等价），只用于重绘高亮层，不参与排版 key。 */
+internal fun annotationGeometryJson(style: ReaderAnnotationStyle): JSONObject = JSONObject()
+    .put("highlightWidth", style.highlightWidthDp.toDouble())
+    .put("highlightHeight", style.highlightHeightDp.toDouble())
+    .put("highlightOffset", style.highlightOffsetYDp.toDouble())
+    .put("underlineThickness", style.underlineThicknessDp.toDouble())
+    .put("underlineOffset", style.underlineOffsetYDp.toDouble())
+
 internal fun highlightsJson(
     notes: List<Note>,
-    ruleFontUrls: Map<String, String> = emptyMap()
+    ruleFonts: Map<String, EpubRuleFont> = emptyMap()
 ): JSONArray = JSONArray().apply {
     notes.filterNot { it.isStale }.forEach { note ->
         val item = JSONObject().put("exact", note.selectedText).put("color", note.color.toCssColor()).put("type", note.type)
@@ -4118,18 +4358,23 @@ internal fun highlightsJson(
                 put("underlineMode", style.underlineMode)
                 put("fontWeight", style.fontWeight)
                 put("italic", style.italic)
+                val font = ruleFonts[style.fontType]
                 val fontFamily = when {
-                    style.fontType == "serif" -> "serif"
+                    style.fontType == "serif" -> if (font != null) "LumiRuleSerif" else "serif"
                     style.fontType == "sans_serif" -> "sans-serif"
                     style.fontType == "monospace" -> "monospace"
+                    font == null -> null
                     style.fontType == "fangsong" -> "LumiRuleFangSong"
                     style.fontType == "kaiti" -> "LumiRuleKaiTi"
-                    style.fontType.startsWith("custom:") && ruleFontUrls[style.fontType] != null ->
+                    style.fontType.startsWith("custom:") ->
                         "LumiRule_${style.fontType.removePrefix("custom:")}"
                     else -> null
                 }
                 fontFamily?.let { put("fontFamily", it) }
-                ruleFontUrls[style.fontType]?.let { put("fontUrl", it) }
+                if (fontFamily != null && font != null) {
+                    put("fontUrl", font.url)
+                    put("fontWeightDescriptor", font.weightDescriptor)
+                }
             })
         }
         note.startLocatorJson?.let { json ->

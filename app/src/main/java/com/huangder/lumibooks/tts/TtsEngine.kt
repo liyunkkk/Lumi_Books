@@ -65,7 +65,8 @@ enum class TtsProsodySetting { RATE, PITCH }
 
 class TtsEngine internal constructor(
     context: Context,
-    private val localAudioPlayer: SystemTtsAudioPlayer
+    private val localAudioPlayer: SystemTtsAudioPlayer,
+    private val nativeMediaRouting: NativeTtsMediaRouting = NativeTtsMediaRouting(context)
 ) : AndroidTtsPlaybackEngine {
     constructor(@ApplicationContext context: Context) : this(context, SystemTtsAudioPlayer())
     override val isExternal: Boolean = false
@@ -76,6 +77,10 @@ class TtsEngine internal constructor(
         private const val RETRY_DELAY_MS = 180L
         private const val SYNTHESIS_STALL_TIMEOUT_MS = 10_000L
         private const val MAX_PREFETCH_BYTES = 8 * 1024 * 1024
+        // Keep several sentences inside the engine's own queue so it can synthesize ahead.
+        // With a single successor, every sentence boundary waited for Lumi to wake up and
+        // submit the next one; slow background scheduling or online voices left audible gaps.
+        private const val NATIVE_QUEUE_DEPTH = 3
     }
 
     private val appContext = context.applicationContext
@@ -96,6 +101,9 @@ class TtsEngine internal constructor(
         var playbackStarted = false
         var playbackDone = false
         var bufferedBytes = 0
+        var pcmBytes = 0L
+        var hasEngineRanges = false
+        var estimatedRangesScheduled = false
         var lastProgressMs = SystemClock.elapsedRealtime()
         val requestedAtMs = lastProgressMs
         var playbackRequestedAtMs = lastProgressMs
@@ -118,12 +126,13 @@ class TtsEngine internal constructor(
         var terminal = false
     }
     private var nativeCurrent: NativeUtterance? = null
-    private var nativeNext: NativeUtterance? = null
+    /** Submitted to the engine after [nativeCurrent], in playback order. */
+    private val nativeQueue = ArrayDeque<NativeUtterance>()
     private var lastNativeDoneMs: Long? = null
     // MultiTTS ties its background music to synthesis activity. File synthesis and speculative
     // prefetch finish before audible playback, so let Android pace its output instead.
     private val usesNativePlayback: Boolean
-        get() = enginePackageName == "org.nobody.multitts"
+        get() = isNativePlaybackTtsEngine(enginePackageName)
     private var pendingSpeechRate: Float? = null
     private var pendingPitch: Float? = null
     private val speechAudioAttributes = AudioAttributes.Builder()
@@ -204,14 +213,21 @@ class TtsEngine internal constructor(
                 null
             } ?: return@forEachIndexed
 
-            val chosenLocale = if (requestedPackage == null) {
+            val resolvedPackage = packageName ?: runCatching { created.defaultEngine }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+            // MultiTTS exposes the speaker chosen in its own app; setLanguage() would replace
+            // it with a language default that may only produce background sound.
+            val managesLocale = requestedPackage == null &&
+                !isNativePlaybackTtsEngine(resolvedPackage)
+            val chosenLocale = if (managesLocale) {
                 withContext(Dispatchers.Main.immediate) {
                     selectSupportedLocale(created, locale)
                 }
             } else {
                 null
             }
-            if (requestedPackage == null && chosenLocale == null) {
+            if (managesLocale && chosenLocale == null) {
                 lastFailure = SystemTtsException.LanguageUnavailable(locale)
                 Log.w(
                     TAG,
@@ -242,9 +258,7 @@ class TtsEngine internal constructor(
                 return@withLock Result.failure(prosodyFailure)
             }
             engine = created
-            enginePackageName = packageName ?: runCatching { created.defaultEngine }
-                .getOrNull()
-                ?.takeIf { it.isNotBlank() }
+            enginePackageName = resolvedPackage
             initializedRequestPackageName = requestedPackage
             selectedLocale = chosenLocale
             _engineStatus.value = TtsEngineStatus.READY
@@ -360,16 +374,20 @@ class TtsEngine internal constructor(
 
     override val supportsQueuedPlayback: Boolean get() = usesNativePlayback
 
+    override val maxQueuedUtterances: Int
+        get() = if (usesNativePlayback) NATIVE_QUEUE_DEPTH else 1
+
     override suspend fun queueNext(text: String, utteranceId: String): Result<Unit> =
         withContext(Dispatchers.Main.immediate) {
             runCatching {
-                check(usesNativePlayback && nativeCurrent != null && nativeNext == null)
+                check(usesNativePlayback && nativeCurrent != null &&
+                    nativeQueue.size < NATIVE_QUEUE_DEPTH)
                 val next = NativeUtterance(text, utteranceId)
-                nativeNext = next
+                nativeQueue.addLast(next)
                 try {
                     submitNative(next)
                 } catch (error: Throwable) {
-                    nativeNext = null
+                    nativeQueue.remove(next)
                     throw error
                 }
             }
@@ -580,6 +598,7 @@ class TtsEngine internal constructor(
             override fun onStart(utteranceId: String?) {
                 val startedAt = SystemClock.elapsedRealtime()
                 postNativeCallback(utteranceId, starting = true) { id ->
+                    nativeMediaRouting.start()
                     logNativePlayback("native_playback_started", id, extra = mapOf(
                         "startedAtMs" to startedAt,
                         "gapMs" to lastNativeDoneMs?.let { (startedAt - it).coerceAtLeast(0L) }))
@@ -594,6 +613,8 @@ class TtsEngine internal constructor(
                     nativeUtteranceId = null
                     nativeCurrent = null
                     lastNativeDoneMs = doneAt
+                    // Natural sentence completion must not rearm the one-shot routing clip.
+                    // The clip releases itself; explicit pause/stop/engine changes reset it.
                     logNativePlayback("native_playback_done", id, extra = mapOf("doneAtMs" to doneAt))
                     playbackListener?.onPlaybackActivity(id, false)
                     playbackListener?.onDone(id)
@@ -636,6 +657,7 @@ class TtsEngine internal constructor(
                 val ownedAudio = audio.copyOf()
                 postSynthesisCallback(utteranceId) { task ->
                     if (task.finished || ownedAudio.isEmpty()) return@postSynthesisCallback
+                    task.pcmBytes += ownedAudio.size
                     if (task === activeSynthesis && task.playbackStarted) {
                         localAudioPlayer.append(ownedAudio)
                     } else {
@@ -653,6 +675,7 @@ class TtsEngine internal constructor(
             override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
                 postNativeCallback(utteranceId) { id -> playbackListener?.onRangeStart(id, start, end) }
                 postSynthesisCallback(utteranceId) { task ->
+                    task.hasEngineRanges = true
                     if (task === activeSynthesis && task.playbackStarted) {
                         scheduleRange(task, start, end, frame)
                     } else task.ranges += Triple(start, end, frame)
@@ -753,16 +776,16 @@ class TtsEngine internal constructor(
     private var playbackListener: TtsPlaybackListener? = null
 
     private fun speakNative(text: String, utteranceId: String): Result<Unit> = runCatching {
-        val prepared = nativeNext?.takeIf { it.id == utteranceId && it.text == text }
+        val prepared = nativeQueue.firstOrNull()?.takeIf { it.id == utteranceId && it.text == text }
         if (prepared != null) {
-            nativeNext = null
+            nativeQueue.removeFirst()
             nativeCurrent = prepared
             nativeUtteranceId = utteranceId
             logNativePlayback("native_queue_adopted", utteranceId)
             prepared.callbacks.toList().forEach { it() }
             prepared.callbacks.clear()
         } else {
-            if (nativeCurrent != null || nativeNext != null) stopNativePlayback()
+            if (nativeCurrent != null || nativeQueue.isNotEmpty()) stopNativePlayback()
             val task = NativeUtterance(text, utteranceId)
             nativeCurrent = task
             nativeUtteranceId = utteranceId
@@ -776,7 +799,7 @@ class TtsEngine internal constructor(
 
     private fun submitNative(task: NativeUtterance) {
         // QUEUE_FLUSH calls the engine's stop hook even at a natural sentence boundary.
-        // Keep the native stream alive while the controller keeps one successor queued.
+        // Keep the native stream alive while the controller keeps its successors queued.
         val result = try {
             engine!!.speak(task.text, TextToSpeech.QUEUE_ADD, Bundle(), task.id)
         } catch (error: Throwable) {
@@ -786,14 +809,16 @@ class TtsEngine internal constructor(
             throw SystemTtsException.Playback(result)
         }
         logNativePlayback("native_playback_requested", task.id, extra = mapOf(
-            "queued" to (task === nativeNext), "requestedAtMs" to SystemClock.elapsedRealtime()))
+            "queued" to (task !== nativeCurrent), "queueSize" to nativeQueue.size,
+            "requestedAtMs" to SystemClock.elapsedRealtime()))
     }
 
     private fun stopNativePlayback() {
+        nativeMediaRouting.stop()
         val id = nativeUtteranceId
         nativeUtteranceId = null // Invalidate callbacks before stop can deliver onStop/onDone.
         nativeCurrent = null
-        nativeNext = null
+        nativeQueue.clear()
         lastNativeDoneMs = null
         id?.let { playbackListener?.onPlaybackActivity(it, false) }
         engine?.stop()
@@ -805,7 +830,7 @@ class TtsEngine internal constructor(
     ) {
         mainHandler.post {
             val task = nativeCurrent?.takeIf { it.id == utteranceId }
-                ?: nativeNext?.takeIf { it.id == utteranceId } ?: return@post
+                ?: nativeQueue.firstOrNull { it.id == utteranceId } ?: return@post
             if (task.terminal || (starting && task.started)) return@post
             if (starting) task.started = true
             if (terminal) task.terminal = true
@@ -838,7 +863,28 @@ class TtsEngine internal constructor(
             prepareBufferedAudio(task)
             beginLocalPlayback(task)
         }
+        scheduleEstimatedClauseRanges(task)
         localAudioPlayer.finish()
+    }
+
+    /** File-synthesis engines often omit range callbacks. Estimate clauses from rendered PCM;
+     * real engine timestamps always take precedence, including callbacks arriving later. */
+    private fun scheduleEstimatedClauseRanges(task: Synthesis) {
+        if (task.hasEngineRanges || task.estimatedRangesScheduled) return
+        val frameBytes = SystemTtsAudioPlayer.PcmFormat(task.sampleRate, task.encoding, task.channels).frameBytes
+        if (frameBytes <= 0 || task.pcmBytes <= 0 || task.text.isEmpty()) return
+        task.estimatedRangesScheduled = true
+        val frames = task.pcmBytes / frameBytes
+        TtsTextExtractor().splitIntoClauses(TtsTextSegment(task.text, 0, task.text.length)).forEach { clause ->
+            val frame = frames * clause.startCharacterOffset / task.text.length
+            localAudioPlayer.scheduleRange(frame) {
+                if (task === activeSynthesis && !task.playbackDone && !task.hasEngineRanges) {
+                    task.playbackId?.let {
+                        playbackListener?.onRangeStart(it, clause.startCharacterOffset, clause.endCharacterOffset)
+                    }
+                }
+            }
+        }
     }
 
     private fun prepareBufferedAudio(task: Synthesis) {
@@ -852,6 +898,7 @@ class TtsEngine internal constructor(
         task.chunks.clear()
         task.chunks += decoded.pcm
         task.bufferedBytes = decoded.pcm.size
+        task.pcmBytes = decoded.pcm.size.toLong()
     }
 
     private fun failLocalSynthesis(task: Synthesis, error: Throwable) {
@@ -871,6 +918,7 @@ class TtsEngine internal constructor(
     }
 
     private fun stopLocalSynthesis(stopEngine: Boolean = true) {
+        nativeMediaRouting.stop()
         synthesisWatchdog?.let(mainHandler::removeCallbacks)
         synthesisWatchdog = null
         synthesisTasks.values.toList().forEach(::discardSynthesis)
@@ -882,7 +930,7 @@ class TtsEngine internal constructor(
         nativeUtteranceId?.let { playbackListener?.onPlaybackActivity(it, false) }
         nativeUtteranceId = null
         nativeCurrent = null
-        nativeNext = null
+        nativeQueue.clear()
         lastNativeDoneMs = null
         if (stopEngine) engine?.stop()
     }
@@ -937,6 +985,13 @@ class TtsEngine internal constructor(
         _engineStatus.value = TtsEngineStatus.UNINITIALIZED
     }
 }
+
+private const val MULTITTS_PACKAGE = "org.nobody.multitts"
+
+/** Engines whose speech must go through native speak(): MultiTTS ties its background audio
+ * and speaker selection to its own playback pipeline. */
+internal fun isNativePlaybackTtsEngine(packageName: String?): Boolean =
+    packageName == MULTITTS_PACKAGE
 
 internal object TtsLocaleResolver {
     fun shouldManageLocale(requestedEnginePackageName: String?): Boolean =

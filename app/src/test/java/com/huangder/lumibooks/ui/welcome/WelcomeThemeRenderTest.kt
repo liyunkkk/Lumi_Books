@@ -9,6 +9,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.Density
@@ -59,17 +60,18 @@ class WelcomeThemeRenderTest {
                         onFinished = {},
                         onOpenSponsor = {},
                         onLanguageSetupComplete = { _, _ -> },
-                        onEnableLiquidGlass = { error("An update must not offer theme setup") }
+                        appThemeOptions = listOf("liquid_glass", "lumi", "material3")
                     )
                 }
             }
         }
         compose.onNodeWithText(context.getString(R.string.welcome_start_using)).performClick()
+        compose.onNodeWithTag("welcome-story-next").performClick()
+        compose.onNodeWithTag("welcome-story-next").performClick()
+        compose.onNodeWithText(context.getString(R.string.welcome_story_stats_title)).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.welcome_continue)).assertIsDisplayed()
+        compose.onNodeWithTag("welcome-story-next").performClick()
         compose.onNodeWithText(context.getString(R.string.welcome_support_title)).assertIsDisplayed()
-        for (title in listOf(R.string.welcome_excerpt_title, R.string.welcome_g2_title, R.string.welcome_dictionary_title)) {
-            compose.onNodeWithText(context.getString(title)).assertDoesNotExist()
-        }
-        compose.onNodeWithText(context.getString(R.string.welcome_enable_liquid_glass)).assertDoesNotExist()
         val finish = compose.onNodeWithText(context.getString(R.string.welcome_start_using)).assertIsDisplayed()
         val bounds = finish.fetchSemanticsNode().boundsInRoot
         assertTrue("Navigation must stay on screen", bounds.bottom <= view.height)

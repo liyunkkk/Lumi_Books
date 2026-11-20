@@ -1,8 +1,18 @@
 package com.huangder.lumibooks.ui.reader
 
 import android.content.Context
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import com.huangder.lumibooks.R
+import com.huangder.lumibooks.domain.model.CustomFontPreset
+import com.huangder.lumibooks.domain.model.Note
+import com.huangder.lumibooks.highlight.RuleStyleJson
 import com.huangder.lumibooks.util.DownloadedFonts
+import com.huangder.lumibooks.util.epub.BookRenderSession
+import com.huangder.lumibooks.ui.reader.engine.readerFileFont
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -12,6 +22,47 @@ internal data class PreparedEpubReaderFont(
     val customFontPath: String?,
     val resolvedPath: String?
 )
+
+internal data class EpubRuleFont(val url: String, val weightDescriptor: String = "400")
+
+/** Static faces must stay regular so Chromium can synthesize a requested bold weight. */
+internal fun epubReaderFontWeightDescriptor(path: String?): String {
+    val range = path?.let { readerFileFont(File(it)).weightRange } ?: return "400"
+    return "${range.start} ${range.endInclusive}"
+}
+
+/** Rule fonts must also be available when the body keeps the publisher's font. */
+@Composable
+internal fun rememberEpubRuleFonts(
+    session: BookRenderSession,
+    notes: List<Note>,
+    customFonts: List<CustomFontPreset>
+): Map<String, EpubRuleFont> {
+    val context = LocalContext.current
+    val fontTypes = remember(notes) {
+        notes.asSequence().filterNot { it.isStale }
+            .mapNotNull { RuleStyleJson.decode(it.styleSnapshotJson)?.fontType }
+            .filter { it.isNotBlank() }.toSet()
+    }
+    val fonts by produceState(emptyMap<String, EpubRuleFont>(), session, fontTypes, customFonts) {
+        value = prepareEpubRuleFonts(context, session, fontTypes, customFonts)
+    }
+    return fonts
+}
+
+internal suspend fun prepareEpubRuleFonts(
+    context: Context,
+    session: BookRenderSession,
+    fontTypes: Set<String>,
+    customFonts: List<CustomFontPreset>
+): Map<String, EpubRuleFont> = withContext(Dispatchers.IO) {
+    fontTypes.mapNotNull { type ->
+        val path = prepareEpubReaderFontPath(context, type, customFonts.firstOrNull { it.fontTypeKey == type }?.path)
+        session.readerFontUrl(path)?.let { url ->
+            type to EpubRuleFont(url, epubReaderFontWeightDescriptor(path))
+        }
+    }.toMap()
+}
 
 internal suspend fun prepareEpubReaderFontPath(
     context: Context,
@@ -34,6 +85,8 @@ internal suspend fun prepareEpubReaderFontPath(
     }
 }
 
+// Body and rule font preparation can run concurrently against the same cache file.
+@Synchronized
 private fun copyBundledReaderFont(context: Context, resourceId: Int, fileName: String): String? {
     val directory = File(context.cacheDir, "epub_reader_fonts").apply { mkdirs() }
     val target = File(directory, fileName)
@@ -56,6 +109,7 @@ private fun copyBundledReaderFont(context: Context, resourceId: Int, fileName: S
 }
 
 /** 将已下载的字体源文件原子写入 EPUB 渲染缓存目录（.tmp + rename）。 */
+@Synchronized
 private fun copyReaderFontFile(context: Context, source: File, fileName: String): String? {
     val directory = File(context.cacheDir, "epub_reader_fonts").apply { mkdirs() }
     val target = File(directory, fileName)

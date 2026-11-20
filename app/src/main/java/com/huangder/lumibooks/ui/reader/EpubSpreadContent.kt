@@ -78,12 +78,16 @@ internal data class EpubSpreadCallbacks(
     val image: () -> Unit,
     val bookmarkStart: () -> Unit,
     val bookmarkProgress: (Float, Boolean) -> Unit,
-    val bookmarkFinish: (Boolean) -> Unit
+    val bookmarkFinish: (Boolean) -> Unit,
+    val bookEnd: () -> Unit = {},
+    val bookEndPull: (Float) -> Unit = {},
+    val bookEndPullEnd: (Boolean) -> Unit = {}
 )
 
 @Composable
 internal fun EpubSpreadContent(
     session: BookRenderSession,
+    backgroundPreparationEnabled: Boolean = true,
     chapterIndex: Int,
     appearance: EpubSpreadAppearance,
     restoreLocatorJson: String?,
@@ -94,6 +98,8 @@ internal fun EpubSpreadContent(
     pageTransitionDurationMs: Int,
     edgeTapMode: ReaderEdgeTapMode,
     notes: List<Note>,
+    ruleHighlights: EpubRuleHighlightCache?,
+    annotationStyle: com.huangder.lumibooks.ui.reader.engine.ReaderAnnotationStyle,
     ttsCurrentSentence: TtsSentencePosition?,
     ttsHighlightColor: Int,
     ttsFollowEnabled: Boolean,
@@ -116,6 +122,8 @@ internal fun EpubSpreadContent(
     val latest = rememberUpdatedState(callbacks)
     val latestAppearance = rememberUpdatedState(appearance)
     val latestNotes = rememberUpdatedState(notes)
+    val latestRuleHighlights = rememberUpdatedState(ruleHighlights)
+    val latestAnnotationStyle = rememberUpdatedState(annotationStyle)
     val latestTts = rememberUpdatedState(ttsCurrentSentence)
     val latestTtsColor = rememberUpdatedState(ttsHighlightColor)
     val latestRestoreInclusive = rememberUpdatedState(restoreProgressionInclusive)
@@ -131,11 +139,7 @@ internal fun EpubSpreadContent(
         appearance.fontPath?.let { java.io.File(it).let { file -> file.length() to file.lastModified() } }
     ).joinToString("|")
     val latestSignature = rememberUpdatedState(signature)
-    val ruleFonts = remember(session, appearance.customFonts) {
-        appearance.customFonts.mapNotNull { font ->
-            session.readerFontUrl(font.path)?.let { font.fontTypeKey to it }
-        }.toMap()
-    }
+    val ruleFonts = rememberEpubRuleFonts(session, notes, appearance.customFonts)
     val latestRuleFonts = rememberUpdatedState(ruleFonts)
     val initial = remember(session) {
         EpubNavigationRequest(Long.MIN_VALUE, EpubNavigationOrigin.RETURN_TO_SOURCE,
@@ -159,8 +163,14 @@ internal fun EpubSpreadContent(
     var lastSearch by remember(session) { mutableStateOf<Int?>(null) }
     val latestSearch = rememberUpdatedState(searchRequest)
 
+    fun notesForChapter(chapter: Int) = epubNotesWithRules(latestNotes.value, latestRuleHighlights.value, chapter)
+    fun fontsForHighlights() = latestRuleFonts.value + latestRuleHighlights.value?.fontsByType.orEmpty()
+
     fun decorate(view: EpubContentWebView, chapter: Int) {
-        applyHighlights(view, epubNotesForChapter(latestNotes.value, chapter), latestRuleFonts.value)
+        val rules = latestRuleHighlights.value
+        if (rules == null || rules.notes(chapter) != null) {
+            applyHighlights(view, notesForChapter(chapter), fontsForHighlights(), latestAnnotationStyle.value)
+        }
         applyTtsHighlight(view, chapter, latestTts.value, latestTtsColor.value, false)
         view.evaluateVisualUpdate("images", epubImageAdjustmentScript(latestAppearance.value.images))
     }
@@ -169,11 +179,13 @@ internal fun EpubSpreadContent(
         AndroidView(modifier = Modifier.fillMaxSize(), factory = { viewContext ->
             if (com.huangder.lumibooks.BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
             EpubSpreadTurnHost(viewContext).apply {
+                deferChapterConfiguration = { view, chapter, resume ->
+                    view.deferForRuleHighlights(scope, latestRuleHighlights, chapter, resume)
+                }
                 configureReader = { view, request ->
                     val a = latestAppearance.value
                     val chapter = request.target.chapterIndex
-                    view.settings.textZoom = if (session.renditionLayout(chapter) == EpubRenditionLayout.PRE_PAGINATED) 100
-                        else ((a.fontSize / 16f) * 100f).toInt().coerceIn(50, 300)
+                    view.settings.textZoom = epubTextZoom(a.fontSize, session.renditionLayout(chapter))
                     val destination = request.destination
                     com.huangder.lumibooks.ui.reader.configureReader(
                         view = view, paginationSignature = latestSignature.value,
@@ -197,7 +209,8 @@ internal fun EpubSpreadContent(
                         edgeTapMode = edgeTapMode, longPressSelectionRange = a.selectionRange,
                         marginTopDp = a.top, marginRightDp = a.right,
                         marginBottomDp = a.bottom, marginLeftDp = a.left,
-                        notes = epubNotesForChapter(latestNotes.value, chapter), ruleFontUrls = latestRuleFonts.value,
+                        notes = notesForChapter(chapter), ruleFonts = fontsForHighlights(),
+                        annotationStyle = latestAnnotationStyle.value,
                         locatorRequest = (destination as? EpubNavigationDestination.Locator)?.let {
                             EpubLocatorRequest(request.documentGeneration, chapter, it.json)
                         },
@@ -212,7 +225,8 @@ internal fun EpubSpreadContent(
                         preparePageRequest = destination is EpubNavigationDestination.ChapterStart ||
                             destination is EpubNavigationDestination.Page && destination.chapterFraction == null,
                         backgroundImageOpacity = a.backgroundOpacity,
-                        backgroundImageBlurDp = a.backgroundBlur
+                        backgroundImageBlurDp = a.backgroundBlur,
+                        backgroundInHost = a.backgroundPath != null
                     )
                     decorate(view, chapter)
                 }
@@ -236,6 +250,9 @@ internal fun EpubSpreadContent(
                 onNavigationStage = { request, stage -> latest.value.navigationStage(request.operationId, stage) }
                 onFailure = { latest.value.failure(it) }
                 onManualTurnStarted = { latest.value.manual() }
+                onBookEnd = { latest.value.bookEnd() }
+                onBookEndPull = { latest.value.bookEndPull(it) }
+                onBookEndPullEnd = { latest.value.bookEndPullEnd(it) }
                 onBookmarkPullStart = { latest.value.bookmarkStart() }
                 onBookmarkPullProgress = { distance, armed -> latest.value.bookmarkProgress(distance, armed) }
                 onBookmarkPullFinished = { latest.value.bookmarkFinish(it) }
@@ -291,6 +308,9 @@ internal fun EpubSpreadContent(
                 host = this
             }
         }, update = { view ->
+            view.backgroundPreparationEnabled = backgroundPreparationEnabled
+            view.setReaderBackground(appearance.backgroundColor, appearance.backgroundPath,
+                appearance.backgroundOpacity, appearance.backgroundBlur)
             view.selectionMenuVisible = selectionMenuVisible
             view.bookmarkPullEnabled = bookmarkPullEnabled
             view.update(session, signature, externalRequest, pageTransition, pageTransitionDurationMs,
@@ -307,7 +327,9 @@ internal fun EpubSpreadContent(
     LaunchedEffect(signature) {
         if (viewport.first > 0 && viewport.second > 0) latest.value.signature(signature)
     }
-    LaunchedEffect(notes, ttsCurrentSentence, ttsHighlightColor, ttsFollowEnabled, appearance.images, host) {
+    val preparedRuleNotes = ruleHighlights?.preparedNotes()
+    LaunchedEffect(notes, preparedRuleNotes, annotationStyle, ruleFonts, ttsCurrentSentence, ttsHighlightColor, ttsFollowEnabled,
+        appearance.images, host) {
         host?.allWebViews()?.forEach { view ->
             session.chapterIndexForUrl(view.url.orEmpty())?.let { decorate(view, it) }
         }

@@ -90,6 +90,11 @@ class WelcomeActivity : ComponentActivity() {
             startMainActivity(splashEnabled)
             return
         }
+        if (!isDebugWelcomePreview && !installState.isUpdate) {
+            // A first install starts on Liquid Glass; the theme flow below picks it up live, so the
+            // welcome pages already render in glass. Upgrades keep whatever the user had.
+            lifecycleScope.launch { dataStoreManager.applyFreshInstallDefaults() }
+        }
 
         setContent {
             val appTheme by dataStoreManager.appTheme.collectAsState(initial = launchTheme.appTheme)
@@ -168,6 +173,10 @@ class WelcomeActivity : ComponentActivity() {
                                         startMainActivity(splashEnabled)
                                     } else {
                                         lifecycleScope.launch {
+                                            dataStoreManager.acceptPolicyVersions(
+                                                terms = com.huangder.lumibooks.ui.settings.BundledPolicy.TERMS.version,
+                                                privacy = com.huangder.lumibooks.ui.settings.BundledPolicy.PRIVACY.version
+                                            )
                                             dataStoreManager.completeWelcomeFlow(installState.installMarker)
                                             startMainActivity(splashEnabled)
                                         }
@@ -190,9 +199,16 @@ class WelcomeActivity : ComponentActivity() {
                                 },
                                 startOnIntroduction = isDebugPolicyPreview,
                                 startOnSupport = isDebugSupportPreview,
-                                onEnableLiquidGlass = {
-                                    lifecycleScope.launch {
-                                        dataStoreManager.enableLiquidGlassTheme()
+                                // Same availability rule as the theme setting in Display settings.
+                                appThemeOptions = if (eInkModeEnabled) emptyList() else buildList {
+                                    if (liquidGlassCapability.supported) add("liquid_glass")
+                                    add("lumi")
+                                    add("material3")
+                                },
+                                onSelectAppTheme = { theme ->
+                                    // Applied live: the theme flow above re-renders the welcome in it.
+                                    if (!isDebugWelcomePreview) {
+                                        lifecycleScope.launch { dataStoreManager.saveAppTheme(theme) }
                                     }
                                 }
                             )

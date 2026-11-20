@@ -38,19 +38,22 @@ class WavePageAnim(
         baseDurationMs = durationMs.coerceIn(1, 1000)
     }
 
+    override fun horizontalGestureX(x: Float): Float = x.coerceIn(0f, readView.width.toFloat())
+
     override fun onDraw(canvas: Canvas) {
+        resetChildViews()
         val width = readView.width
         val height = readView.height
-        if (width <= 0 || height <= 0 || direction == Direction.NONE ||
-            (!isRunning && !isDragging && !isFlipAnim)
-        ) return
+        if (width <= 0 || height <= 0 || (!isRunning && !isDragging && !isFlipAnim)) return
         ensureSnapshots(width, height, direction)
-        val oldPage = oldSnapshot ?: return
-        val newPage = newSnapshot ?: return
-        pageBounds.set(0, 0, width, height)
-
+        // The host may draw a spare preload underneath the sweep. Keep it
+        // covered when the drag returns to its origin or has no target bitmap.
         canvas.drawColor(readView.bgColor)
+        val oldPage = oldSnapshot ?: return
+        pageBounds.set(0, 0, width, height)
         drawSnapshot(canvas, oldPage)
+        if (direction == Direction.NONE) return
+        val newPage = newSnapshot ?: return
         val progress = ((touchX - startX) * horizontalTurnSign(direction) / width)
             .coerceIn(0f, 1f)
         if (progress >= 1f) {
@@ -67,6 +70,33 @@ class WavePageAnim(
             return
         }
         drawStripReveal(canvas, width, height, progress, band, overscan, sweepFromRight, newPage)
+    }
+
+    private fun resetChildViews() {
+        if (readView.animatePageViewsDirectly) return
+        // The saved transition can be applied before layout, when the host's
+        // initial offscreen offsets are zero. Alpha alone does not exclude a
+        // preload from touch dispatch. Keep live selection on the visible page,
+        // including idle frames and frames after the viewport changes size.
+        readView.curPageView.apply {
+            translationX = 0f
+            translationY = 0f
+            translationZ = 2f
+            alpha = 1f
+        }
+        val width = readView.width.toFloat()
+        readView.prevPageView.apply {
+            translationX = idleTranslationX(Direction.PREV, width)
+            translationY = 0f
+            translationZ = 0f
+            alpha = 0f
+        }
+        readView.nextPageView.apply {
+            translationX = idleTranslationX(Direction.NEXT, width)
+            translationY = 0f
+            translationZ = 0f
+            alpha = 0f
+        }
     }
 
     private fun drawStripReveal(
@@ -136,14 +166,15 @@ class WavePageAnim(
     }
 
     private fun ensureSnapshots(width: Int, height: Int, pageDirection: Direction) {
-        if (snapshotWidth == width && snapshotHeight == height && snapshotDirection == pageDirection &&
-            oldSnapshot != null && newSnapshot != null
+        if (snapshotWidth == width && snapshotHeight == height && oldSnapshot != null &&
+            (pageDirection == Direction.NONE || snapshotDirection == pageDirection && newSnapshot != null)
         ) return
         recycleSnapshots()
         snapshotWidth = width
         snapshotHeight = height
         snapshotDirection = pageDirection
         oldSnapshot = capture(readView.curPageView, width, height)
+        if (pageDirection == Direction.NONE) return
         val target = if (pageDirection == Direction.NEXT) readView.nextPageView else readView.prevPageView
         newSnapshot = capture(target, width, height)
         revealShader = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

@@ -1,17 +1,22 @@
 package com.huangder.lumibooks.util.parser
 
+import com.huangder.lumibooks.util.epub.writeEpub
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * Canvas 引擎（阅读器排版）注释气泡的识别与正文提取。
  * 与 WebView 版（EpubDocumentTransformer 注入 JS）的启发式保持一致。
  */
 class EpubFootnoteAnchorTest {
+    @get:Rule
+    val temporaryFolder = TemporaryFolder()
 
     private fun classify(openTag: String, inner: String) =
         EpubParser.isFootnoteAnchorTag(openTag, inner)
@@ -81,6 +86,56 @@ class EpubFootnoteAnchorTest {
                 "注释正文"
             )
         )
+    }
+
+    @Test
+    fun `numbered references open the note beyond the current TOC slice`() {
+        val href = "part.html#wzyy_1_17"
+        val reference = """<a id="wz_1_17" href="$href">"""
+        val backlink = """<a id="wzyy_1_17" href="part.html#wz_1_17">"""
+        assertTrue(classify(reference, "<sup>17</sup>"))
+        assertFalse(classify(backlink, "[17]"))
+        assertFalse(classify("""<a id="wz_1_18" href="$href">""", "<sup>18</sup>"))
+        assertFalse(classify("""<a href="part.html#next">""", "<sup>17</sup>"))
+
+        val file = temporaryFolder.newFile("numbered-note.epub")
+        writeEpub(file, mapOf(
+            "META-INF/container.xml" to """
+                <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                  <rootfiles><rootfile full-path="book.opf"/></rootfiles>
+                </container>
+            """.trimIndent(),
+            "book.opf" to """
+                <package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+                  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Notes</dc:title></metadata>
+                  <manifest>
+                    <item id="body" href="text/part.html" media-type="application/xhtml+xml"/>
+                    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+                  </manifest>
+                  <spine toc="ncx"><itemref idref="body"/></spine>
+                </package>
+            """.trimIndent(),
+            "toc.ncx" to """
+                <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>
+                  <navPoint id="first"><navLabel><text>First</text></navLabel><content src="text/part.html#first"/></navPoint>
+                  <navPoint id="next"><navLabel><text>Second</text></navLabel><content src="text/part.html#next"/></navPoint>
+                </navMap></ncx>
+            """.trimIndent(),
+            "text/part.html" to """
+                <html><body>
+                  <h2 id="first">First</h2><p>Read ${reference}<sup>17</sup></a> here.</p>
+                  <h2 id="next">Second</h2><p>${backlink}17</a> Note in the second TOC slice.</p>
+                </body></html>
+            """.trimIndent()
+        ))
+        val parser = EpubParser()
+        try {
+            parser.parse(file.absolutePath)
+            assertEquals(1, parser.resolveLink(0, "part.html#next")?.chapterIndex)
+            assertEquals("17 Note in the second TOC slice.", parser.resolveFootnoteText(0, href))
+        } finally {
+            parser.close()
+        }
     }
 
     @Test
@@ -154,6 +209,34 @@ class EpubFootnoteAnchorTest {
         assertNull(EpubParser.extractFootnoteElementText("<p>正文</p>", "nope"))
         assertNull(EpubParser.extractFootnoteElementText("""<p id="empty"></p>""", "empty"))
         assertNull(EpubParser.extractFootnoteElementText("<p>正文</p>", ""))
+    }
+
+    @Test
+    fun `full width duokan note artwork is not turned into an inline marker`() {
+        val html = """<a class="duokan-footnote" epub:type="noteref" href="#footnote_1">
+            <img src="puzzle.png" width="100%" class="duokan-image-static"/>
+            </a><p>Text<a epub:type="noteref" href="#fn2"><img src="icon.png" width="100%"/></a></p>"""
+        val (protectedHtml, markers) = EpubParser.protectInlineFootnoteImages(html)
+        assertEquals(1, markers.size)
+        assertTrue(markers.single().contains("icon.png"))
+        assertTrue(protectedHtml.contains("puzzle.png"))
+        val withBreaks = EpubParser.IMAGE_TAG_REGEX.replace(protectedHtml, "\n$0\n")
+        assertTrue(withBreaks.contains("\n<img src=\"puzzle.png\""))
+    }
+
+    @Test
+    fun `unclassed full width duokan answer images keep illustration breaks`() {
+        val html = """<a class="duokan-footnote" epub:type="noteref" href="#footnote_1">
+            <img src="006.png" width="100%"/></a>
+            <a class="duokan-footnote" epub:type="noteref" href="#footnote_2">
+            <img src="016.png" width="100%" style="duokan-bleed:leftright;"/></a>
+            <p>Text<a class="duokan-footnote" epub:type="noteref" href="#footnote_3">
+            <img src="icon.png" style="width:1em"/></a></p>"""
+        val (protectedHtml, markers) = EpubParser.protectInlineFootnoteImages(html)
+        assertEquals(1, markers.size)
+        assertTrue(markers.single().contains("icon.png"))
+        assertTrue(protectedHtml.contains("006.png"))
+        assertTrue(protectedHtml.contains("016.png"))
     }
 
     @Test

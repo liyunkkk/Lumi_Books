@@ -42,7 +42,8 @@ data class SyncBookMetadata(
     val isPinned: Boolean = false,
     /** Null when the sender predates the hidden library; receivers then keep their own value. */
     val isHidden: Boolean? = null,
-    val isArchived: Boolean? = null
+    val isArchived: Boolean? = null,
+    val wantToReadAt: Long? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("title", title)
@@ -54,6 +55,7 @@ data class SyncBookMetadata(
         put("isPinned", isPinned)
         isHidden?.let { put("isHidden", it) }
         isArchived?.let { put("isArchived", it) }
+        wantToReadAt?.let { put("wantToReadAt", it) }
     }
 
     companion object {
@@ -66,7 +68,8 @@ data class SyncBookMetadata(
             updatedAt = json.optLong("updatedAt", json.optLong("createdAt")),
             isPinned = json.optBoolean("isPinned", false),
             isHidden = if (json.has("isHidden")) json.optBoolean("isHidden") else null,
-            isArchived = if (json.has("isArchived")) json.optBoolean("isArchived") else null
+            isArchived = if (json.has("isArchived")) json.optBoolean("isArchived") else null,
+            wantToReadAt = if (json.has("wantToReadAt")) json.optLong("wantToReadAt") else null
         )
     }
 }
@@ -98,14 +101,33 @@ data class DeletedBookEntry(
  * Manifest stored at `{syncPath}/manifest.json` on the WebDAV server.
  * Used for fast diff — only transfer changed files.
  */
+data class SyncBookIdentity(val sha256: String, val format: String, val sizeBytes: Long) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("sha256", sha256)
+        put("format", format)
+        put("sizeBytes", sizeBytes)
+    }
+
+    companion object {
+        fun fromJson(json: JSONObject): SyncBookIdentity = SyncBookIdentity(
+            json.getString("sha256"), json.getString("format"), json.optLong("sizeBytes")
+        )
+    }
+}
+
 data class SyncManifest(
     val version: Int = CURRENT_VERSION,
     val books: Map<String, SyncFileEntry> = emptyMap(),   // bookId → book file entry
     val data: Map<String, SyncFileEntry> = emptyMap(),    // bookId → reading data entry
-    val deletedBooks: Map<String, DeletedBookEntry> = emptyMap()
+    val deletedBooks: Map<String, DeletedBookEntry> = emptyMap(),
+    // Content identities exist even when no book body has ever been uploaded.
+    val bookIdentities: Map<String, SyncBookIdentity> = emptyMap()
 ) {
     fun toJson(): String = JSONObject().apply {
         put("version", version)
+        put("bookIdentities", JSONObject().apply {
+            for ((k, v) in bookIdentities) put(k, v.toJson())
+        })
         put("books", JSONObject().apply {
             for ((k, v) in books) put(k, v.toJson())
         })
@@ -143,7 +165,12 @@ data class SyncManifest(
                 version = root.optInt("version", 1),
                 books = readMap("books"),
                 data = readMap("data"),
-                deletedBooks = readDeletedBooks()
+                deletedBooks = readDeletedBooks(),
+                bookIdentities = root.optJSONObject("bookIdentities")?.let { identities ->
+                    identities.keys().asSequence().associateWith {
+                        SyncBookIdentity.fromJson(identities.getJSONObject(it))
+                    }
+                }.orEmpty()
             )
         }
     }
@@ -159,6 +186,20 @@ internal fun shouldApplyRemoteMetadata(
     remoteMetadata: SyncBookMetadata?
 ): Boolean = localMetadataUpdatedAt == null ||
     (remoteMetadata != null && remoteMetadata.updatedAt > localMetadataUpdatedAt)
+
+internal fun shouldDownloadWebdavCover(
+    hasLocalCover: Boolean,
+    localMetadataUpdatedAt: Long?,
+    remoteMetadata: SyncBookMetadata?
+): Boolean = !hasLocalCover || shouldApplyRemoteMetadata(localMetadataUpdatedAt, remoteMetadata)
+
+internal fun shouldPublishWebdavCover(localMetadataUpdatedAt: Long, remoteBook: SyncFileEntry?): Boolean {
+    val remoteMetadata = remoteBook?.metadata
+    return remoteBook?.cover == null || remoteMetadata == null || localMetadataUpdatedAt > remoteMetadata.updatedAt
+}
+
+internal fun SyncFileEntry.matchesCoverContent(size: Long, digest: () -> String): Boolean =
+    sizeBytes == size && sha256.isNotBlank() && sha256.equals(digest(), ignoreCase = true)
 
 internal data class SyncMetadataResolution(
     val metadata: SyncBookMetadata?,
@@ -214,3 +255,39 @@ internal fun shouldApplyReadingDataMetadata(
 
 internal fun SyncManifest.activeRemoteBooks(): Map<String, SyncFileEntry> =
     books.filterKeys { it !in deletedBooks }
+
+internal fun SyncManifest.resolveBookDeletionIds(
+    fileNames: Map<String, String>,
+    aliases: Map<String, String>
+): Map<String, String> = fileNames.mapValues { (localId, fileName) ->
+    aliases[localId]?.takeIf { books[it]?.fileName == fileName }
+        ?: localId.takeIf { it in books }
+        ?: books.entries.singleOrNull { it.value.fileName == fileName }?.key
+        ?: aliases[localId]
+        ?: localId
+}
+
+internal fun SyncManifest.withBookDeletions(
+    fileNames: Map<String, String>,
+    wireIds: Map<String, String>,
+    deletedAt: Long
+): SyncManifest {
+    if (fileNames.isEmpty()) return this
+    val deletions = fileNames.entries.associate { (localId, fileName) ->
+        val wireId = wireIds.getValue(localId)
+        val book = books[wireId]
+        val previous = deletedBooks[wireId]
+        wireId to DeletedBookEntry(
+            deletedAt = previous?.deletedAt ?: deletedAt,
+            fileName = book?.fileName ?: previous?.fileName ?: fileName,
+            coverFileName = book?.cover?.fileName ?: previous?.coverFileName ?: "$wireId.jpg",
+            dataFileName = data[wireId]?.fileName ?: previous?.dataFileName ?: "$wireId.json"
+        )
+    }
+    return copy(
+        books = books - deletions.keys,
+        data = data - deletions.keys,
+        deletedBooks = deletedBooks + deletions,
+        bookIdentities = bookIdentities - deletions.keys
+    )
+}

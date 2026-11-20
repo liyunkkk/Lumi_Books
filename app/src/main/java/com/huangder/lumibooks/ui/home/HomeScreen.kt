@@ -2,6 +2,7 @@
 
 package com.huangder.lumibooks.ui.home
 
+import com.huangder.lumibooks.ui.animation.pagePushToolbarItem
 import com.huangder.lumibooks.ui.icons.ControlIcon
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -23,6 +24,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -224,8 +227,16 @@ fun HomeScreen(
         activeReadingBooks.sortedByDescending { it.lastReadTime }
     }
     val lastReadBook = booksByLastRead.firstOrNull()
+    val useDefaultCoverGlass = lastReadBook != null && lastReadBook.coverPath == null &&
+        com.huangder.lumibooks.ui.theme.LocalLiquidGlassCapability.current.supported &&
+        !LocalEInkMode.current && !LocalReduceTransparency.current
+    val cardBackdrop = com.huangder.lumibooks.ui.theme.LocalLumiBackgroundBackdrop.current
+        ?: com.huangder.lumibooks.ui.theme.LocalProgressiveBlurBackgroundBackdrop.current
+        ?: avatarBackdrop
     // The most recent book already headlines the Continue-reading card; don't repeat it here.
     val recentBooks = booksByLastRead.drop(1).take(12)
+    val toReadCount = remember(uiState.books) { uiState.books.count { it.isWantToRead } }
+    val openToRead = com.huangder.lumibooks.edition.rememberToReadHomeAction()
 
     // 顶部下拉「松手继续阅读」：只读取下拉位移，判定与回弹都由 OverscrollBounce 维持原样。
     val bounceState = remember { OverscrollBounceState() }
@@ -282,7 +293,7 @@ fun HomeScreen(
         // Record only this sibling background. Sampling the navigation backdrop from the
         // avatar would include the avatar itself and recurse in native RenderNode traversal.
         Box(Modifier.matchParentSize()
-            .then(if (isLiquidGlass) Modifier.layerBackdrop(avatarBackdrop) else Modifier)
+            .then(if (isLiquidGlass || useDefaultCoverGlass) Modifier.layerBackdrop(avatarBackdrop) else Modifier)
             .background(AppColors.PageBg)) {
             AmbientGlow(glowColors, scrollOffset = {
                 if (listState.firstVisibleItemIndex > 0) Float.MAX_VALUE else listState.firstVisibleItemScrollOffset.toFloat()
@@ -311,6 +322,8 @@ fun HomeScreen(
                             eyebrow = insightsDate(today, "MMMMdEEEE"),
                             avatarBackdrop = avatarBackdrop,
                             avatarUri = uiState.avatarUri,
+                            toReadCount = toReadCount,
+                            onToReadClick = openToRead,
                             onAvatarClick = {
                                 context.startActivity(
                                     android.content.Intent(context, com.huangder.lumibooks.ui.settings.SettingsActivity::class.java)
@@ -333,6 +346,7 @@ fun HomeScreen(
                         PageEntranceItem(play = playEntranceAnimation, index = 2, modifier = contentInsets) {
                             ContinueReadingCard(
                                 book = lastReadBook,
+                                backgroundBackdrop = cardBackdrop,
                                 downloadState = uiState.downloadStates[lastReadBook.id],
                                 onClick = { bounds -> onNavigateToReader(lastReadBook, bounds) },
                                 onToggleFavorite = { viewModel.updateBook(lastReadBook.copy(isFavorite = !lastReadBook.isFavorite)) },
@@ -450,14 +464,54 @@ private fun HomeHeader(
     eyebrow: String?,
     avatarBackdrop: Backdrop,
     avatarUri: String? = null,
+    toReadCount: Int = 0,
+    /** Null in editions without a to-read page; the button is then left out. */
+    onToReadClick: (() -> Unit)? = null,
     onAvatarClick: () -> Unit = {}
 ) {
     val isLiquidGlass = LocalAppTheme.current == "liquid_glass" && !LocalEInkMode.current
     val avatarSize = if (isLiquidGlass) 32.dp else 36.dp
     val isDark = LocalIsDarkTheme.current
     MainTabHeader(eyebrow = eyebrow, title = { MainTabTitle(stringResource(R.string.home_page)) }, trailing = {
-        // 版本会员提示：仅官方版提供，点过一次或进过会员页即消失
-        com.huangder.lumibooks.edition.EditionHomeMembershipPrompt()
+        if (onToReadClick != null) {
+            Box(Modifier.pagePushToolbarItem()) {
+                LiquidGlassSurface(
+                    shape = CircleShape,
+                    backdrop = avatarBackdrop,
+                    fallbackColor = if (isLiquidGlass) AppColors.CardBg else AppColors.BgGray,
+                    contentScrimColor = if (isLiquidGlass) {
+                        AppColors.CardBg.copy(alpha = if (isDark) 0.60f else 0.72f)
+                    } else Color.Transparent,
+                    forceFallback = !isLiquidGlass,
+                    controlEdge = isLiquidGlass,
+                    interactive = isLiquidGlass,
+                    pressFeedbackEnabled = isLiquidGlass,
+                    onClick = onToReadClick,
+                    modifier = Modifier.size(if (isLiquidGlass) 40.dp else 36.dp)
+                ) {
+                    ControlIcon(
+                        imageVector = AppIcons.ListBullets,
+                        contentDescription = stringResource(R.string.section_to_read),
+                        tint = AppColors.TextPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                if (toReadCount > 0) {
+                    Box(
+                        Modifier.align(Alignment.TopEnd).offset(x = 3.dp, y = (-3).dp)
+                            .defaultMinSize(minWidth = 17.dp, minHeight = 17.dp)
+                            .clip(CircleShape).background(AppColors.Accent).padding(horizontal = 4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (toReadCount > 99) "99+" else toReadCount.toString(),
+                            color = AppColors.OnAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+        }
         // 头像（点击进入设置页）
         LiquidGlassSurface(
             shape = CircleShape,
@@ -471,7 +525,7 @@ private fun HomeHeader(
             interactive = isLiquidGlass,
             pressFeedbackEnabled = isLiquidGlass,
             onClick = onAvatarClick,
-            modifier = Modifier.size(if (isLiquidGlass) 40.dp else 36.dp)
+            modifier = Modifier.pagePushToolbarItem().size(if (isLiquidGlass) 40.dp else 36.dp)
         ) {
             if (avatarUri != null) {
                 AsyncImage(
@@ -564,6 +618,7 @@ private fun rememberBookIntro(book: Book): String {
 @Composable
 private fun ContinueReadingCard(
     book: Book,
+    backgroundBackdrop: Backdrop,
     downloadState: BookDownloadState?,
     onClick: (Rect?) -> Unit,
     onToggleFavorite: () -> Unit,
@@ -606,17 +661,11 @@ private fun ContinueReadingCard(
         }
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .shadow(12.dp, AppRoundedCornerShape(AppRadius.lg), ambientColor = AppColors.CardShadow, spotColor = AppColors.CardShadow)
-            .cardOutline(AppRoundedCornerShape(AppRadius.lg))
-            .clip(AppRoundedCornerShape(AppRadius.lg))
-            .lumiCardSurface(shape = AppRoundedCornerShape(AppRadius.lg))
-            .cardPressEffect()
-            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
-                onClick(coverBounds.get().takeUnless { it == Rect.Zero })
-            }
+    ContinueReadingCardFrame(
+        modifier = modifier,
+        // Sample only the sibling page background, never the page layer containing this card.
+        frostedBackdrop = backgroundBackdrop.takeIf { book.coverPath == null },
+        onClick = { onClick(coverBounds.get().takeUnless { it == Rect.Zero }) }
     ) {
         if (useCoverBackground && blurredCoverRequest != null) {
             AsyncImage(
@@ -923,6 +972,7 @@ private fun ContinueReadingCard(
         CloudAwareBookDeleteDialog(
             bookCount = 1,
             hasRemoteBooks = book.remoteFileName != null,
+            hasLocalCopies = !book.isCloudOnly,
             onDismiss = { showDeleteConfirm = false },
             onDelete = { mode ->
                 showDeleteConfirm = false

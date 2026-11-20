@@ -34,11 +34,14 @@ data class BookEntity(
     val isHidden: Boolean = false,
     val isManuallyMarkedRead: Boolean = false,
     @androidx.room.ColumnInfo(defaultValue = "0")
-    val isArchived: Boolean = false
+    val isArchived: Boolean = false,
+    /** When the book joined the to-read list; 0 when it is not on the list. */
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val wantToReadAt: Long = 0
 )
 
 enum class BookFormat {
-    EPUB, PDF, TXT, MOBI, CBZ, MARKDOWN, AZW, AZW3;
+    EPUB, PDF, TXT, MOBI, CBZ, MARKDOWN, AZW, AZW3, DOCX, DOC;
 
     companion object {
         fun fromString(format: String): BookFormat {
@@ -49,6 +52,8 @@ enum class BookFormat {
                 "MOBI" -> MOBI
                 "AZW" -> AZW
                 "AZW3" -> AZW3
+                "DOCX" -> DOCX
+                "DOC" -> DOC
                 "CBZ" -> CBZ
                 "MARKDOWN", "MD" -> MARKDOWN
                 else -> TXT

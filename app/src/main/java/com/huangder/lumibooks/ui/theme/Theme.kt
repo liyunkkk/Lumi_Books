@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassControlEdgeEnabled
+import com.huangder.lumibooks.ui.components.applyTransparentNavigationBar
 import com.huangder.lumibooks.domain.model.DEFAULT_APP_ACCENT_HEX
 import com.huangder.lumibooks.domain.model.AppFontSize
 import com.huangder.lumibooks.domain.model.AppUiIconStyle
@@ -203,10 +204,11 @@ fun EBookReaderTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val activity = view.context as? Activity ?: return@SideEffect
+            com.huangder.lumibooks.ui.animation.PagePushTransitions.updateMotion(activity, motionPreference, eInkMode)
             val window = activity.window
             // 透明状态栏，内容延伸到状态栏下方
             window.statusBarColor = Color.Transparent.toArgb()
-            window.navigationBarColor = Color.Transparent.toArgb()
+            window.applyTransparentNavigationBar()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !effectiveDarkTheme
             WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !effectiveDarkTheme
             window.colorMode = if (hdrHighlightActive) {
@@ -215,9 +217,11 @@ fun EBookReaderTheme(
                 ActivityInfo.COLOR_MODE_DEFAULT
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-                // Request only a small HDR envelope for the pressed highlight. Large values
-                // make several OEMs tone-map the entire window and visibly dim SDR content.
-                window.desiredHdrHeadroom = if (hdrHighlightActive) 1.15f else 0f
+                // Light glass needs a specular peak above SDR icons; keep the existing
+                // restrained headroom in dark mode.
+                window.desiredHdrHeadroom = if (hdrHighlightActive) {
+                    if (effectiveDarkTheme) 1.15f else 1.2f
+                } else 0f
             }
         }
     }
@@ -256,11 +260,13 @@ fun EBookReaderTheme(
             typography = Typography,
             shapes = AppShapes.material(AppShapes.usesContinuousCorners(effectiveAppTheme)),
         ) {
+            com.huangder.lumibooks.ui.animation.PagePushHost {
             if (lumiBackgroundScene != null) {
                 LumiBackgroundHost(scene = lumiBackgroundScene, modifier = androidx.compose.ui.Modifier.fillMaxSize()) { content() }
             } else {
                 CompositionLocalProvider(LocalLumiBackgroundPresent provides false, LocalLumiBackgroundBackdrop provides null,
                     LocalProgressiveBlurBackgroundBackdrop provides null) { content() }
+            }
             }
         }
     }

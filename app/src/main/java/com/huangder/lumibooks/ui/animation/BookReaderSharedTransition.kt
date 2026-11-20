@@ -10,6 +10,8 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,10 +48,9 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
@@ -61,10 +62,12 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.withFrameNanos
@@ -203,6 +206,27 @@ internal object BookReaderMotion {
             COVER_CROSSFADE_FRACTION).coerceIn(0f, 1f)
     }
 
+    /**
+     * Share of the reported display radius the full-screen window ends on. Display corners are
+     * often continuous curves rather than the reported circle; a slightly tighter arc stays
+     * inside the physical curve, so no library pixels show at the corners.
+     */
+    const val SCREEN_CORNER_FIT = 0.8f
+
+    /**
+     * Window radius in dp. With a rounded display the growing window takes on the hardware
+     * corner shape, so the full-screen frame already matches the reader; otherwise it
+     * settles square.
+     */
+    fun cornerRadius(startRadius: Float, screenRadius: Float, progress: Float): Float {
+        if (screenRadius <= 0f) return cornerRadius(startRadius, progress)
+        val target = screenRadius * SCREEN_CORNER_FIT
+        val elapsed = WINDOW_DURATION_MS * progress.coerceIn(0f, 1f)
+        return if (elapsed <= 100f) startRadius
+        else lerp(startRadius, target,
+            FastOutSlowInEasing.transform((elapsed - 100f) / (WINDOW_DURATION_MS - 100f)))
+    }
+
     fun cornerRadius(startRadius: Float, progress: Float): Float {
         val elapsed = WINDOW_DURATION_MS * progress.coerceIn(0f, 1f)
         val middleRadius = minOf(startRadius, 8f)
@@ -290,6 +314,13 @@ internal object BookReaderMotion {
 internal fun bookCoverMemoryCacheKey(bookId: String, coverPath: String?): String =
     "${bookId}_${coverPath.orEmpty()}"
 
+/** Match Compose's integer placement and measurement in every window layer. */
+internal fun readerWindowPixelBounds(bounds: Rect): Rect {
+    val left = bounds.left.roundToInt().toFloat()
+    val top = bounds.top.roundToInt().toFloat()
+    return Rect(left, top, left + bounds.width.roundToInt(), top + bounds.height.roundToInt())
+}
+
 private val nextCoverAnchorId = AtomicLong(1L)
 
 private fun extractDominantCoverColor(path: String?): Int? {
@@ -357,14 +388,8 @@ internal class BookReaderTransitionState internal constructor(
         BookReaderMotion.SizeEasing.transform(windowProgressAnim.value)
     }
     val cornerRadiusSnapshot: State<Float> = derivedStateOf {
-        BookReaderMotion.cornerRadius(sourceCornerRadiusDp, windowProgressAnim.value)
+        BookReaderMotion.cornerRadius(sourceCornerRadiusDp, screenCornerRadiusDp, windowProgressAnim.value)
     }
-    /**
-     * Cover Flow motion without the cover: the library zooms out of view while the reader
-     * zooms in (the spine shelf, whose books have no cover to carry across).
-     */
-    var zoomOnly by mutableStateOf(false)
-        private set
     val coverFadeSnapshot: State<Float> = derivedStateOf {
         BookReaderMotion.coverFade(windowProgressAnim.value)
     }
@@ -380,14 +405,14 @@ internal class BookReaderTransitionState internal constructor(
     // allowing the actual page content to fade in visibly.
     val readerLayerAlpha: Float
         get() = if (presentation == BookReaderPresentation.CoverFlow) {
-            CoverFlowReaderMotion.readerAlpha(coverFlowProgressAnim.value, zoomOnly) *
+            CoverFlowReaderMotion.readerAlpha(coverFlowProgressAnim.value) *
                 readerRevealAnim.value *
                 (if (phase == BookReaderTransitionPhase.Closing) readerExitAlphaAnim.value else 1f)
         } else when (phase) {
             BookReaderTransitionPhase.Opening, BookReaderTransitionPhase.ReaderLoading -> 0f
-            // The stored page above matches the reader, so the reader is already opaque below it.
-            BookReaderTransitionPhase.Ready -> if (openingSnapshot != null) 1f else readerRevealAnim.value
-            BookReaderTransitionPhase.Closing -> readerExitAlphaAnim.value
+            // Keep paper opaque beneath the shell; fading both layers exposes the shelf.
+            BookReaderTransitionPhase.Ready -> if (openingSnapshot == null) 1f else 0f
+            BookReaderTransitionPhase.Closing -> if (readerExitAlphaAnim.value > 0f) 1f else 0f
             BookReaderTransitionPhase.Reader -> 1f
             BookReaderTransitionPhase.Library -> 0f
         }
@@ -395,6 +420,8 @@ internal class BookReaderTransitionState internal constructor(
     val overlayAlpha: Float
         get() = if (phase == BookReaderTransitionPhase.Closing) {
             maxOf(shellAlphaAnim.value, 1f - readerExitAlphaAnim.value)
+        } else if (phase == BookReaderTransitionPhase.Ready && openingSnapshot != null) {
+            1f
         } else shellAlphaAnim.value
 
     var activeBookId by mutableStateOf<String?>(null)
@@ -423,6 +450,8 @@ internal class BookReaderTransitionState internal constructor(
 
     var sourceCornerRadiusDp by mutableFloatStateOf(BookReaderMotion.DEFAULT_CORNER_RADIUS_DP)
         private set
+    /** Physical display corner radius; the window lands on it when it fills the screen. */
+    var screenCornerRadiusDp by mutableFloatStateOf(0f)
 
     var readerReady by mutableStateOf(false)
         private set
@@ -504,8 +533,7 @@ internal class BookReaderTransitionState internal constructor(
         sourceCornerRadiusDp: Float,
         sourcePresentation: BookReaderPresentation? = null,
         initialPaperColorArgb: Int? = null,
-        openingSnapshot: ImageBitmap? = null,
-        zoomOnly: Boolean = false
+        openingSnapshot: ImageBitmap? = null
     ): Boolean {
         val bookId = book.id
         val anchor = selectCoverAnchor(bookId, sourceBounds, sourcePresentation)
@@ -552,7 +580,6 @@ internal class BookReaderTransitionState internal constructor(
         dominantColorArgb = null
         readerPaperColorArgb = initialPaperColorArgb
         presentation = sourcePresentation ?: anchor.presentation
-        this.zoomOnly = zoomOnly && presentation == BookReaderPresentation.CoverFlow
         this.openingSnapshot = openingSnapshot.takeIf { presentation == BookReaderPresentation.Window }
         setPhase(BookReaderTransitionPhase.Opening)
 
@@ -571,8 +598,6 @@ internal class BookReaderTransitionState internal constructor(
                     targetValue = 1f,
                     animationSpec = VisualMotion.tween(620, easing = FastOutSlowInEasing)
                 )
-                // A zoom shows its loading page for the whole motion; the text comes after it.
-                if (zoomOnly && readerReady && phase == BookReaderTransitionPhase.ReaderLoading) revealReader()
                 if (phase == BookReaderTransitionPhase.Ready && readerRevealAnim.value >= 0.999f) {
                     setPhase(BookReaderTransitionPhase.Reader)
                 }
@@ -662,12 +687,13 @@ internal class BookReaderTransitionState internal constructor(
     }
 
     fun startClose(): Boolean {
+        if (phase == BookReaderTransitionPhase.Closing) return true
         val bookId = activeBookId ?: return false
         val anchorKey = activeAnchorKey ?: return false
         if (phaseState.value == BookReaderTransitionPhase.Library) return false
         val visibleReaderAlpha = when (phase) {
             BookReaderTransitionPhase.Reader -> 1f
-            BookReaderTransitionPhase.Ready -> if (openingSnapshot != null) 1f else 1f - shellAlphaAnim.value
+            BookReaderTransitionPhase.Ready -> if (openingSnapshot == null) 1f - shellAlphaAnim.value else 0f
             else -> 0f
         }
         val anchor = coverAnchors[anchorKey]
@@ -699,7 +725,7 @@ internal class BookReaderTransitionState internal constructor(
                 )
                 // The focused cover can move while the reader body fades. Wait for
                 // its latest measured bounds, then lock it before the return path.
-                if (!coverFlowReturnReady && !zoomOnly) {
+                if (!coverFlowReturnReady) {
                     for (frame in 0 until 18) {
                         withFrameNanos { }
                         if (phase != BookReaderTransitionPhase.Closing || activeBookId != bookId) {
@@ -759,7 +785,6 @@ internal class BookReaderTransitionState internal constructor(
         colorJob?.cancel()
         snapshotJob?.cancel()
         openingSnapshot = null
-        zoomOnly = false
         setPhase(BookReaderTransitionPhase.Library)
         activeBookId = null
         activeAnchorKey = null
@@ -779,26 +804,18 @@ internal class BookReaderTransitionState internal constructor(
 
     private fun revealReader() {
         if (phase != BookReaderTransitionPhase.ReaderLoading ||
-            (presentation == BookReaderPresentation.Window && !windowMotionComplete) ||
-            (zoomOnly && coverFlowProgressAnim.value < 0.999f)) return
+            (presentation == BookReaderPresentation.Window && !windowMotionComplete)) return
         revealJob?.cancel()
         setPhase(BookReaderTransitionPhase.Ready)
         revealJob = scope.launch {
             if (openingSnapshot != null) {
-                // The live page sits fully opaque below the identical stored page, so only the
-                // copy fades; nothing behind the reader can show through during the swap.
+                // Keep showing the stored page until the live page can replace it in one frame.
+                // Blending two renders makes text and page chrome flicker if their pixels differ.
                 readerRevealAnim.snapTo(1f)
-                shellAlphaAnim.animateTo(
-                    targetValue = 0f,
-                    animationSpec = VisualMotion.tween(
-                        durationMillis = BookReaderMotion.CONTENT_REVEAL_MS,
-                        easing = FastOutSlowInEasing
-                    )
-                )
-                if (phaseState.value == BookReaderTransitionPhase.Ready && windowMotionComplete) {
-                    setPhase(BookReaderTransitionPhase.Reader)
-                    openingSnapshot = null
-                }
+                shellAlphaAnim.snapTo(0f)
+                snapshotJob?.cancel()
+                setPhase(BookReaderTransitionPhase.Reader)
+                openingSnapshot = null
                 return@launch
             }
             if (presentation == BookReaderPresentation.CoverFlow) {
@@ -889,7 +906,6 @@ internal class BookReaderTransitionState internal constructor(
     private fun clearToLibrary() {
         snapshotJob?.cancel()
         openingSnapshot = null
-        zoomOnly = false
         setPhase(BookReaderTransitionPhase.Library)
         activeBookId = null
         activeAnchorKey = null
@@ -1062,14 +1078,16 @@ internal fun Modifier.bookReaderLibraryLayer(
         val progress = if (!active) 0f else if (isCoverFlow)
             transition.coverFlowProgressSnapshot.value.coerceIn(0f, 1f)
         else transition.libraryProgressSnapshot.value.coerceIn(0f, 1f)
-        val zoom = isCoverFlow && transition.zoomOnly
-        alpha = when {
-            zoom -> 1f - CoverFlowReaderMotion.libraryZoomFade(progress)
+        val transitionAlpha = when {
             else -> BookReaderMotion.lerp(1f,
                 if (isCoverFlow) 0.65f else BookReaderMotion.LIBRARY_DIM_ALPHA, progress)
         }
+        // Restore the shelf as the reader fades, before reversing the cover-flow motion.
+        // Otherwise both layers are transparent for one beat and the window background flashes.
+        alpha = if (isCoverFlow && transition.phase == BookReaderTransitionPhase.Closing) {
+            maxOf(transitionAlpha, 1f - transition.readerExitAlphaSnapshot.value)
+        } else transitionAlpha
         val scale = when {
-            zoom -> CoverFlowReaderMotion.libraryZoomScale(progress)
             isCoverFlow -> 1f
             else -> BookReaderMotion.lerp(1f, BookReaderMotion.LIBRARY_SCALE, progress)
         }
@@ -1092,6 +1110,13 @@ internal fun BookReaderLibraryLayer(
     content: @Composable () -> Unit
 ) {
     val coordinateSpace = remember { LibraryCoordinateSpace() }
+    val view = LocalView.current
+    val density = LocalDensity.current.density
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    // Read once per window configuration; insets are attached by the time effects run.
+    LaunchedEffect(view, density, configuration) {
+        transition.screenCornerRadiusDp = screenCornerRadiusPx(view) / density
+    }
     CompositionLocalProvider(LocalLibraryCoordinateSpace provides coordinateSpace) {
         Box(Modifier.fillMaxSize().bookReaderLibraryLayer(transition, blurEnabled)
             .onPlaced { coordinateSpace.coordinates = it }) { content() }
@@ -1106,7 +1131,8 @@ internal fun Modifier.bookReaderWindowClip(
     transition: BookReaderTransitionState,
     outside: Boolean = false
 ): Modifier {
-    val windowShape = AppRoundedCornerShape(0.dp)
+    // Circular arcs, like the hardware corners the full-screen window lands on.
+    val windowShape = RoundedCornerShape(0.dp)
     return drawWithCache {
         val path = Path()
         onDrawWithContent {
@@ -1115,22 +1141,26 @@ internal fun Modifier.bookReaderWindowClip(
             // Navigation may retain AnimatedVisibility for a frame after Ready. Keep
             // its outside layer occluded when the window becomes the full reader.
             if (outside && phase == BookReaderTransitionPhase.Reader) return@onDrawWithContent
-            val active = transition.presentation == BookReaderPresentation.Window && source != null &&
-                phase != BookReaderTransitionPhase.Library && phase != BookReaderTransitionPhase.Reader &&
-                (outside || phase == BookReaderTransitionPhase.Ready)
+            val isCoverFlow = transition.presentation == BookReaderPresentation.CoverFlow
+            val active = source != null &&
+                phase != BookReaderTransitionPhase.Library && phase != BookReaderTransitionPhase.Reader
             if (active) {
-                val bounds = BookReaderMotion.windowBounds(source, Rect(Offset.Zero, size),
-                    transition.positionSnapshot.value, transition.sizeSnapshot.value,
-                    BookReaderMotion.CONTROL_POINT_OFFSET_DP.dp.toPx())
-                // The shell's corner radius is scaled with its original cover layer.
-                val radius = transition.cornerRadiusSnapshot.value.dp.toPx()
-                path.reset()
-                val sourcePath = windowShape.copy(androidx.compose.foundation.shape.CornerSize(radius))
-                    .createOutline(source.size, layoutDirection, this).toAppPath()
-                sourcePath.transform(androidx.compose.ui.graphics.Matrix().apply {
-                    scale(bounds.width / source.width, bounds.height / source.height)
+                val progress = if (isCoverFlow) transition.coverFlowProgressSnapshot.value
+                    else transition.positionSnapshot.value
+                val bounds = readerWindowPixelBounds(if (isCoverFlow) {
+                    CoverFlowReaderMotion.windowBounds(source, Rect(Offset.Zero, size), progress)
+                } else {
+                    BookReaderMotion.windowBounds(source, Rect(Offset.Zero, size),
+                        progress, transition.sizeSnapshot.value,
+                        BookReaderMotion.CONTROL_POINT_OFFSET_DP.dp.toPx())
                 })
-                path.addPath(sourcePath, bounds.topLeft)
+                val radius = if (isCoverFlow) {
+                    CoverFlowReaderMotion.windowCornerRadius(transition.sourceCornerRadiusDp,
+                        transition.screenCornerRadiusDp, progress).dp.toPx()
+                } else transition.cornerRadiusSnapshot.value.dp.toPx()
+                path.reset()
+                path.addPath(windowShape.copy(CornerSize(radius))
+                    .createOutline(bounds.size, layoutDirection, this).toAppPath(), bounds.topLeft)
                 clipPath(path, if (outside) ClipOp.Difference else ClipOp.Intersect) { this@onDrawWithContent.drawContent() }
             } else {
                 drawContent()
@@ -1159,9 +1189,8 @@ internal fun rememberBookLoadingIndicatorVisible(transition: BookReaderTransitio
 
 /**
  * The stored page drawn inside the moving window. It is fitted like the cover and sits below it,
- * so the cover hands off to the real page instead of blank paper. A fitted page meets the
- * window's rounded corners only once their radius is below a pixel, so it needs no clip mask;
- * float transforms keep the final frame on exact pixels for the swap to the live reader.
+ * so the cover hands off to the real page instead of blank paper. The shared window clip
+ * also contains the snapshot when returning before the opening handoff has finished.
  */
 @Composable
 private fun OpeningPageLayer(
@@ -1179,17 +1208,22 @@ private fun OpeningPageLayer(
                     transition.openingSnapshotAlphaSnapshot.value *
                     transition.overlayAlpha.coerceIn(0f, 1f)
                 if (alpha <= 0f) return@drawBehind
-                val window = BookReaderMotion.windowBounds(source, target,
-                    transition.positionSnapshot.value, transition.sizeSnapshot.value, controlOffsetPx)
+                val window = readerWindowPixelBounds(BookReaderMotion.windowBounds(source, target,
+                    transition.positionSnapshot.value, transition.sizeSnapshot.value, controlOffsetPx))
                 val fit = minOf(window.width / page.width, window.height / page.height)
-                translate(
-                    left = window.left + (window.width - page.width * fit) / 2f,
-                    top = window.top + (window.height - page.height * fit) / 2f
-                ) {
-                    scale(fit, fit, pivot = Offset.Zero) {
-                        drawImage(page, alpha = alpha)
-                    }
-                }
+                val width = (page.width * fit).roundToInt()
+                val height = (page.height * fit).roundToInt()
+                if (width <= 0 || height <= 0) return@drawBehind
+                drawImage(
+                    image = page,
+                    dstOffset = IntOffset(
+                        (window.center.x - width / 2f).roundToInt(),
+                        (window.center.y - height / 2f).roundToInt()
+                    ),
+                    dstSize = IntSize(width, height),
+                    alpha = alpha,
+                    filterQuality = FilterQuality.Medium
+                )
             }
     )
 }
@@ -1219,8 +1253,7 @@ internal fun BookHeroWindowOverlay(
     val density = LocalDensity.current
     val pageColor = transition.readerPaperColorArgb?.let { Color(readerTransitionPaperColor(it)) }
         ?: AppColors.PageBg
-    val heroShape = AppRoundedCornerShape(0.dp)
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize().bookReaderWindowClip(transition)) {
         val target = Rect(
             left = 0f,
             top = 0f,
@@ -1257,40 +1290,25 @@ internal fun BookHeroWindowOverlay(
         val dominantColor = transition.dominantColorArgb
             ?.let(::Color)
             ?: pageColor
+        val window = readerWindowPixelBounds(BookReaderMotion.windowBounds(
+            source, target, transition.positionSnapshot.value,
+            transition.sizeSnapshot.value, controlOffsetPx
+        ))
+        val windowCornerRadius = transition.cornerRadiusSnapshot.value.coerceAtLeast(0f)
+        val heroShape = AppRoundedCornerShape(0.dp)
+        val windowShape = RoundedCornerShape(0.dp)
 
         Box(
             modifier = Modifier
-                .offset {
-                    IntOffset(
-                        x = source.left.roundToInt(),
-                        y = source.top.roundToInt()
-                    )
-                }
-                .size(width = startWidth, height = startHeight)
+                .offset { IntOffset(window.left.roundToInt(), window.top.roundToInt()) }
+                .size(
+                    width = with(density) { window.width.toDp() },
+                    height = with(density) { window.height.toDp() }
+                )
                 .graphicsLayer {
-                    val positionProgress = transition.positionSnapshot.value.coerceIn(0f, 1f)
-                    val sizeProgress = transition.sizeSnapshot.value.coerceIn(0f, 1f)
-                    val center = BookReaderMotion.quadraticPoint(
-                        start = source.center,
-                        control = control,
-                        end = target.center,
-                        progress = positionProgress
-                    )
-                    val width = BookReaderMotion.lerp(source.width, target.width, sizeProgress)
-                    val height = BookReaderMotion.lerp(source.height, target.height, sizeProgress)
-                    transformOrigin = TransformOrigin.Center
-                    scaleX = if (source.width > 0f) width / source.width else 1f
-                    scaleY = if (source.height > 0f) height / source.height else 1f
-                    translationX = center.x - source.center.x
-                    translationY = center.y - source.center.y
-                    shape = heroShape.copy(androidx.compose.foundation.shape.CornerSize(
-                        transition.cornerRadiusSnapshot.value.coerceAtLeast(0f).dp))
+                    shape = windowShape.copy(CornerSize(windowCornerRadius.dp))
                     clip = true
-                    // Over the live page the stored page fades alone: paper fading with it
-                    // would show through and lighten the text for the length of the fade.
-                    alpha = if (transition.openingSnapshot != null &&
-                        transition.phase == BookReaderTransitionPhase.Ready) 0f
-                    else transition.overlayAlpha.coerceIn(0f, 1f)
+                    alpha = transition.overlayAlpha.coerceIn(0f, 1f)
                 }
         ) {
             Box(

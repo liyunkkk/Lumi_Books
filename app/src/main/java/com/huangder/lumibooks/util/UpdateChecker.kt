@@ -38,7 +38,8 @@ object UpdateChecker {
         val minVersionCode: Long,
         val maxVersionCode: Long,
         val title: String,
-        val message: String
+        val message: String,
+        val imageUrl: String? = null
     )
 
     /** Remote update config. */
@@ -112,9 +113,9 @@ object UpdateChecker {
                     keys = arrayOf("latest_version_code"),
                     fallback = json.optLong("latest_version_code", 0L)
                 ),
-                releaseUrl = updateJson.optStringCompat(
-                    keys = arrayOf("download_url", "release_url"),
-                    fallback = json.optString("release_url", "")
+                releaseUrl = resolveUpdateDownloadUrl(
+                    updateJson,
+                    json.optString("release_url", "")
                 ),
                 updateTitle = updateJson.optStringCompat(
                     keys = arrayOf("title"),
@@ -166,7 +167,32 @@ object UpdateChecker {
         URI(scheme, null, host, port, path, uri.rawQuery, null).toASCIIString()
     }.getOrNull()
 
-    private fun parseNotice(json: JSONObject?): NoticeConfig? {
+    internal fun resolveUpdateDownloadUrl(update: JSONObject?, legacyUrl: String): String {
+        val fallback = update.optStringCompat(arrayOf("download_url", "release_url"), legacyUrl)
+        val candidate = (update?.opt("github_apk_url") as? String)?.trim().orEmpty()
+        val uri = runCatching { URI(candidate) }.getOrNull() ?: return fallback
+        val path = uri.path ?: return fallback
+        val prefix = "/huangder/Lumi_Books/releases/download/"
+        val asset = path.removePrefix(prefix).split('/')
+        if (!"https".equals(uri.scheme, ignoreCase = true) ||
+            !"github.com".equals(uri.rawAuthority, ignoreCase = true) ||
+            !path.startsWith(prefix) ||
+            asset.size != 2 || asset[0].isBlank() || asset[0] == "." || asset[0] == ".." ||
+            asset[1] != "app-universal-release.apk" ||
+            uri.rawQuery != null || uri.rawFragment != null
+        ) return fallback
+
+        val releasePrefix = "/huangder/Lumi_Books/releases/tag/"
+        val release = runCatching { URI(fallback) }.getOrNull()
+        val releasePath = release?.path
+        if ("github.com".equals(release?.host, ignoreCase = true) &&
+            releasePath?.startsWith(releasePrefix) == true &&
+            releasePath.removePrefix(releasePrefix) != asset[0]
+        ) return fallback
+        return candidate
+    }
+
+    internal fun parseNotice(json: JSONObject?): NoticeConfig? {
         if (json == null) return null
         val id = json.optString("id", "").trim()
         val title = json.optString("title", "").trim()
@@ -178,7 +204,12 @@ object UpdateChecker {
             minVersionCode = json.optLong("min_version_code", 0L),
             maxVersionCode = json.optLong("max_version_code", Long.MAX_VALUE),
             title = title,
-            message = message
+            message = message,
+            imageUrl = (json.opt("image_url") as? String)?.trim()?.takeIf { value ->
+                val uri = runCatching { URI(value) }.getOrNull()
+                uri != null && uri.scheme.equals("https", ignoreCase = true) &&
+                    uri.host != null && uri.userInfo == null
+            }
         )
     }
 

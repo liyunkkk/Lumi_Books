@@ -7,6 +7,7 @@ import com.huangder.lumibooks.ui.theme.AppSurfaceRole
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import com.huangder.lumibooks.ui.animation.VisualMotion.tween
+import com.huangder.lumibooks.ui.animation.VisualMotion.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.colorspace.ColorSpaces
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -204,21 +206,23 @@ internal fun Modifier.liquidGlassBackdrop(
         },
         layerBlock = {
             if (buttonInteraction && applyButtonTransform) {
-                val interactionProgress = buttonInteractionState?.pressProgress ?: pressProgress
+                val interactionProgress = buttonInteractionState?.scaleProgress ?: pressProgress
                 val transform = liquidGlassButtonLayerTransform(
                     width = size.width,
                     height = size.height,
                     pressProgress = interactionProgress,
                     dragOffset = buttonInteractionState?.offset ?: Offset.Zero,
                     expansionPx = 4.dp.toPx(),
-                    motionEnabled = motionEnabled
+                    motionEnabled = motionEnabled,
+                    wobble = buttonInteractionState?.wobble ?: 0f,
+                    wobbleVertical = buttonInteractionState?.wobbleIsVertical ?: false
                 )
                 translationX = transform.translationX
                 translationY = transform.translationY
                 scaleX = transform.scaleX
                 scaleY = transform.scaleY
             } else {
-                val scale = if (scaleOnPress) 1f + 0.045f * pressProgress else 1f
+                val scale = if (scaleOnPress) 1f + 0.075f * pressProgress else 1f
                 scaleX = scale
                 scaleY = scale
             }
@@ -512,9 +516,14 @@ fun LiquidGlassSurface(
     }
     val clickInteractionSource = remember { MutableInteractionSource() }
     val pressed by clickInteractionSource.collectIsPressedAsState()
+    val pageScene = com.huangder.lumibooks.ui.animation.LocalPageScene.current
+    val pageInMotion = pageScene?.let { it.moving || it.coveredBy?.moving == true } == true
     val pressScale by animateFloatAsState(
-        targetValue = if (!isLiquidGlass && enabled && pressFeedbackEnabled && onClick != null && motionEnabled && pressed) 0.96f else 1f,
-        animationSpec = if (motionEnabled) tween(durationMillis = 90) else snap(),
+        targetValue = if (!pageInMotion && !isLiquidGlass && enabled && pressFeedbackEnabled && onClick != null && motionEnabled && pressed) 0.96f else 1f,
+        // Springy rather than a linear dip, so the fallback press still feels elastic.
+        animationSpec = if (motionEnabled && !pageInMotion) {
+            if (pressed) spring(dampingRatio = 0.7f, stiffness = 1400f) else spring(dampingRatio = 0.4f, stiffness = 520f)
+        } else snap(),
         label = "liquidGlassSurfacePressScale"
     )
     val lensShape = remember(shape, density) {
@@ -532,7 +541,7 @@ fun LiquidGlassSurface(
     }
     val latestOnClick = rememberUpdatedState(onClick)
     val handlesButtonGesture = isLiquidGlass && enabled && pressFeedbackEnabled &&
-        motionEnabled && interactionState != null
+        motionEnabled && interactionState != null && !pageInMotion
     LaunchedEffect(handlesButtonGesture, interactionState) {
         if (!handlesButtonGesture) interactionState?.reset()
     }
@@ -618,9 +627,11 @@ fun LiquidGlassSurface(
     val surfaceTransformModifier = if (activeInteractionState != null) {
         Modifier.graphicsLayer {
             val transform = liquidGlassButtonLayerTransform(
-                size.width, size.height, activeInteractionState.pressProgress,
+                size.width, size.height, activeInteractionState.scaleProgress,
                 activeInteractionState.offset, 4.dp.toPx(), motionEnabled,
-                maxTranslationPx = 6.dp.toPx()
+                maxTranslationPx = 6.dp.toPx(),
+                wobble = activeInteractionState.wobble,
+                wobbleVertical = activeInteractionState.wobbleIsVertical
             )
             translationX = transform.translationX
             translationY = transform.translationY
@@ -631,9 +642,11 @@ fun LiquidGlassSurface(
     val contentTransformModifier = if (activeInteractionState != null) {
         Modifier.graphicsLayer {
             val transform = liquidGlassButtonContentTransform(liquidGlassButtonLayerTransform(
-                size.width, size.height, activeInteractionState.pressProgress,
+                size.width, size.height, activeInteractionState.scaleProgress,
                 activeInteractionState.offset, 4.dp.toPx(), motionEnabled,
-                maxTranslationPx = 6.dp.toPx()
+                maxTranslationPx = 6.dp.toPx(),
+                wobble = activeInteractionState.wobble,
+                wobbleVertical = activeInteractionState.wobbleIsVertical
             ))
             translationX = transform.translationX
             translationY = transform.translationY
@@ -642,6 +655,56 @@ fun LiquidGlassSurface(
             clip = false
         }
     } else Modifier
+
+    val drawPressedHighlight: DrawScope.() -> Unit = {
+        val pressProgress = interactionState?.pressProgress ?: 0f
+        val highlightPosition = interactionState?.position
+        if (handlesButtonGesture && highlightPosition != null && pressProgress > 0.001f) {
+            val highlightCenter = Offset(
+                x = highlightPosition.x.coerceIn(0f, size.width),
+                y = highlightPosition.y.coerceIn(0f, size.height)
+            )
+            val radius = size.minDimension * if (isDark) 1.5f else 1.1f
+            val tonalHighlight = tonalGlassHighlight(fallbackColor)
+            val highlightColors = if (hdrHighlightEnabled) {
+                listOf(
+                    hdrHighlightColor(
+                        // The specular core is neutral white so it can cross the
+                        // SDR white point even on a dark glass surface.
+                        source = Color.White,
+                        luminanceScale = if (isDark) 1.30f else 1.25f,
+                        alpha = (if (isDark) 0.58f else 0.42f) * pressProgress
+                    ),
+                    hdrHighlightColor(
+                        source = tonalHighlight,
+                        luminanceScale = 1.06f,
+                        alpha = (if (isDark) 0.18f else 0.10f) * pressProgress
+                    ),
+                    hdrHighlightColor(
+                        source = tonalHighlight,
+                        luminanceScale = 1f,
+                        alpha = 0f
+                    )
+                )
+            } else {
+                listOf(
+                    Color.White.copy(alpha = (if (isDark) 0.15f else 0.18f) * pressProgress),
+                    tonalHighlight.copy(alpha = (if (isDark) 0.08f else 0.06f) * pressProgress),
+                    tonalHighlight.copy(alpha = 0f)
+                )
+            }
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = highlightColors,
+                    center = highlightCenter,
+                    radius = radius
+                ),
+                radius = radius,
+                center = highlightCenter,
+                blendMode = BlendMode.Plus
+            )
+        }
+    }
 
     // Elevation assumes an opaque caster. Under transparent glass its displaced
     // shadow cutout shows through as a pale patch; the glass outline supplies depth.
@@ -665,53 +728,7 @@ fun LiquidGlassSurface(
                 .then(surfaceModifier)
                 .then(surfaceClip)
                 .drawWithContent {
-                val pressProgress = interactionState?.pressProgress ?: 0f
-                val highlightPosition = interactionState?.position
-                if (handlesButtonGesture && highlightPosition != null && pressProgress > 0.001f) {
-                    val highlightCenter = Offset(
-                        x = highlightPosition.x.coerceIn(0f, size.width),
-                        y = highlightPosition.y.coerceIn(0f, size.height)
-                    )
-                    val radius = size.minDimension * 1.5f
-                    val tonalHighlight = tonalGlassHighlight(fallbackColor)
-                    val highlightColors = if (hdrHighlightEnabled) {
-                        listOf(
-                            hdrHighlightColor(
-                                // The specular core is neutral white so it can cross the
-                                // SDR white point even on a dark glass surface.
-                                source = Color.White,
-                                luminanceScale = 1.30f,
-                                alpha = 0.58f * pressProgress
-                            ),
-                            hdrHighlightColor(
-                                source = tonalHighlight,
-                                luminanceScale = 1.06f,
-                                alpha = 0.18f * pressProgress
-                            ),
-                            hdrHighlightColor(
-                                source = tonalHighlight,
-                                luminanceScale = 1f,
-                                alpha = 0f
-                            )
-                        )
-                    } else {
-                        listOf(
-                            Color.White.copy(alpha = 0.15f * pressProgress),
-                            tonalHighlight.copy(alpha = 0.08f * pressProgress),
-                            tonalHighlight.copy(alpha = 0f)
-                        )
-                    }
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = highlightColors,
-                            center = highlightCenter,
-                            radius = radius
-                        ),
-                        radius = radius,
-                        center = highlightCenter,
-                        blendMode = BlendMode.Plus
-                    )
-                }
+                if (isDark) drawPressedHighlight()
                 drawContent()
             }
             .cardOutline(shape)
@@ -727,6 +744,14 @@ fun LiquidGlassSurface(
             ) {
                 with(surfaceScope) { content() }
             }
+        }
+        if (!isDark) {
+            // Draw the specular light over the icon as well as the glass. Dark mode
+            // keeps its existing highlight below the content and its original brightness.
+            Box(Modifier.matchParentSize().padding(effectPadding)
+                .then(surfaceTransformModifier)
+                .then(surfaceClip)
+                .drawWithContent { drawContent(); drawPressedHighlight() })
         }
     }
 }

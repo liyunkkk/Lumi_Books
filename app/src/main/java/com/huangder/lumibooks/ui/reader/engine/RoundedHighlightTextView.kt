@@ -217,6 +217,14 @@ internal open class RoundedHighlightTextView(context: Context) : ReaderGeometryT
             invalidate()
         }
 
+    /** 笔记高亮/划线的用户几何参数；只影响绘制，不触发重排。 */
+    var annotationStyle: ReaderAnnotationStyle = ReaderAnnotationStyle.DEFAULT
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
+
     /** Color for the custom selection background; native Layout selection is disabled. */
     var readerSelectionColor: Int = 0x40007AFF
         set(value) {
@@ -504,6 +512,17 @@ internal open class RoundedHighlightTextView(context: Context) : ReaderGeometryT
     protected open fun readerDrawingGeometry(textLayout: Layout, spanned: Spanned): ReaderLineGeometry =
         ReaderLineGeometry(textLayout, spanned, readerJustificationMode, readerForceLastLineJustification)
 
+    /** Note icons from the last frame, in Layout coordinates. */
+    private var readerNoteMarkers: List<ReaderNoteMarker> = emptyList()
+
+    /** Returns the note icon at view coordinates [x]/[y], if any. */
+    internal fun readerNoteMarkerAt(x: Float, y: Float): ReaderNoteMarker? {
+        if (readerNoteMarkers.isEmpty()) return null
+        val minTouch = 32f * resources.displayMetrics.density
+        return ReaderNoteMarkers.hit(readerNoteMarkers,
+            x - totalPaddingLeft + scrollX, y - totalPaddingTop + scrollY, minTouch)
+    }
+
     override fun onDraw(canvas: Canvas) {
         // Replacing Editor's selection buffer can clear Layout without resizing
         // the view. Our custom drawing bypasses TextView.onDraw's assumeLayout().
@@ -541,6 +560,9 @@ internal open class RoundedHighlightTextView(context: Context) : ReaderGeometryT
                 frameworkImagePlacement = true,
                 imageBleedLeft = if (readerImageBleed) totalPaddingLeft else 0,
                 imageBleedRight = if (readerImageBleed) totalPaddingRight else 0)
+            readerNoteMarkers = ReaderNoteMarkers.collect(textLayout, spanned, geometry,
+                readerVisibleLines(canvas, textLayout))
+            readerNoteMarkers.forEach { ReaderNoteMarkers.draw(canvas, it.rect, currentTextColor) }
             canvas.restoreToCount(saved)
         } else {
             super.onDraw(canvas)
@@ -1223,9 +1245,10 @@ internal open class RoundedHighlightTextView(context: Context) : ReaderGeometryT
         val density = resources.displayMetrics.density
         val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 1.0f * density
+            strokeWidth = annotationStyle.underlineThicknessDp * density
             strokeCap = Paint.Cap.ROUND
         }
+        val underlineOffset = annotationStyle.underlineOffsetYDp * density
         val saveCount = canvas.save()
         canvas.translate(
             totalPaddingLeft.toFloat() - scrollX,
@@ -1243,8 +1266,6 @@ internal open class RoundedHighlightTextView(context: Context) : ReaderGeometryT
             val spanEnd = spanned.getSpanEnd(span).coerceIn(spanStart, spanned.length)
             if (spanStart >= spanEnd) return@forEach
             wavePaint.color = span.color
-            val amplitude = 0.8f * density
-            val wavelength = 11f * density
             for (line in maxOf(visible.first, textLayout.getLineForOffset(spanStart))..
                 minOf(visible.last, textLayout.getLineForOffset(spanEnd - 1))) {
                 val layoutLineStart = textLayout.getLineStart(line)
@@ -1264,8 +1285,12 @@ internal open class RoundedHighlightTextView(context: Context) : ReaderGeometryT
                 val x1 = range.right
                 if (x1 <= x0) continue
                 val baseline = textLayout.getLineBaseline(line).toFloat()
-                val underlineCenter = baseline + paint.fontMetrics.descent.coerceAtLeast(1f) + 1f * density
-                drawReaderUnderline(canvas, wavePaint, span.mode, x0, x1, underlineCenter, false, density)
+                val underlineCenter = baseline + paint.fontMetrics.descent.coerceAtLeast(1f) + 1f * density +
+                    underlineOffset
+                drawReaderUnderline(
+                    canvas, wavePaint, span.mode, x0, x1, underlineCenter, false, density,
+                    annotationStyle.underlinePatternScale
+                )
             }
         }
         canvas.restoreToCount(saveCount)
@@ -1325,7 +1350,8 @@ internal open class RoundedHighlightTextView(context: Context) : ReaderGeometryT
             start = spanStart,
             end = spanEnd,
             color = color,
-            outline = (span as? ReaderHighlightSpan)?.outline == true
+            outline = (span as? ReaderHighlightSpan)?.outline == true,
+            style = if (span is ReaderHighlightSpan) annotationStyle else ReaderAnnotationStyle.DEFAULT
         )
     }
 

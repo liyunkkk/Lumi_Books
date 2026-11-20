@@ -1,6 +1,7 @@
 package com.huangder.lumibooks.tts
 
 import android.media.AudioFormat
+import android.media.MediaPlayer
 import android.content.Intent
 import android.content.pm.ResolveInfo
 import android.content.pm.ServiceInfo
@@ -31,11 +32,137 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import org.robolectric.shadows.ShadowTextToSpeech
+import org.robolectric.shadows.ShadowMediaPlayer.State
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], shadows = [SystemTtsEngineTest.RecordingTts::class])
 class SystemTtsEngineTest {
+    @Test
+    fun nativeMediaRoutingPlaysOnceAcrossSentencesAndPagesAndRearmsOnPauseErrorAndStop() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val players = mutableListOf<MediaPlayer>()
+        val routing = NativeTtsMediaRouting { preparedRoutingPlayer().also(players::add) }
+        val player = SystemTtsAudioPlayer(backgroundScope) { throw AssertionError("Unexpected local speech") }
+        val engine = TtsEngine(ApplicationProvider.getApplicationContext(), player, routing)
+        engine.setListener(listener(mutableListOf(), mutableListOf(), mutableListOf()))
+        try {
+            selectMultiTts(engine)
+            initializeEngine(engine)
+            val callbacks = (shadowOf(ShadowTextToSpeech.getLastTextToSpeechInstance()) as RecordingTts)
+                .utteranceProgressListener
+            engine.speak("First.", "first")
+            assertTrue(players.isEmpty()) // Do not start routing merely for synthesis/initialization.
+            callbacks.onStart("first")
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(players.single().isPlaying)
+            shadowOf(players.single()).invokeCompletionListener()
+            assertEquals(State.END, shadowOf(players.single()).state)
+            engine.queueNext("Next.", "next")
+            callbacks.onStart("next")
+            callbacks.onDone("first")
+            shadowOf(Looper.getMainLooper()).idle()
+            engine.stopForPageTurn()
+            engine.speak("Next.", "next")
+            assertEquals(1, players.size)
+            callbacks.onDone("next")
+            shadowOf(Looper.getMainLooper()).idle()
+            engine.speak("Third.", "third") // A natural, unqueued sentence gap must not rearm either.
+            callbacks.onStart("third")
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1, players.size)
+            engine.pause()
+            callbacks.onStart("third") // An obsolete callback must not restart the routing clip.
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1, players.size)
+
+            for (ending in listOf("error", "stop", "shutdown")) {
+                engine.speak("Restart.", ending)
+                callbacks.onStart(ending)
+                shadowOf(Looper.getMainLooper()).idle()
+                assertTrue(players.last().isPlaying)
+                when (ending) {
+                    "error" -> callbacks.onError(ending, TextToSpeech.ERROR_SYNTHESIS)
+                    "stop" -> engine.stop()
+                    else -> engine.shutdown()
+                }
+                shadowOf(Looper.getMainLooper()).idle()
+                assertEquals(State.END, shadowOf(players.last()).state)
+            }
+        } finally { engine.shutdown(); player.release(); Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun switchingAwayFromMultiTtsCancelsRoutingAndOtherEnginesDoNotStartIt() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val players = mutableListOf<MediaPlayer>()
+        val routing = NativeTtsMediaRouting { preparedRoutingPlayer().also(players::add) }
+        val player = SystemTtsAudioPlayer(backgroundScope) { Track() }
+        val engine = TtsEngine(ApplicationProvider.getApplicationContext(), player, routing)
+        engine.setListener(listener(mutableListOf(), mutableListOf(), mutableListOf()))
+        try {
+            selectMultiTts(engine)
+            initializeEngine(engine)
+            val oldCallbacks = (shadowOf(ShadowTextToSpeech.getLastTextToSpeechInstance()) as RecordingTts)
+                .utteranceProgressListener
+            engine.speak("Native.", "native")
+            oldCallbacks.onStart("native")
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(players.single().isPlaying)
+            engine.selectEngine(null)
+            assertEquals(State.END, shadowOf(players.single()).state)
+            ShadowTextToSpeech.addLanguageAvailability(Locale.CHINESE)
+            initializeEngine(engine)
+            engine.speak("Local.", "local")
+            val localTts = shadowOf(ShadowTextToSpeech.getLastTextToSpeechInstance()) as RecordingTts
+            val request = localTts.requests.single()
+            localTts.utteranceProgressListener.onBeginSynthesis(
+                request.id, 24_000, AudioFormat.ENCODING_PCM_16BIT, 1
+            )
+            localTts.utteranceProgressListener.onAudioAvailable(request.id, ByteArray(8))
+            oldCallbacks.onStart("native")
+            shadowOf(Looper.getMainLooper()).idle()
+            runCurrent()
+            assertEquals(1, players.size)
+        } finally { engine.shutdown(); player.release(); Dispatchers.resetMain() }
+    }
+
+    @Test
+    fun routingFailureDoesNotInterruptNativeSpeechOrRetryAtEachSentence() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        var attempts = 0
+        val routing = NativeTtsMediaRouting { attempts++; throw IllegalStateException("No routing output") }
+        val player = SystemTtsAudioPlayer(backgroundScope) { throw AssertionError("Unexpected local speech") }
+        val engine = TtsEngine(ApplicationProvider.getApplicationContext(), player, routing)
+        val started = mutableListOf<String>()
+        val done = mutableListOf<String>()
+        val errors = mutableListOf<Throwable>()
+        engine.setListener(listener(started, done, errors))
+        try {
+            selectMultiTts(engine)
+            initializeEngine(engine)
+            val callbacks = (shadowOf(ShadowTextToSpeech.getLastTextToSpeechInstance()) as RecordingTts)
+                .utteranceProgressListener
+            engine.speak("First.", "first")
+            callbacks.onStart("first")
+            callbacks.onDone("first")
+            shadowOf(Looper.getMainLooper()).idle()
+            engine.speak("Next.", "next")
+            callbacks.onStart("next")
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(listOf("first", "next"), started)
+            assertEquals(listOf("first"), done)
+            assertTrue(errors.isEmpty())
+            assertEquals(1, attempts)
+            engine.pause()
+            engine.speak("Resume.", "resume")
+            callbacks.onStart("resume")
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(2, attempts)
+            assertTrue(errors.isEmpty())
+        } finally { engine.shutdown(); player.release(); Dispatchers.resetMain() }
+    }
+
     @Implements(TextToSpeech::class)
     class RecordingTts : ShadowTextToSpeech() {
         data class Request(val text: String, val id: String, val file: File)
@@ -66,7 +193,7 @@ class SystemTtsEngineTest {
     }
 
     @Test
-    fun multiTtsQueuesOneSuccessorAndReplaysEarlyCallbacksOnlyOnAdoptionAcrossPageTurns() = runTest {
+    fun multiTtsQueuesBoundedSuccessorsAndReplaysEarlyCallbacksOnlyOnAdoptionAcrossPageTurns() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val player = SystemTtsAudioPlayer(backgroundScope) { throw AssertionError("Unexpected local playback") }
         val engine = TtsEngine(ApplicationProvider.getApplicationContext(), player)
@@ -83,8 +210,10 @@ class SystemTtsEngineTest {
             assertTrue(engine.supportsQueuedPlayback)
             engine.speak("First.", "first")
             assertTrue(engine.queueNext("Second.", "second").isSuccess)
+            assertTrue(engine.queueNext("Third.", "third").isSuccess)
+            assertTrue(engine.queueNext("Fourth.", "fourth").isSuccess)
             assertTrue(engine.queueNext("Overflow.", "overflow").isFailure)
-            assertEquals(listOf("first", "second"), shadow.spokenRequests.map { it.id })
+            assertEquals(listOf("first", "second", "third", "fourth"), shadow.spokenRequests.map { it.id })
             callbacks.onStart("first")
             callbacks.onStart("second") // Android can deliver this before the controller handles first's done.
             callbacks.onStart("second")
@@ -99,7 +228,8 @@ class SystemTtsEngineTest {
             assertTrue(engine.speak("Second.", "second").isSuccess)
             assertEquals(listOf("first", "second"), started)
             assertEquals(listOf("first", "second"), done)
-            assertEquals(2, shadow.spokenRequests.size)
+            assertTrue(engine.speak("Third.", "third").isSuccess) // The rest of the queue survives.
+            assertEquals(4, shadow.spokenRequests.size)
             assertEquals(stops, shadow.stopCount)
             assertTrue(shadow.spokenRequests.all { it.queueMode == TextToSpeech.QUEUE_ADD })
             assertTrue(shadow.requests.isEmpty())
@@ -276,6 +406,61 @@ class SystemTtsEngineTest {
             }
         )
         engine.selectEngine("org.nobody.multitts")
+    }
+
+    @Test fun missingEngineRangesUseRenderedClausesAndLatePreciseRangesTakeOver() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        ShadowTextToSpeech.addLanguageAvailability(Locale.CHINESE)
+        val track = Track()
+        val player = SystemTtsAudioPlayer(backgroundScope) { track }
+        val engine = TtsEngine(ApplicationProvider.getApplicationContext(), player)
+        val ranges = mutableListOf<Pair<Int, Int>>()
+        engine.setListener(object : TtsPlaybackListener {
+            override fun onStart(utteranceId: String) = Unit
+            override fun onDone(utteranceId: String) = Unit
+            override fun onError(utteranceId: String, throwable: Throwable) { throw AssertionError(throwable) }
+            override fun onPlaybackInterrupted() = Unit
+            override fun onRangeStart(utteranceId: String, start: Int, end: Int) { ranges += start to end }
+        })
+        try {
+            initializeEngine(engine)
+            val shadow = shadowOf(ShadowTextToSpeech.getLastTextToSpeechInstance()) as RecordingTts
+            engine.speak("第一小句，第二小句，句子结束。", "first")
+            val id = shadow.requests.single().id
+            val callbacks = shadow.utteranceProgressListener
+            callbacks.onBeginSynthesis(id, 24_000, AudioFormat.ENCODING_PCM_16BIT, 1)
+            callbacks.onAudioAvailable(id, ByteArray(20))
+            shadowOf(Looper.getMainLooper()).idle()
+            runCurrent()
+            callbacks.onAudioAvailable(id, ByteArray(40)) // Count bytes streamed after playback began.
+            callbacks.onDone(id)
+            shadowOf(Looper.getMainLooper()).idle()
+            runCurrent()
+            assertTrue(ranges.isEmpty())
+            track.playbackHeadPosition = 1
+            advanceTimeBy(10); runCurrent()
+            assertEquals(listOf(0 to 5), ranges)
+            engine.pause()
+            advanceTimeBy(100); runCurrent()
+            assertEquals(listOf(0 to 5), ranges)
+            engine.resume()
+            track.playbackHeadPosition = 11
+            advanceTimeBy(10); runCurrent()
+            assertEquals(5 to 10, ranges.last())
+            callbacks.onRangeStart(id, 10, 11, 15)
+            shadowOf(Looper.getMainLooper()).idle()
+            track.playbackHeadPosition = 15
+            advanceTimeBy(10); runCurrent()
+            assertEquals(10 to 11, ranges.last())
+            val count = ranges.size
+            track.playbackHeadPosition = 21
+            advanceTimeBy(10); runCurrent()
+            assertEquals(count, ranges.size) // No estimate can override the precise range.
+            engine.stop()
+            track.playbackHeadPosition = 29
+            advanceTimeBy(10); runCurrent()
+            assertEquals(count, ranges.size)
+        } finally { engine.shutdown(); player.release(); Dispatchers.resetMain() }
     }
 
     private class Track : SystemTtsAudioPlayer.PcmTrack {

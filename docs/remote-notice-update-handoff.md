@@ -35,7 +35,7 @@ App 更新弹窗 > 通知弹窗 > 用户协议/隐私政策弹窗
 
 ```text
 标题
-通知内容色块，可滚动
+通知内容色块，正文与可选照片一起滚动
 收到
 ```
 
@@ -93,7 +93,8 @@ App 更新弹窗 > 通知弹窗 > 用户协议/隐私政策弹窗
   "min_version_code": 1,
   "max_version_code": 5,
   "title": "重要通知",
-  "message": "当前版本存在一个已知问题。我们已经在新版本中修复，建议尽快更新。"
+  "message": "当前版本存在一个已知问题。我们已经在新版本中修复，建议尽快更新。",
+  "image_url": "https://example.com/notice-photo.jpg"
 }
 ```
 
@@ -103,6 +104,7 @@ App 更新弹窗 > 通知弹窗 > 用户协议/隐私政策弹窗
 - `enabled` 为 `true` 才展示。
 - `min_version_code` / `max_version_code` 控制哪些版本能看到通知。
 - `message` 可以写多行，弹窗内容区域会滚动。
+- `image_url` 可选。把示例地址换成可公开访问的 HTTPS 图片直链，例如仓库中已发布图片的 GitHub Raw 地址。照片显示在正文下方。省略该字段、图片加载失败或客户端版本尚未支持时，通知仍显示文字正文。
 
 关闭通知：
 
@@ -144,7 +146,9 @@ versionName = 1.1.01
 
 - `versionCode < 6` 的用户打开 App 会看到更新弹窗。
 - 弹窗有“下载”和“稍后”。
-- 用户点“下载”会打开 `download_url`。
+- 支持渠道选择的 App 点“下载”会弹出下载渠道。GitHub 优先打开可选的 `github_apk_url`。未配置直链时打开 `download_url`。
+- 保留 `download_url` 为当前版本的 GitHub 发布页，旧版 App 仍使用它直接打开发布页。
+- 上传并核对当前 Release 的 `app-universal-release.apk` 后，将该附件的 GitHub HTTPS 下载链接填入 `github_apk_url`。例如 Dream 使用 `https://github.com/huangder/Lumi_Books/releases/download/Dream/app-universal-release.apk`。切换 Release 时同步更新两个链接。
 
 ## 6. 如何发布强制更新
 

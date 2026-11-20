@@ -1,16 +1,22 @@
 package com.huangder.lumibooks.ui.settings
 
+import com.huangder.lumibooks.ui.animation.pagePushToolbarItem
 import com.huangder.lumibooks.ui.theme.LocalReduceTransparency
 import com.huangder.lumibooks.ui.icons.directionalIcon
 import com.huangder.lumibooks.ui.icons.AppIcons
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -54,6 +60,7 @@ import com.huangder.lumibooks.R
 import com.huangder.lumibooks.ui.components.CollapsingPageLargeTitle
 import com.huangder.lumibooks.ui.components.CollapsingPageSmallTitle
 import com.huangder.lumibooks.ui.components.LiquidGlassIconButton
+import com.huangder.lumibooks.ui.components.ProvideLiquidGlassBackdrop
 import com.huangder.lumibooks.ui.components.PROGRESSIVE_BLUR_TINT_ALPHA
 import com.huangder.lumibooks.ui.components.PROGRESSIVE_BLUR_TINT_ALPHA_DARK
 import com.huangder.lumibooks.ui.components.ProgressiveTopBlur
@@ -64,6 +71,7 @@ import com.huangder.lumibooks.ui.components.quantizeBlurStrength
 import com.huangder.lumibooks.ui.theme.AppColors
 import com.huangder.lumibooks.ui.theme.AppSpace
 import com.huangder.lumibooks.ui.theme.LocalEInkMode
+import com.huangder.lumibooks.ui.theme.LocalAppTheme
 import com.huangder.lumibooks.ui.theme.LocalIsDarkTheme
 import com.huangder.lumibooks.ui.theme.LocalLiquidGlassCapability
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -104,10 +112,12 @@ internal fun CollapsingSettingsScaffold(
     lazyContent: (LazyListScope.() -> Unit)? = null,
     alignToolbarToContent: Boolean = false,
     showBackButton: Boolean = true,
+    contentMaxWidth: Dp = 840.dp,
     content: @Composable () -> Unit = {}
 ) {
     val capability = LocalLiquidGlassCapability.current
     val eInkMode = LocalEInkMode.current
+    val glassBackdropEnabled = LocalAppTheme.current == "liquid_glass" && capability.supported && !eInkMode
     val blurEnabled = progressiveBlurEnabled(capability.supported, eInkMode, LocalReduceTransparency.current)
     val scrimEnabled = progressiveTopScrimEnabled(capability.supported, eInkMode, LocalReduceTransparency.current)
     val tint = AppColors.WindowBg
@@ -152,13 +162,15 @@ internal fun CollapsingSettingsScaffold(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize()
+        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (blurEnabled) Modifier.layerBackdrop(topBlurBackdrop) else Modifier)
+                .then(if (blurEnabled || glassBackdropEnabled) Modifier.layerBackdrop(topBlurBackdrop) else Modifier)
+                .background(AppColors.PageBg)
         ) {
-            val contentModifier = Modifier.align(Alignment.TopCenter).widthIn(max = 840.dp)
+            val contentModifier = Modifier.align(Alignment.TopCenter).widthIn(max = contentMaxWidth)
                 .fillMaxWidth().fillMaxHeight().imePadding()
             val heading: @Composable () -> Unit = {
                 Spacer(Modifier.height(toolbarTotalHeight))
@@ -209,40 +221,44 @@ internal fun CollapsingSettingsScaffold(
         }
 
         // 前景层：返回、标题与操作永远清晰，且不参与模糊采样。
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .then(if (alignToolbarToContent) Modifier.widthIn(max = 840.dp) else Modifier)
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .height(SettingsToolbarHeight)
-                .testTag("settings-toolbar")
-                .padding(horizontal = if (alignToolbarToContent) AppSpace.lg else AppSpace.sm),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (showBackButton) LiquidGlassIconButton(
-                imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
-                contentDescription = stringResource(R.string.back),
-                onClick = onBack,
-                settingsBackButton = !alignToolbarToContent
-            ) else Spacer(Modifier.size(48.dp))
-            Box(
+        ProvideLiquidGlassBackdrop(topBlurBackdrop.takeIf { glassBackdropEnabled }) {
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = AppSpace.sm),
-                contentAlignment = Alignment.Center
+                    .align(Alignment.TopCenter)
+                    .then(if (alignToolbarToContent) Modifier.widthIn(max = contentMaxWidth) else Modifier)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .height(SettingsToolbarHeight)
+                    .testTag("settings-toolbar")
+                    .padding(horizontal = if (alignToolbarToContent) AppSpace.lg else AppSpace.md),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                CollapsingPageSmallTitle(title = title, progress = { collapseProgress.value })
-            }
-            if (actions != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(AppSpace.sm, Alignment.End),
-                    content = actions
-                )
-            } else {
-                // 与返回按钮等宽，保证标题在屏幕上真正居中。
-                Spacer(Modifier.size(48.dp))
+                if (showBackButton) LiquidGlassIconButton(
+                    imageVector = directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
+                    contentDescription = stringResource(R.string.back),
+                    onClick = onBack,
+                    modifier = Modifier.pagePushToolbarItem(),
+                    settingsBackButton = !alignToolbarToContent
+                ) else Spacer(Modifier.size(48.dp))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = AppSpace.sm),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CollapsingPageSmallTitle(title = title, progress = { collapseProgress.value })
+                }
+                if (actions != null) {
+                    Row(
+                        modifier = Modifier.pagePushToolbarItem(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(AppSpace.sm, Alignment.End),
+                        content = actions
+                    )
+                } else {
+                    // 与返回按钮等宽，保证标题在屏幕上真正居中。
+                    Spacer(Modifier.size(48.dp))
+                }
             }
         }
     }

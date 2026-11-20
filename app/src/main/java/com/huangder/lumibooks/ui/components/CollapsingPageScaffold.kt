@@ -1,5 +1,6 @@
 package com.huangder.lumibooks.ui.components
 
+import com.huangder.lumibooks.ui.animation.pagePushToolbarItem
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
@@ -44,6 +45,12 @@ internal class CollapsingPageState(initialProgress: Float = 0f) {
     }
 
     internal fun remainingTitleHeightPx(): Float = titleHeightPx * (1f - progress)
+
+    /**
+     * Collapses the large title as if the user had scrolled. Call it after a programmatic jump
+     * into the list, otherwise content sits under an expanded header without the progressive blur.
+     */
+    fun collapse() { progress = 1f }
 
     /** Finger coordinates: negative collapses, positive expands. Returns only the consumed distance. */
     fun consumeDelta(delta: Float): Float {
@@ -166,6 +173,7 @@ internal fun CollapsingPageScaffold(
     val backdrop = rememberLayerBackdrop()
     val capability = LocalLiquidGlassCapability.current
     val eInkMode = LocalEInkMode.current
+    val glassBackdropEnabled = LocalAppTheme.current == "liquid_glass" && capability.supported && !eInkMode
     val blurEnabled = progressiveBlurEnabled(capability.supported, eInkMode, LocalReduceTransparency.current)
     val remainingTitleHeight = with(density) { (state.titleHeightPx * (1f - state.progress)).toDp() }
     val pinnedHeight = with(density) { pinnedHeightPx.toDp() }
@@ -180,7 +188,7 @@ internal fun CollapsingPageScaffold(
         if (delta < 0f || !drawContentBehindHeader) state.consumeDelta(delta)
     }
     Box(modifier.fillMaxSize().background(AppColors.PageBg)) {
-        Column(Modifier.fillMaxSize().then(if (blurEnabled) Modifier.layerBackdrop(backdrop) else Modifier)) {
+        Column(Modifier.fillMaxSize().then(if (blurEnabled || glassBackdropEnabled) Modifier.layerBackdrop(backdrop) else Modifier)) {
             val topInset = toolbarHeight + remainingTitleHeight + pinnedHeight
             if (!drawContentBehindHeader) Spacer(Modifier.height(topInset))
             CompositionLocalProvider(LocalCollapsingPageTopInset provides if (drawContentBehindHeader) topInset else 0.dp,
@@ -227,15 +235,16 @@ internal fun CollapsingPageScaffold(
             }
         }
         val headerDragModifier = if (headerGesturesEnabled) Modifier.draggable(drag, Orientation.Vertical) else Modifier
+        ProvideLiquidGlassBackdrop(backdrop.takeIf { glassBackdropEnabled }) {
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(horizontal = AppSpace.sm).then(headerDragModifier),
+            Row(Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(horizontal = AppSpace.md).then(headerDragModifier),
                 verticalAlignment = Alignment.CenterVertically) {
                 LiquidGlassIconButton(directionalIcon(AppIcons.ArrowLeft, AppIcons.ArrowRight),
-                    stringResource(R.string.back), onBack, settingsBackButton = true)
+                    stringResource(R.string.back), onBack, modifier = Modifier.pagePushToolbarItem(), settingsBackButton = true)
                 Box(Modifier.weight(1f).padding(horizontal = AppSpace.sm), contentAlignment = Alignment.Center) {
                     CollapsingPageSmallTitle(title, { state.progress })
                 }
-                if (actions != null) Row(verticalAlignment = Alignment.CenterVertically,
+                if (actions != null) Row(Modifier.pagePushToolbarItem(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(AppSpace.sm), content = actions)
                 else Spacer(Modifier.size(48.dp))
             }
@@ -251,6 +260,7 @@ internal fun CollapsingPageScaffold(
             if (pinnedContent != null) Box(Modifier.fillMaxWidth().onSizeChanged { pinnedHeightPx = it.height }) {
                 pinnedContent()
             }
+        }
         }
     }
 }

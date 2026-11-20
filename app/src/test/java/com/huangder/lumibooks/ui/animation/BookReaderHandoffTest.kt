@@ -60,39 +60,6 @@ class BookReaderHandoffTest {
         advanceUntilIdle()
     }
 
-    @Test fun `zoom only opening shows its loading page until the zoom has finished`() = runTest {
-        val state = transition()
-        state.startOpen(book, null, source, 0f, sourcePresentation = BookReaderPresentation.CoverFlow, zoomOnly = true)
-        state.markReaderReady()
-        advanceTimeBy(300)
-        assertEquals(BookReaderTransitionPhase.ReaderLoading, state.phase)
-        assertEquals(0f, state.readerRevealSnapshot.value, 0f)
-        advanceUntilIdle()
-        assertEquals(BookReaderTransitionPhase.Reader, state.phase)
-    }
-
-    @Test fun `zoom only opening keeps cover flow motion and clears after closing`() = runTest {
-        val state = transition()
-        state.startOpen(book, null, source, 0f, sourcePresentation = BookReaderPresentation.CoverFlow, zoomOnly = true)
-        assertTrue(state.zoomOnly)
-        assertEquals(BookReaderPresentation.CoverFlow, state.presentation)
-        state.markReaderReady()
-        advanceUntilIdle()
-        assertEquals(BookReaderTransitionPhase.Reader, state.phase)
-        assertTrue(state.startClose())
-        // Nothing reports a return cover for a zoom: the close must not wait for one.
-        // Reader text fades for 180 ms, then the zoom reverses at once (no 18-frame wait).
-        advanceTimeBy(340)
-        assertTrue(state.coverFlowProgressSnapshot.value < 1f)
-        advanceUntilIdle()
-        assertEquals(BookReaderTransitionPhase.Library, state.phase)
-        assertFalse(state.zoomOnly)
-        // A Window opening never zooms, even if asked to.
-        state.startOpen(book, null, source, 8f, zoomOnly = true)
-        assertFalse(state.zoomOnly)
-        advanceUntilIdle()
-    }
-
     @Test fun `closing retraces the same geometry and cover switch at every timeline position`() = runTest {
         val state = transition()
         state.startOpen(book, null, source, 8f)
@@ -203,6 +170,25 @@ class BookReaderHandoffTest {
         assertEquals(BookReaderTransitionPhase.Library, state.phase)
     }
 
+    @Test fun `repeated back during return does not restart the reverse motion`() = runTest {
+        val state = transition()
+        state.startOpen(book, null, source, 8f)
+        state.markReaderReady()
+        advanceUntilIdle()
+        assertTrue(state.startClose())
+        advanceTimeBy(220)
+        assertTrue(state.consumeCloseNavigation())
+        state.completeCloseAfterNavigation()
+        advanceTimeBy(220)
+        val progress = state.windowProgressSnapshot.value
+        assertTrue(state.startClose())
+        advanceTimeBy(80)
+        assertTrue(state.windowProgressSnapshot.value < progress)
+        assertFalse(state.consumeCloseNavigation())
+        advanceUntilIdle()
+        assertEquals(BookReaderTransitionPhase.Library, state.phase)
+    }
+
     @Test fun `reader clip follows the cover window endpoints`() {
         val target = Rect(0f, 0f, 1080f, 2400f)
         assertEquals(source, BookReaderMotion.windowBounds(source, target, 0f, 0f, 28f))
@@ -263,7 +249,7 @@ class BookReaderHandoffTest {
             bufferOffset: Int, stride: Int) = Unit
     }
 
-    @Test fun `stored page stays up through the wait and the reader appears opaque below it`() = runTest {
+    @Test fun `stored page stays opaque until the ready reader replaces it`() = runTest {
         val state = transition()
         val page = StoredPage()
         state.startOpen(book, null, source, 8f, openingSnapshot = page)
@@ -271,15 +257,16 @@ class BookReaderHandoffTest {
         assertEquals(BookReaderTransitionPhase.ReaderLoading, state.phase)
         assertSame(page, state.openingSnapshot)
         assertEquals(0f, state.readerLayerAlpha, 0f)
+        assertEquals(1f, state.overlayAlpha, 0f)
         state.markReaderReady()
-        runCurrent()
         assertEquals(BookReaderTransitionPhase.Ready, state.phase)
-        assertEquals(1f, state.readerLayerAlpha, 0f)
-        advanceTimeBy(80)
-        assertTrue(state.shellAlphaSnapshot.value in 0.01f..0.99f)
-        assertEquals(1f, state.readerLayerAlpha, 0f)
-        advanceTimeBy(180)
+        assertSame(page, state.openingSnapshot)
+        assertEquals(0f, state.readerLayerAlpha, 0f)
+        assertEquals(1f, state.overlayAlpha, 0f)
+        runCurrent()
         assertEquals(BookReaderTransitionPhase.Reader, state.phase)
+        assertEquals(1f, state.readerLayerAlpha, 0f)
+        assertEquals(0f, state.overlayAlpha, 0f)
         assertNull(state.openingSnapshot)
         advanceUntilIdle()
     }

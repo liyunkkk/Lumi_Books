@@ -80,6 +80,7 @@ fun CloudBookDownloadDialog(
 fun CloudAwareBookDeleteDialog(
     bookCount: Int,
     hasRemoteBooks: Boolean,
+    hasLocalCopies: Boolean,
     onDismiss: () -> Unit,
     onDelete: (BookDeleteMode) -> Unit
 ) {
@@ -106,8 +107,10 @@ fun CloudAwareBookDeleteDialog(
         },
         actions = buildList {
             if (hasRemoteBooks) {
-                add(AppDialogAction(stringResource(R.string.delete_local_only),
-                    { onDelete(BookDeleteMode.LOCAL_ONLY) }, AppDialogActionRole.Destructive))
+                if (hasLocalCopies) {
+                    add(AppDialogAction(stringResource(R.string.delete_local_only),
+                        { onDelete(BookDeleteMode.LOCAL_ONLY) }, AppDialogActionRole.Destructive))
+                }
                 add(AppDialogAction(stringResource(R.string.delete_local_and_cloud),
                     { onDelete(BookDeleteMode.LOCAL_AND_CLOUD) }, AppDialogActionRole.Destructive))
             } else {

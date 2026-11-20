@@ -1,7 +1,14 @@
 package com.huangder.lumibooks.ui.reader
 
 import android.app.Application
+import android.net.Uri
+import com.huangder.lumibooks.domain.model.CustomFontPreset
+import com.huangder.lumibooks.util.epub.EpubRenderSession
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -13,10 +20,46 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33], application = Application::class)
 class EpubReaderFontResolverTest {
+    @Test fun concurrentBodyAndRulePreparationShareACompleteFontFile() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        File(context.cacheDir, "epub_reader_fonts/lxgw_wenkai_v1.ttf").delete()
+        val paths = List(8) {
+            async(Dispatchers.Default) { requireNotNull(prepareEpubReaderFontPath(context, "kaiti", null)) }
+        }.awaitAll()
+        assertEquals(1, paths.distinct().size)
+        val expectedSize = context.resources.openRawResource(com.huangder.lumibooks.R.font.lxgw_wenkai)
+            .use { it.readBytes().size.toLong() }
+        assertEquals(expectedSize, File(paths.first()).length())
+    }
+
+    @Test fun kaitiRulePreparesBundledFontWithoutChangingBodyFont() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val font = File(requireNotNull(prepareEpubReaderFontPath(context, "kaiti", null)))
+        assertTrue(font.isFile && font.length() > 0L)
+        assertEquals("400", epubReaderFontWeightDescriptor(font.path))
+    }
+
     @Test fun serifPreparesWesternFontWithoutBundledCjkOverride() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val latin = File(requireNotNull(prepareEpubReaderFontPath(context, "serif", null)))
         assertTrue(latin.isFile && latin.length() > 0L)
+        assertEquals("200.0 900.0", epubReaderFontWeightDescriptor(latin.path))
         assertTrue(File(latin.parentFile, "source_serif4_italic_v1.ttf").isFile)
+    }
+
+    @Test fun legacyImportUsesTheFontSignatureForItsEpubResponse() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        // The response only needs the container signature to classify the file.
+        val font = File(context.cacheDir, "legacy-import.ttf").apply { writeBytes("ttcf".toByteArray()) }
+        val tutorial = File("src/main/assets/builtin/lumi/guide_zh-CN.epub")
+        EpubRenderSession.open(tutorial.absolutePath).use { session ->
+            val preset = CustomFontPreset("legacy", font.absolutePath)
+            val prepared = prepareEpubRuleFonts(context, session, setOf(preset.fontTypeKey), listOf(preset))
+                .getValue(preset.fontTypeKey)
+            assertTrue(prepared.url.endsWith(".ttc"))
+            val response = requireNotNull(session.assetLoader.shouldInterceptRequest(Uri.parse(prepared.url)))
+            assertEquals("font/collection", response.mimeType)
+            assertEquals("ttcf", response.data.bufferedReader().use { it.readText() })
+        }
     }
 }

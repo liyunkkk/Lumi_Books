@@ -22,10 +22,11 @@ object EpubDocumentTransformer {
         resource: EpubResource,
         layout: EpubRenditionLayout,
         isCoverCandidate: Boolean,
-        cssIndex: EpubCssIndex
+        cssIndex: EpubCssIndex,
+        duokanPage: EpubDuokanPage? = null
     ): ByteArray {
         val document = parseAndSanitize(resource)
-        return transform(document, layout, isCoverCandidate, cssIndex)
+        return transform(document, layout, isCoverCandidate, cssIndex, duokanPage)
     }
 
     /**
@@ -43,7 +44,8 @@ object EpubDocumentTransformer {
         document: Document,
         layout: EpubRenditionLayout,
         isCoverCandidate: Boolean,
-        cssIndex: EpubCssIndex
+        cssIndex: EpubCssIndex,
+        duokanPage: EpubDuokanPage? = null
     ): ByteArray {
         val head = document.head().takeIf { it.tagName().isNotBlank() }
             ?: document.prependElement("head")
@@ -59,6 +61,10 @@ object EpubDocumentTransformer {
         head.appendElement("style").attr("id", "lumi-floated-media-style")
             .appendChild(DataNode(FLOATED_MEDIA_CSS))
         document.body().attr("data-lumi-layout", layout.name.lowercase())
+        duokanPage?.let { document.body().attr("data-lumi-duokan-page", it.property) }
+        if (layout == EpubRenditionLayout.REFLOWABLE && duokanPage?.usesFullWindow == true) {
+            document.body().attr("data-lumi-full-window", "true")
+        }
         // 整页只有图片的页面（封面、卷首图、插图页、固定版式的整页图）在阅读器里应当满屏，
         // 不该被页边距缩进去一圈。reflowable 沿用封面样式，固定版式只打标记、不动设计盒。
         markMediaOnlyPage(
@@ -67,6 +73,13 @@ object EpubDocumentTransformer {
             isCoverCandidate = isCoverCandidate
         )
         val effectiveCssIndex = cssIndex.plus(documentCssIndex(document))
+        document.body().select("a[href] img").forEach { image ->
+            if (EpubFootnoteImagePolicy.isPublisherIllustration(image, effectiveCssIndex)) {
+                image.attr("data-lumi-footnote-illustration", "true")
+                image.closest("a")?.attr("data-lumi-footnote-illustration-ref", "true")
+            }
+        }
+        markInlineMedia(document, layout, effectiveCssIndex)
         markReflowableMediaWrappers(document, layout, effectiveCssIndex)
         markFullBleedMedia(document, layout, effectiveCssIndex)
         // XHTML 由 XML 解析器读取，裸 '<' 和 '&' 会使整个章节解析失败。
@@ -171,6 +184,24 @@ object EpubDocumentTransformer {
             }
         }
 
+    /** Keep avatars/formulas inside their text line, including publisher stylesheet sizing. */
+    private fun markInlineMedia(document: Document, layout: EpubRenditionLayout, cssIndex: EpubCssIndex) {
+        if (layout != EpubRenditionLayout.REFLOWABLE) return
+        document.body().select("img").forEach { media ->
+            if (isFootnoteMedia(media) || media.hasAttr("data-lumi-footnote-illustration")) return@forEach
+            val display = Regex("""(?:^|;)\s*display\s*:\s*([\w-]+)""", RegexOption.IGNORE_CASE)
+                .find(media.attr("style"))?.groupValues?.get(1)?.lowercase()
+                ?: cssIndex.declaration(media, "display")?.trim()?.lowercase()
+            val parent = media.parent()
+            val inText = parent != null && parent.tagName().lowercase() in
+                setOf("p", "span", "a", "em", "strong", "b", "i", "h1", "h2", "h3", "h4", "h5", "h6", "td") &&
+                hasVisibleFlowText(parent)
+            if (display in setOf("inline", "inline-block") || (display == null && inText)) {
+                media.attr("data-lumi-inline-media", "true")
+            }
+        }
+    }
+
     /** Prevent a publisher's image-only wrapper from being fragmented between CSS columns. */
     private fun markReflowableMediaWrappers(
         document: Document,
@@ -180,7 +211,7 @@ object EpubDocumentTransformer {
         if (layout != EpubRenditionLayout.REFLOWABLE) return
         val body = document.body()
         topLevelMedia(body).forEach { media ->
-            if (isFootnoteMedia(media)) return@forEach
+            if (isFootnoteMedia(media) || media.hasAttr("data-lumi-inline-media")) return@forEach
 
             var wrapper = media.parent()
             while (wrapper != null && wrapper !== body) {
@@ -205,6 +236,7 @@ object EpubDocumentTransformer {
     }
 
     private fun isFootnoteMedia(media: org.jsoup.nodes.Element): Boolean {
+        if (media.attr("data-lumi-footnote-illustration") == "true") return false
         if (media.classNames().any { it.contains("footnote", ignoreCase = true) }) return true
         return media.parents().any { parent ->
             if (parent.tagName().equals("sup", ignoreCase = true)) return@any true
@@ -238,6 +270,9 @@ object EpubDocumentTransformer {
         }
         val firstBlock = firstVisualContent(body)
         media.forEach { element ->
+            if (element.hasAttr("data-lumi-inline-media") || isFootnoteMedia(element)) return@forEach
+            // width:100% on an illustration means its float's width, not the page width.
+            if (element.parents().any { it.hasAttr(FLOATED_MEDIA_ATTR) }) return@forEach
             val hasFullWidthDeclaration = cssIndex.declaresFullWidth(element) ||
                 element.parents().asSequence()
                     .takeWhile { it !== body }
@@ -328,7 +363,7 @@ object EpubDocumentTransformer {
         val parser = if (useXmlParser) Parser.xmlParser() else Parser.htmlParser()
         val document = Jsoup.parse(ByteArrayInputStream(bytes), null, path, parser)
         document.outputSettings().syntax(Document.OutputSettings.Syntax.xml).charset(Charsets.UTF_8)
-        if (document.selectFirst("body[data-lumi-markdown]") != null) {
+        if (document.selectFirst("body[data-lumi-markdown], body[data-lumi-replacement]") != null) {
             document.outputSettings().prettyPrint(false)
         }
         sanitize(document)
@@ -418,7 +453,7 @@ body[data-lumi-layout="pre_paginated"] {
   visibility: hidden;
   transform-origin: top left;
 }
-body[data-lumi-layout="reflowable"] img,
+body[data-lumi-layout="reflowable"] img:not([data-lumi-inline-media="true"]),
 body[data-lumi-layout="reflowable"] svg,
 body[data-lumi-layout="reflowable"] video,
 body[data-lumi-layout="reflowable"] canvas {
@@ -429,6 +464,11 @@ body[data-lumi-layout="reflowable"] canvas {
   margin-right: auto;
   max-width: 100%;
   object-fit: contain;
+}
+body[data-lumi-layout="reflowable"] img[data-lumi-inline-media="true"] {
+  max-width: 100%;
+  object-fit: contain;
+  vertical-align: middle;
 }
 /* 分页中的图片必须作为一个整体进入某一栏。出版社常在纯图片容器上写固定高度或
    overflow:hidden；横屏后这会把图片留在半页位置并裁掉下半截。 */
@@ -441,7 +481,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"]:not([data-lumi-media-onl
   break-inside: avoid-column !important;
   -webkit-column-break-inside: avoid !important;
 }
-html.lumi-paginated body[data-lumi-layout="reflowable"]:not([data-lumi-media-only="true"]) img:not([data-lumi-footnote-marker="true"]),
+html.lumi-paginated body[data-lumi-layout="reflowable"]:not([data-lumi-media-only="true"]) img:not([data-lumi-footnote-marker="true"]):not([data-lumi-inline-media="true"]),
 html.lumi-paginated body[data-lumi-layout="reflowable"]:not([data-lumi-media-only="true"]) svg,
 html.lumi-paginated body[data-lumi-layout="reflowable"]:not([data-lumi-media-only="true"]) video,
 html.lumi-paginated body[data-lumi-layout="reflowable"]:not([data-lumi-media-only="true"]) canvas {
@@ -451,17 +491,17 @@ html.lumi-paginated body[data-lumi-layout="reflowable"]:not([data-lumi-media-onl
   break-inside: avoid-column !important;
   -webkit-column-break-inside: avoid !important;
 }
-html.lumi-paginated body[data-lumi-layout="reflowable"]:not([data-lumi-media-only="true"]) img:not([data-lumi-footnote-marker="true"]) {
+html.lumi-paginated body[data-lumi-layout="reflowable"]:not([data-lumi-media-only="true"]) img:not([data-lumi-footnote-marker="true"]):not([data-lumi-inline-media="true"]) {
   height: auto !important;
 }
 /* 注释引用图标（脚注标记）是行内小图：上面的块级/居中处理会把它们推到单独一行、并放大到
    整页宽度，表现为"注释图标位置不对"。这里还原成行内、按字号缩放。
    `data-lumi-footnote-marker` 由脚本按注释引用启发式标注。 */
 body[data-lumi-layout] img[data-lumi-footnote-marker="true"],
-body[data-lumi-layout] sup img,
-body[data-lumi-layout] img[class*="footnote" i],
-body[data-lumi-layout] a[href*="footnote" i] img,
-body[data-lumi-layout] a[id*="footnote" i] img {
+body[data-lumi-layout] sup img:not([data-lumi-footnote-illustration="true"]),
+body[data-lumi-layout] img[class*="footnote" i]:not([data-lumi-footnote-illustration="true"]),
+body[data-lumi-layout] a[href*="footnote" i] img:not([data-lumi-footnote-illustration="true"]),
+body[data-lumi-layout] a[id*="footnote" i] img:not([data-lumi-footnote-illustration="true"]) {
   display: inline-block !important;
   margin: 0 0.08em !important;
   /* 不覆盖出版社给的 width/height：有的书把标记宽度写成 11px，保持原样；
@@ -475,6 +515,20 @@ body[data-lumi-layout] a[id*="footnote" i] img {
    表现为紧贴"注"字图标左侧的一小段横线。 */
 body[data-lumi-layout] a[data-lumi-footnote-ref="true"] {
   text-decoration: none !important;
+}
+/* WebView's default pressed-link overlay can cover an entire illustrated note. */
+body[data-lumi-layout] [data-lumi-footnote-ref="true"],
+body[data-lumi-layout] [data-lumi-footnote-ref="true"] *,
+body[data-lumi-layout] img[data-lumi-footnote-marker="true"] {
+  -webkit-tap-highlight-color: transparent !important;
+}
+/* A full illustration can open a note too (e.g. a Duokan puzzle/answer page).
+   Keep the authored artwork size and column protection, independently of its link. */
+body[data-lumi-layout="reflowable"] a[data-lumi-footnote-illustration-ref="true"] {
+  display: block;
+  text-indent: 0;
+  break-inside: avoid-column !important;
+  -webkit-column-break-inside: avoid !important;
 }
 /* 同文档注释正文改由气泡呈现，正文流里不再重复出现（阅读器排版引擎同样如此）。
    标记由脚本 resolveFootnoteBodies() 按注释引用启发式添加；气泡克隆内容时会去掉该属性。 */
@@ -624,13 +678,15 @@ a[href*="#ref-footnotebookmark-end-"] img {
   width: 20px !important;
   height: 20px !important;
 }
+/* A footnote gesture must never pan the WebView viewport. */
+html.lumi-footnote-open { touch-action: none !important; }
 #lumi-footnote-popover {
   position: fixed;
   left: 12px;
   top: 12px;
   width: max-content;
   min-width: 112px;
-  max-width: min(84vw, 420px);
+  max-width: min(84vw, 300px);
   max-height: min(56vh, 520px);
   box-sizing: border-box;
   overflow: visible;
@@ -643,14 +699,14 @@ a[href*="#ref-footnotebookmark-end-"] img {
   box-shadow: 0 24px 72px rgba(0, 0, 0, 0.10), 0 6px 24px rgba(0, 0, 0, 0.05);
   font-family: sans-serif;
   font-size: 16px;
-  line-height: 1.62;
+  line-height: 1.7;
   text-align: start;
   filter: none;
   opacity: 0;
   transform: translateY(var(--lumi-footnote-motion-y, -8px)) scale(0.965);
   transform-origin: var(--lumi-footnote-arrow-x, 50%) top;
   will-change: opacity, transform;
-  touch-action: pan-y;
+  touch-action: none !important;
   -webkit-user-select: text;
   user-select: text;
 }
@@ -688,7 +744,7 @@ a[href*="#ref-footnotebookmark-end-"] img {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
+  touch-action: none !important;
 }
 #lumi-footnote-content > :first-child { margin-top: 0 !important; }
 #lumi-footnote-content > :last-child { margin-bottom: 0 !important; }
@@ -823,7 +879,7 @@ html.lumi-green-dark #lumi-footnote-popover { background: #1e3527; color: #c8e6c
     private const val BLEED_HORIZONTAL_TOP = "horizontal-top"
 
     private const val FLOATED_MEDIA_CSS = """
-html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media="true"] {
+html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media="true"]:not([data-lumi-bounded-float="true"]) {
   float: none !important;
   clear: both !important;
   width: 100% !important;
@@ -834,9 +890,10 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
         buildString(
             READER_SCRIPT_PART_1.length + READER_SCRIPT_PART_1B.length +
                 READER_SCRIPT_PART_2.length + READER_SCRIPT_PART_3.length +
-                READER_SCRIPT_PART_3B.length
+                READER_SCRIPT_PART_3B.length + EPUB_READER_ALIGNMENT_SCRIPT.length
         ) {
             append(READER_SCRIPT_PART_1)
+            append(EPUB_READER_ALIGNMENT_SCRIPT)
             append(READER_SCRIPT_PART_1B)
             append(READER_SCRIPT_PART_2)
             append(READER_SCRIPT_PART_3)
@@ -866,7 +923,8 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     edgeTapLeft: -1, edgeTapRight: 1, canTurnPrevious: true, canTurnNext: true,
     bionicReading: false, chineseMode: 'original', chineseMap: null, pendingPreparedPage: null, prepareSerial: 0,
     highlightItems: [], ttsHighlight: null, ttsFollowSuspended: false, searchHighlight: null, dictionarySelection: null,
-    insets: { top: 0, right: 0, bottom: 0, left: 0 }
+    insets: { top: 0, right: 0, bottom: 0, left: 0 },
+    scrollViewportInsets: { top: 0, bottom: 0 }, scrollViewportBackgroundColor: '#ffffff'
   };
   function visualMillis(base) {
     return Math.max(1, Math.round(base * state.visualDurationScale));
@@ -875,6 +933,9 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
   var viewportFrozen = false;
   var selectionDispatchTimer = 0;
   var scrollNotifyTimer = 0;
+  var ttsScrollSettleTimer = 0;
+  var ttsManualScrollPending = false;
+  var ttsManualScrollDragging = false;
   var searchHighlightTimer = 0;
   var touchStartX = 0;
   var touchStartY = 0;
@@ -891,6 +952,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
   var scrollChapterDragOffset = 0;
   var scrollChapterStartedAtTop = false;
   var scrollChapterStartedAtBottom = false;
+  var scrollBookEndPosted = false;
   var scrollChapterTurnPending = false;
   var scrollChapterAnimationTimer = 0;
   var imageLongPressTimer = 0;
@@ -1015,14 +1077,15 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
 
   function computeCurrentLocator() {
     var result = currentTextLocator();
+    var inset = state.flow === 'scrolled' ? scrollContentInsets() : {top: 0, bottom: 0};
     var images = document.querySelectorAll('[data-lumi-comic-image]');
     for (var imageIndex = 0; imageIndex < images.length; imageIndex++) {
       var imageRect = images[imageIndex].getBoundingClientRect();
-      if (imageRect.width <= 0 || imageRect.height <= 0 || imageRect.bottom <= 0 || imageRect.top >= viewportHeight() ||
+      if (imageRect.width <= 0 || imageRect.height <= 0 || imageRect.bottom <= inset.top || imageRect.top >= viewportHeight() - inset.bottom ||
           imageRect.right <= 0 || imageRect.left >= viewportWidth()) continue;
       try {
         var position = JSON.parse(images[imageIndex].getAttribute('data-lumi-comic-image'));
-        position.scroll = state.flow === 'scrolled' ? Math.max(0, Math.min(1, -imageRect.top / imageRect.height)) : 0;
+        position.scroll = state.flow === 'scrolled' ? Math.max(0, Math.min(1, (inset.top - imageRect.top) / imageRect.height)) : 0;
         result.comicImage = position;
         return result;
       } catch (_) {}
@@ -1032,6 +1095,9 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
 
   function currentTextLocator() {
     var index = textIndex();
+    var scrollInset = state.flow === 'scrolled' ? scrollContentInsets() : {top: 0, bottom: 0};
+    var visibleTop = state.flow === 'scrolled' ? readerBox().top + scrollInset.top : 0;
+    var visibleBottom = viewportHeight() - scrollInset.bottom;
     for (var i = 0; i < index.nodes.length; i++) {
       var info = index.nodes[i];
       if (!info.node.nodeValue || !info.node.nodeValue.trim()) continue;
@@ -1044,11 +1110,11 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
         var logicalPage = state.flow === 'scrolled'
           ? physicalPage : logicalPageForPhysical(physicalPage);
         if (state.flow === 'scrolled') {
-          if (rect.bottom <= readerBox().top || rect.top >= viewportHeight()) continue;
+          if (rect.bottom <= visibleTop || rect.top >= visibleBottom) continue;
         } else if (logicalPage !== state.page) continue;
         var x = Math.max(1, Math.min(viewportWidth() - 2, rect.left + Math.min(4, rect.width / 2)));
-        var y = Math.max(state.flow === 'scrolled' ? readerBox().top + 1 : 1,
-          Math.min(viewportHeight() - 2, rect.top + Math.min(4, rect.height / 2)));
+        var y = Math.max(state.flow === 'scrolled' ? visibleTop + 1 : 1,
+          Math.min(visibleBottom - 2, rect.top + Math.min(4, rect.height / 2)));
         var range = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
         if (range && document.body.contains(range.startContainer) &&
             (state.flow === 'scrolled' || pageForRange(range) === state.page)) {
@@ -1149,9 +1215,10 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     var endInfo = null;
     for (var i = 0; i < index.nodes.length; i++) {
       var info = index.nodes[i];
-      if (!startInfo && start >= info.start && start <= info.end) startInfo = info;
-      if (end >= info.start && end <= info.end) { endInfo = info; break; }
+      if (!startInfo && start >= info.start && (start < info.end || start === index.text.length)) startInfo = info;
+      if (!endInfo && end > info.start && end <= info.end) endInfo = info;
     }
+    if (end === start) endInfo = startInfo;
     if (!startInfo || !endInfo) return null;
     var range = document.createRange();
     range.setStart(startInfo.node, Math.max(0, start - startInfo.start));
@@ -1228,7 +1295,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     if (!rect) return 0;
     if (state.flow === 'scrolled') {
       var metrics = scrollMetrics();
-      return Math.max(0, Math.floor((rect.top + metrics.scrollY) / metrics.clientHeight));
+      return Math.max(0, Math.floor((rect.top + metrics.scrollY - scrollContentInsets().top) / metrics.clientHeight));
     }
     var physical = state.pageOffsets[state.page] || 0;
     var originalLeft = rect.left + (state.reverseAxis ? -physical : physical) * state.pageStep;
@@ -1948,7 +2015,8 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
   }
 
   function readerBox() {
-    if (document.body.getAttribute('data-lumi-cover') === 'true' || isMediaOnlyPage()) {
+    if (document.body.getAttribute('data-lumi-cover') === 'true' || isMediaOnlyPage() ||
+        document.body.getAttribute('data-lumi-full-window') === 'true') {
       return { top: 0, right: 0, bottom: 0, left: 0 };
     }
     var box = state.publisherBox;
@@ -1982,6 +2050,28 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     body.style.setProperty('--lumi-inset-bottom', inset.bottom + 'px');
   }
 
+  // Evaluate the real cascade at the current column width. A small publisher float
+  // can keep text wrapping; oversized/unknown floats retain the safe block fallback.
+  function fitPublisherFloats() {
+    var floats = document.body.querySelectorAll('[data-lumi-floated-media="true"]');
+    var box = readerBox();
+    var width = Math.max(1, state.viewportWidth - box.left - box.right);
+    var height = Math.max(1, state.viewportHeight - box.top - box.bottom);
+    for (var i = 0; i < floats.length; i++) floats[i].setAttribute('data-lumi-bounded-float', 'true');
+    for (var j = 0; j < floats.length; j++) {
+      var node = floats[j];
+      var style = getComputedStyle(node);
+      var rect = node.getBoundingClientRect();
+      var media = node.querySelector('img,svg,video,canvas');
+      var mediaHeight = media ? media.getBoundingClientRect().height : 0;
+      var marginWidth = (parseFloat(style.marginLeft) || 0) + (parseFloat(style.marginRight) || 0);
+      var fits = /^(left|right)$/.test(style.cssFloat) && rect.width > 0 &&
+        rect.width + marginWidth <= width * 0.55 && rect.height <= height &&
+        Math.max(node.scrollHeight, mediaHeight) <= height + 1;
+      if (!fits) node.removeAttribute('data-lumi-bounded-float');
+    }
+  }
+
   function applyPaginationBox(body) {
     var inset = readerBox();
     var horizontalInset = Math.min(state.viewportWidth - 1, Math.max(0, inset.left + inset.right));
@@ -2006,6 +2096,9 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
 
   function applyScrolledBox(body) {
     var inset = readerBox();
+    var scrollInset = scrollContentInsets();
+    inset.top += scrollInset.top;
+    inset.bottom += scrollInset.bottom;
     clearPublisherRootHorizontalInset();
     setInsetVariables(body, inset);
     body.style.removeProperty('--lumi-page-height');
@@ -2019,22 +2112,105 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     body.style.minHeight = '0px';
   }
 
+  // Keep viewport margins outside the original book subtree.
+  function scrollContentInsets() {
+    var height = Math.max(1, state.viewportHeight);
+    var top = Math.min(height - 1, state.scrollViewportInsets.top);
+    return {top: top, bottom: Math.min(height - top - 1, state.scrollViewportInsets.bottom)};
+  }
+  function isScrollContentPoint(y) {
+    if (state.flow !== 'scrolled') return true;
+    var inset = scrollContentInsets();
+    return y >= inset.top && y < state.viewportHeight - inset.bottom;
+  }
+  var scrollHeaderPaint = new Map();
+  function syncScrollViewportMasks() {
+    scrollHeaderPaint.forEach(function (properties, node) {
+      properties.forEach(function (property) {
+        restoreInlineProperty(node.style, property[0], property[1], property[2]);
+      });
+    });
+    scrollHeaderPaint.clear();
+    var existing = document.getElementById('lumi-scroll-viewport-masks');
+    if (existing) existing.remove();
+    var inset = scrollContentInsets();
+    if (state.flow !== 'scrolled' || (!inset.top && !inset.bottom)) return;
+    document.body.style.setProperty('z-index', '1');
+    document.body.style.setProperty('position', state.fixed ? 'fixed' : 'relative');
+    // WebView may scroll on its compositor before JS/clip-path animations catch
+    // up. Fixed copies of the PAPER cover those frames; they never track scrollY.
+    // Keep the margin paper above the SVG underline layer as well as the text.
+    var masks = document.createElementNS(document.documentElement.namespaceURI, 'div');
+    masks.id = 'lumi-scroll-viewport-masks';
+    masks.setAttribute('aria-hidden', 'true');
+    masks.style.cssText = 'position:fixed!important;inset:0!important;pointer-events:none!important;z-index:2147483001!important;';
+    var width = state.viewportWidth, height = state.viewportHeight;
+    [inset.top ? [0, height - inset.top] : null,
+      inset.bottom ? [height - inset.bottom, 0] : null].forEach(function (edges) {
+      if (!edges) return;
+      var strip = document.createElementNS(document.documentElement.namespaceURI, 'div');
+      strip.style.cssText = 'position:fixed!important;top:0!important;left:0!important;' +
+        'width:' + width + 'px!important;height:' + height + 'px!important;' +
+        'margin:0!important;padding:0!important;border:0!important;box-sizing:border-box!important;' +
+        'pointer-events:auto!important;clip-path:inset(' + edges[0] + 'px 0px ' + edges[1] + 'px 0px)!important;' +
+        'background:' + state.scrollViewportBackgroundColor + '!important;';
+      [document.documentElement, document.body].forEach(function (source) {
+        var style = getComputedStyle(source);
+        var paint = document.createElementNS(document.documentElement.namespaceURI, 'div');
+        paint.style.cssText = 'position:absolute!important;inset:0!important;pointer-events:none!important;';
+        ['background-color','background-image','background-size','background-position','background-repeat',
+          'background-origin','background-clip','background-blend-mode'].forEach(function (property) {
+          paint.style.setProperty(property, style.getPropertyValue(property), 'important');
+        });
+        strip.appendChild(paint);
+      });
+      ['lumi-reader-background', 'lumi-publisher-background'].forEach(function (id) {
+        var source = document.getElementById(id);
+        if (!source || getComputedStyle(source).display === 'none') return;
+        var copy = source.cloneNode(false);
+        copy.removeAttribute('id');
+        copy.style.setProperty('pointer-events', 'none', 'important');
+        strip.appendChild(copy);
+      });
+      masks.appendChild(strip);
+    });
+    // Keep explicitly authored top-bleed artwork above the margin paper, while
+    // ordinary text/highlights stay below it. Original book nodes never move.
+    if (!state.fixed) {
+      document.body.querySelectorAll('[data-lumi-bleed="horizontal-top"]').forEach(function (image) {
+        if (!/^(IMG|SVG)$/i.test(image.tagName || '')) return;
+        var wrapper = image.closest('[data-lumi-media-wrapper="true"]');
+        var node = wrapper && !wrapper.textContent.trim() ? wrapper : image;
+        if (scrollHeaderPaint.has(node)) return;
+        scrollHeaderPaint.set(node, ['position','z-index'].map(function (property) {
+          return [property, node.style.getPropertyValue(property), node.style.getPropertyPriority(property)];
+        }));
+        if (getComputedStyle(node).position === 'static') node.style.setProperty('position', 'relative', 'important');
+        node.style.setProperty('z-index', '2147483002', 'important');
+      });
+    }
+    (state.fixed ? document.documentElement : document.body).appendChild(masks);
+  }
   // Measure the horizontal layout before restoring the scroll surface in the same frame.
   function measureScrollNumbering() {
     if (state.fixed || isMediaOnlyPage()) return [0];
     var body = document.body, root = document.documentElement;
     var bodyStyle = body.getAttribute('style'), rootStyle = root.getAttribute('style');
     var oldOffsets = state.pageOffsets, oldPage = state.page, oldStep = state.pageStep;
+    var oldHeight = state.viewportHeight;
     var starts = [0];
     try {
       clearOverflowFits();
       state.flow = 'paginated';
+      var scrollInset = scrollContentInsets();
+      state.viewportHeight = Math.max(1, oldHeight - scrollInset.top - scrollInset.bottom);
       state.page = 0;
       state.pageOffsets = [0];
       root.classList.remove('lumi-scrolled');
       root.classList.add('lumi-paginated');
       root.style.overflow = 'hidden';
       applyPaginationBox(body);
+      fitPublisherFloats();
       fitReflowableHorizontalOverflow();
       var extent = Math.max(root.scrollWidth, body.scrollWidth, state.viewportWidth);
       state.pageOffsets = collectOccupiedPages(Math.max(0, Math.ceil((extent - 1) / state.pageStep) - 1));
@@ -2063,6 +2239,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       clearOverflowFits();
       state.flow = 'scrolled'; state.pageOffsets = oldOffsets;
       state.page = oldPage; state.pageStep = oldStep;
+      state.viewportHeight = oldHeight;
       root.classList.remove('lumi-paginated'); root.classList.add('lumi-scrolled');
       if (bodyStyle === null) body.removeAttribute('style'); else body.setAttribute('style', bodyStyle);
       if (rootStyle === null) root.removeAttribute('style'); else root.setAttribute('style', rootStyle);
@@ -2071,13 +2248,15 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
 
   function scrollMetrics() {
     var root = document.scrollingElement || document.documentElement;
-    var clientHeight = Math.max(1,
+    var fullClientHeight = Math.max(1,
       root.clientHeight || document.documentElement.clientHeight || state.viewportHeight);
+    var inset = state.flow === 'scrolled' ? scrollContentInsets() : {top: 0, bottom: 0};
+    var clientHeight = Math.max(1, fullClientHeight - inset.top - inset.bottom);
     // Android WebView can retain a taller layout viewport after its host is
     // resized. The root scrollHeight is then at least innerHeight even though
     // there is no content to scroll. Subtract that layout viewport floor while
     // keeping clientHeight as the visible-page size.
-    var layoutHeight = Math.max(clientHeight, window.innerHeight || 0);
+    var layoutHeight = Math.max(fullClientHeight, window.innerHeight || 0);
     var scrollHeight = Math.max(
       root.scrollHeight || 0,
       document.documentElement.scrollHeight || 0,
@@ -2294,8 +2473,14 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     state.layoutRevision += 1;
     state.stableLayoutRevision = -1;
     state.paginating = true;
+    // A page animation owns geometry from before this layout. Clear it before
+    // moving to the new page, even if its destination has the same page index.
+    touchPaging = false;
+    clearPageStage();
     var paginateStarted = traceNow();
     var body = document.body;
+    var hadReaderLineSpacing = readerLineSpacing.length > 0;
+    clearReaderLineSpacing();
     clearOverflowFits();
     applyPendingRuleStyles();
     // Insets cannot change footnote references or bodies. Keep document setup
@@ -2368,6 +2553,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       }
     }
     if (state.fixed) {
+      if (state.flow === 'scrolled') applyPublisherBackgroundLayer();
       var viewport = document.querySelector('meta[name="viewport"]');
       var content = viewport ? viewport.getAttribute('content') || '' : '';
       var widthMatch = content.match(/(?:^|,)\s*width\s*=\s*([0-9.]+)/i);
@@ -2403,6 +2589,11 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       // 固定排版书籍也要尊重阅读器的页边距设置：先把整页缩放塞进“视口减去 insets”的盒子，
       // 再按 insets 偏移。整页图页（封面/插图页）的 insets 为 0，仍然满屏。
       var fixedInset = readerBox();
+      if (state.flow === 'scrolled') {
+        var scrollInset = scrollContentInsets();
+        fixedInset.top += scrollInset.top;
+        fixedInset.bottom += scrollInset.bottom;
+      }
       var availableWidth = Math.max(1, state.viewportWidth - fixedInset.left - fixedInset.right);
       var availableHeight = Math.max(1, state.viewportHeight - fixedInset.top - fixedInset.bottom);
       // 「整页图裁切填满」开启时按较大的比例缩放（铺满屏幕、裁掉溢出），否则等比塞进盒子。
@@ -2453,6 +2644,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       body.style.columnWidth = 'auto';
       body.style.columnGap = 'normal';
       fitReflowableHorizontalOverflow();
+      adjustReaderPunctuationLines();
       var metrics = scrollMetrics();
       applyScrollability(metrics);
       state.pageOffsets = [0];
@@ -2463,7 +2655,9 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       document.documentElement.style.overflow = 'hidden';
       applyPublisherBackgroundLayer();
       applyPaginationBox(body);
+      fitPublisherFloats();
       fitReflowableHorizontalOverflow();
+      adjustReaderPunctuationLines();
       var extent = Math.max(document.documentElement.scrollWidth, body.scrollWidth, state.viewportWidth);
       var physicalTotal = Math.max(1, Math.ceil((extent - 1) / state.pageStep));
       state.pageOffsets = collectOccupiedPages(physicalTotal - 1);
@@ -2473,8 +2667,15 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
         : state.page;
       moveToPage(target, false);
     }
+    if (hadReaderLineSpacing || readerLineSpacing.length) locatorFrameCache = null;
     if (insetAnchor) {
-      if (insetAnchor.range && document.body.contains(insetAnchor.range.startContainer)) {
+      if ((hadReaderLineSpacing || readerLineSpacing.length) && insetAnchor.locator &&
+          typeof insetAnchor.locator.textPosition === 'number') {
+        var position = insetAnchor.locator.textPosition;
+        var restored = rangeAtOffsets(textIndex(), position, position);
+        if (restored) moveToPage(pageForRange(restored), false);
+        else state.pendingLocator = insetAnchor.locator;
+      } else if (insetAnchor.range && document.body.contains(insetAnchor.range.startContainer)) {
         moveToPage(pageForRange(insetAnchor.range), false);
       } else if (insetAnchor.locator) {
         state.pendingLocator = insetAnchor.locator;
@@ -2486,6 +2687,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     // 视口尺寸在分页时才最终确定，这里同步一次阅读器背景层（用户自设的背景图/底色）。
     applyReaderPaperBackground(state.readerBackgroundActive);
     applyReaderPageBackgroundLayer(state.readerBackgroundActive);
+    syncScrollViewportMasks();
     body.style.visibility = 'visible';
     // 分页完成后整页容器的尺寸才确定，这时再压制覆盖整页的纯色"纸张"背景。
     neutralizeSolidPagePaint();
@@ -2505,17 +2707,17 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     }
   }
 
-  // Layout and drawing have separate lifetimes. Publish only a revision whose
-  // geometry stayed unchanged across two frames, never an arbitrary delay.
+  // Measure layout boxes. CSS transforms and page translations can keep
+  // changing paint coordinates even when pagination has already settled.
   function publishStableLayout() {
     var revision = state.layoutRevision;
     var generation = state.configurationGeneration;
     function geometry() {
       var values = [viewportWidth(), viewportHeight()];
-      [document.body].concat(Array.prototype.slice.call(document.querySelectorAll('img,svg,video')))
+      [document.body].concat(Array.prototype.slice.call(document.body.querySelectorAll('img,svg,video')))
         .forEach(function (element) {
-          var rect = element.getBoundingClientRect();
-          values.push(rect.left, rect.top, rect.width, rect.height);
+          values.push(element.offsetLeft || 0, element.offsetTop || 0,
+            element.offsetWidth || element.clientWidth, element.offsetHeight || element.clientHeight);
         });
       return values;
     }
@@ -2745,6 +2947,26 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     });
   }
 
+  function readerFontWeightDescriptor(value) {
+    var descriptor = String(value || '400');
+    return /^\d+(?:\.\d+)?(?: \d+(?:\.\d+)?)?$/.test(descriptor) ? descriptor : '400';
+  }
+
+  function primaryFontFamily(value) {
+    var match = /^\s*(?:"([^"]*)"|'([^']*)'|([^,]+))/.exec(value);
+    return match ? (match[1] || match[2] || match[3] || '').trim().toLowerCase() : '';
+  }
+
+  function publisherWeightFamilies() {
+    var families = new Set();
+    if (document.fonts) document.fonts.forEach(function (face) {
+      if (face.status !== 'error' && readerFontWeightDescriptor(face.weight).includes(' ')) {
+        families.add(primaryFontFamily(face.family));
+      }
+    });
+    return families;
+  }
+
   function applyReaderOverrides(config) {
     var existing = document.getElementById('lumi-reader-overrides');
     var family = config.fontFamily ? String(config.fontFamily) : '';
@@ -2754,6 +2976,8 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     // 原排版的「自然对齐」保留书籍 CSS（包括标题居中、段落继承和署名右对齐）。
     // 只有用户明确选择的对齐方式才覆盖原书；恢复自然对齐时也要移除旧覆盖。
     if (!/^(left|center|right|justify)$/.test(textAlignment)) textAlignment = '';
+    var legacyAlignment = state.fixed || getComputedStyle(document.body).writingMode.indexOf('horizontal') !== 0;
+    setReaderAlignment(legacyAlignment ? '' : textAlignment);
     var letterSpacingDp = Number(config.letterSpacingDp);
     var hasLetterSpacing = Number.isFinite(letterSpacingDp);
     var lineHeight = Number(config.lineHeight);
@@ -2762,19 +2986,25 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     var hasParagraphSpacing = config.paragraphSpacingDp != null && Number.isFinite(paragraphSpacingDp);
     var firstLineIndent = Number(config.firstLineIndent);
     var hasFirstLineIndent = config.firstLineIndent != null && Number.isFinite(firstLineIndent);
-    if (!family && !textAlignment && bodyFontWeight === 400 && !hasLetterSpacing &&
+    var fontWeightDescriptor = readerFontWeightDescriptor(config.fontWeightDescriptor);
+    var variableOverride = fontUrl && fontWeightDescriptor.includes(' ');
+    var publisherVariable = !family && bodyFontWeight !== 400 ? publisherWeightFamilies() : new Set();
+    var hasOutline = bodyFontWeight > 400 && !variableOverride;
+    if (!family && !textAlignment && !hasOutline && !publisherVariable.size && !hasLetterSpacing &&
         !hasLineHeight && !hasParagraphSpacing && !hasFirstLineIndent) {
       if (existing) existing.remove();
+      updatePublisherWeightTargets(publisherVariable);
       return;
     }
     var style = existing || document.createElement('style');
     style.id = 'lumi-reader-overrides';
     var rules = '';
+    // Only a face with a wght axis may declare a weight range.
     if (fontUrl) {
-      rules += '@font-face{font-family:"Lumi Reader Override";src:url(' + JSON.stringify(fontUrl) + ');font-style:normal;font-weight:100 900;font-display:swap;}';
+      rules += '@font-face{font-family:"Lumi Reader Override";src:url(' + JSON.stringify(fontUrl) + ');font-style:normal;font-weight:' + fontWeightDescriptor + ';font-display:swap;}';
     }
     if (config.fontItalicUrl) {
-      rules += '@font-face{font-family:"Lumi Reader Override";src:url(' + JSON.stringify(String(config.fontItalicUrl)) + ');font-style:italic;font-weight:100 900;font-display:swap;}';
+      rules += '@font-face{font-family:"Lumi Reader Override";src:url(' + JSON.stringify(String(config.fontItalicUrl)) + ');font-style:italic;font-weight:' + fontWeightDescriptor + ';font-display:swap;}';
     }
     var textSelector = 'body,p,div,section,article,aside,header,footer,nav,h1,h2,h3,h4,h5,h6,' +
       'span,a,li,dt,dd,td,th,blockquote,figcaption,label';
@@ -2800,10 +3030,40 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       firstLineIndent = Math.max(0, Math.min(4, firstLineIndent));
       rules += 'p{text-indent:' + firstLineIndent.toFixed(3) + 'em !important;}';
     }
-    if (bodyFontWeight !== 400) rules += textSelector + '{font-weight:' + bodyFontWeight + ' !important;}';
-    if (textAlignment) rules += textSelector + '{text-align:' + textAlignment + ' !important;}';
+    if (variableOverride && bodyFontWeight !== 400) {
+      rules += textSelector + '{font-weight:' + bodyFontWeight + ' !important;}';
+    }
+    if (hasOutline) {
+      // Synthetic font-weight switches to a single bold face. Stroke adds ink without changing advances.
+      var outline = ((bodyFontWeight - 400) / 500 * 0.055).toFixed(5);
+      rules += textSelector + '{-webkit-text-stroke:' + outline + 'em currentColor !important;}';
+      rules += 'body [data-lumi-rule-font]{-webkit-text-stroke-width:0 !important;}';
+    }
+    if (publisherVariable.size) {
+      // Set the axis directly so static descendants retain their inherited CSS font-weight.
+      rules += '[data-lumi-publisher-vf]{font-variation-settings:"wght" ' + bodyFontWeight + ' !important;' +
+        (hasOutline ? '-webkit-text-stroke-width:0 !important;' : '') + '}';
+      rules += 'body [data-lumi-rule-font],body [data-lumi-bionic]{font-variation-settings:normal !important;}';
+    if (legacyAlignment && textAlignment) rules += textSelector + '{text-align:' + textAlignment + ' !important;}';
+    }
     if (style.textContent !== rules) style.textContent = rules;
     if (!existing) document.head.appendChild(style);
+    updatePublisherWeightTargets(publisherVariable);
+  }
+
+  function updatePublisherWeightTargets(families) {
+    var marker = 'data-lumi-publisher-vf';
+    if (!families.size) {
+      document.querySelectorAll('[' + marker + ']').forEach(function (element) { element.removeAttribute(marker); });
+      return;
+    }
+    var changes = [];
+    document.querySelectorAll('body, body *').forEach(function (element) {
+      if (element.namespaceURI !== 'http://www.w3.org/1999/xhtml') return;
+      var variable = families.has(primaryFontFamily(getComputedStyle(element).fontFamily));
+      if (element.hasAttribute(marker) !== variable) changes.push([element, variable]);
+    });
+    changes.forEach(function (change) { change[0].toggleAttribute(marker, change[1]); });
   }
 
   /**
@@ -2931,6 +3191,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       if (tag === 'IMG' || tag === 'SVG' || tag === 'VIDEO' || tag === 'CANVAS' ||
           tag === 'PICTURE' || tag === 'IFRAME') continue;
       if (element.closest('svg,picture,video,canvas')) continue;
+      if (element.closest('#lumi-scroll-viewport-masks')) continue;
       if (element.id && element.id.indexOf('lumi-') === 0) continue;
       var style = window.getComputedStyle(element);
       var image = String(style.backgroundImage || 'none');
@@ -2968,7 +3229,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
    */
   function applyReaderPageBackgroundLayer(active) {
     var layer = document.getElementById('lumi-reader-background');
-    var url = active && state.readerBackgroundHasImage && state.readerBackgroundUrl
+    var url = active && !state.readerBackgroundInHost && state.readerBackgroundHasImage && state.readerBackgroundUrl
       ? String(state.readerBackgroundUrl)
       : '';
     if (!url) {
@@ -3056,25 +3317,32 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
   function nonInsetConfigKey(config) {
     var values = {};
     Object.keys(config).sort().forEach(function (key) {
-      if (['configurationGeneration', 'insets', 'progressionValue', 'restoreProgressionInclusive'].indexOf(key) < 0) {
+      if (['configurationGeneration', 'insets', 'scrollViewportInsets', 'progressionValue', 'restoreProgressionInclusive'].indexOf(key) < 0) {
         values[key] = config[key];
       }
     });
     return JSON.stringify(values);
   }
 
-  function configureInsets(insets) {
+  function configureInsets(insets, scrollInsets, viewportBackgroundColor) {
     insets = insets || {};
     state.insets = {
       top: Math.max(0, Number(insets.top) || 0), right: Math.max(0, Number(insets.right) || 0),
       bottom: Math.max(0, Number(insets.bottom) || 0), left: Math.max(0, Number(insets.left) || 0)
     };
+    scrollInsets = scrollInsets || {};
+    state.scrollViewportInsets = {
+      top: Math.max(0, Number(scrollInsets.top) || 0),
+      bottom: Math.max(0, Number(scrollInsets.bottom) || 0)
+    };
+    state.scrollViewportBackgroundColor = String(viewportBackgroundColor || '#ffffff');
   }
   function geometryConfigKey(config) {
     var geometry = {};
     var paintKeys = ['configurationGeneration', 'theme', 'backgroundColor', 'autoTextColor', 'textColor',
-      'backgroundImage', 'backgroundUrl', 'backgroundImageOpacity', 'backgroundImageBlurDp',
+      'backgroundImage', 'backgroundInHost', 'backgroundUrl', 'backgroundImageOpacity', 'backgroundImageBlurDp',
       'coverBackgroundColor', 'publisherPaintOnly', 'preservePublisherBackground',
+      'scrollViewportBackgroundColor',
       'progressionValue', 'restoreProgressionInclusive', 'transition', 'transitionDurationMs', 'visualDurationScale',
       'edgeTapLeft', 'edgeTapRight', 'canTurnPrevious', 'canTurnNext', 'longPressSelectionRange'];
     Object.keys(config).sort().forEach(function (key) {
@@ -3113,7 +3381,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       var progression = state.total > 1 ? state.page / (state.total - 1) : 0;
       state.configurationGeneration = Number(config.configurationGeneration) || state.configurationGeneration + 1;
       state.restoreProgressionInclusive = config.restoreProgressionInclusive === true;
-      configureInsets(config.insets);
+      configureInsets(config.insets, config.scrollViewportInsets, config.scrollViewportBackgroundColor);
       paginate(progression, { range: range, locator: anchor });
       return;
     }
@@ -3153,7 +3421,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     state.longPressSelectionRange = config.longPressSelectionRange || 'word';
     state.canTurnPrevious = config.canTurnPrevious !== false;
     state.canTurnNext = config.canTurnNext !== false;
-    configureInsets(config.insets);
+    configureInsets(config.insets, config.scrollViewportInsets, config.scrollViewportBackgroundColor);
     state.pendingProgression = typeof liveProgression === 'number' ? liveProgression :
       (typeof config.progressionValue === 'number' ? config.progressionValue : undefined);
     // 书籍原排版的进度分数按"页尾"保存（(pageIndex + 1) / totalPages），
@@ -3170,6 +3438,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     state.coverBackgroundColor = config.coverBackgroundColor ? String(config.coverBackgroundColor) : null;
     state.autoTextColor = config.autoTextColor ? String(config.autoTextColor) : null;
     state.readerBackgroundHasImage = config.backgroundImage === true;
+    state.readerBackgroundInHost = config.backgroundInHost === true;
     state.readerBackgroundUrl = config.backgroundUrl ? String(config.backgroundUrl) : null;
     state.readerBackgroundOpacity = typeof config.backgroundImageOpacity === 'number'
       ? Math.max(0, Math.min(1, config.backgroundImageOpacity)) : 1;
@@ -3197,6 +3466,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     applyPublisherNightShade(publisherNightShade);
     applyReaderOverrides(config);
     if (geometryChanged) {
+      clearReaderLineSpacing();
       applyChineseConversion(config);
       applyBionicReading(config.bionicReading === true);
     }
@@ -3214,13 +3484,14 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       if (config.theme === 'green_dark') document.documentElement.classList.add('lumi-green-dark');
     }
     if (geometryChanged && (state.ready || state.mediaSettled)) {
+      if (liveLocator) state.pendingLocator = liveLocator;
       paginate(state.pendingProgression);
-      if (liveLocator) restore(liveLocator);
     } else if (state.ready) {
       applyPublisherBackgroundLayer();
       applyReaderPaperBackground(readerBackgroundActive);
       applyReaderPageBackgroundLayer(readerBackgroundActive);
       applyCoverBackgroundColor();
+      syncScrollViewportMasks();
       // New configuration identity, same geometry; native still waits for compositor readiness.
       post('page', currentPagePayload());
       publishStableLayout();
@@ -3306,6 +3577,9 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     if (image && !target.exact) return pageForRange(image);
     var range = null;
     if (Number(target.version || 1) >= 2 && target.exact) range = quoteRange(target);
+    if (!range && readerLineSpacing.length && typeof target.textPosition === 'number') {
+      range = rangeAtOffsets(textIndex(), target.textPosition, target.textPosition);
+    }
     var node = !range ? nodeAtPath(target.domPath || []) : null;
     if (!range && node && node.nodeType === Node.TEXT_NODE) {
       try {
@@ -3313,6 +3587,11 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
         range.setStart(node, Math.min(target.textOffset || 0, node.nodeValue.length));
         range.collapse(true);
       } catch (_) { range = null; }
+    }
+    if (!range && target.replacementAnchor && typeof target.textPosition === 'number') {
+      var index = textIndex();
+      var position = Math.max(0, Math.min(index.text.length, target.textPosition));
+      range = rangeAtOffsets(index, position, position);
     }
     if (!range) range = quoteRange(target);
     if (range) return Math.max(0, Math.min(state.total - 1, pageForRange(range)));
@@ -3342,7 +3621,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     var image = comicImageElement(target && target.comicImage);
     if (!image) return;
     var rect = image.getBoundingClientRect();
-    window.scrollTo(0, window.scrollY + rect.top + rect.height * Math.max(0, Math.min(1, Number(target.comicImage.scroll) || 0)));
+    window.scrollTo(0, window.scrollY + rect.top - scrollContentInsets().top + rect.height * Math.max(0, Math.min(1, Number(target.comicImage.scroll) || 0)));
   }
 
   /** 分页完成后应用早于分页到达的恢复锚点（不额外发页通知，由 ready 载荷带回最终页）。 */
@@ -3518,10 +3797,27 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     return merged;
   }
 
-  function shapeHighlightRects(rects, vertical) {
-    var inlinePadding = 3;
-    var blockInset = 1.5;
-    var minimumBlockGap = blockInset * 2;
+  // User-tuned note geometry (CSS px). Missing values keep the original look.
+  function annotationGeometry(geometry) {
+    function num(value, fallback) {
+      var n = Number(value);
+      return isFinite(n) ? n : fallback;
+    }
+    geometry = geometry || {};
+    return {
+      highlightWidth: num(geometry.highlightWidth, 0),
+      highlightHeight: num(geometry.highlightHeight, 0),
+      highlightOffset: num(geometry.highlightOffset, 0),
+      underlineThickness: Math.max(0.1, num(geometry.underlineThickness, 1)),
+      underlineOffset: num(geometry.underlineOffset, 0)
+    };
+  }
+
+  function shapeHighlightRects(rects, vertical, geometry) {
+    var g = annotationGeometry(geometry);
+    var inlinePadding = Math.max(0, 3 + g.highlightWidth);
+    var blockInset = 1.5 - g.highlightHeight;
+    var minimumBlockGap = Math.max(0, blockInset * 2);
     var tracks = [];
     rects.forEach(function (rect) {
       var previous = tracks.length ? tracks[tracks.length - 1] : null;
@@ -3563,6 +3859,14 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
           rect.right += inlinePadding;
           rect.top = Math.max(rect.top + blockInset, minimumStart);
           rect.bottom = Math.min(rect.bottom - blockInset, maximumEnd);
+        }
+        // Positive offset moves toward the underline side: down, or left in vertical text.
+        if (vertical) {
+          rect.left -= g.highlightOffset;
+          rect.right -= g.highlightOffset;
+        } else {
+          rect.top += g.highlightOffset;
+          rect.bottom += g.highlightOffset;
         }
       });
     });
@@ -3611,10 +3915,11 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
   function resetScrolledChapterDrag(animate) {
     clearTimeout(scrollChapterAnimationTimer);
     scrollChapterTurnPending = false;
+    scheduleTtsScrollSettled();
     var body = document.body;
     if (body) {
       body.style.transition = animate
-        ? 'transform ' + visualMillis(190) + 'ms cubic-bezier(.2,.72,.2,1), opacity ' + visualMillis(160) + 'ms ease-out'
+        ? 'transform ' + visualMillis(190) + 'ms cubic-bezier(.2,.72,.2,1)'
         : 'none';
       if (!state.fixed) body.style.transform = '';
       body.style.opacity = '1';
@@ -3627,20 +3932,30 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     scrollChapterDragDirection = 0;
     scrollChapterDragOffset = 0;
     touchPaging = false;
+    var masks = document.getElementById('lumi-scroll-viewport-masks');
+    if (masks && !state.fixed && masks.parentNode !== body) {
+      var restoreMasks = function () {
+        if (masks.isConnected && state.flow === 'scrolled' && !scrollChapterDragOffset) body.appendChild(masks);
+      };
+      if (animate) setTimeout(restoreMasks, visualMillis(210)); else restoreMasks();
+    }
+
   }
 
   function updateScrolledChapterDrag(offset) {
     var body = document.body;
     if (!body) return;
+    var masks = document.getElementById('lumi-scroll-viewport-masks');
+    if (masks && masks.parentNode === body) document.documentElement.appendChild(masks);
     var limit = Math.max(96, state.viewportHeight * 0.34);
     var distance = Math.min(Math.abs(offset), limit);
     var signedDistance = scrollChapterDragDirection * distance;
-    var progress = Math.min(1, distance / limit);
     scrollChapterDragOffset = signedDistance;
     body.style.visibility = 'visible';
     body.style.transition = 'none';
     body.style.transform = 'translate3d(0,' + signedDistance + 'px,0)';
-    body.style.opacity = String(1 - progress * 0.72);
+    // The publisher page stays opaque even while the next chapter is still loading.
+    body.style.opacity = '1';
   }
 
   function completeScrolledChapterTurn() {
@@ -3649,13 +3964,15 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
     scrollChapterTurnPending = true;
     clearTimeout(scrollChapterAnimationTimer);
     // Keep the dragged page visible while native prepares the next chapter.
-    // Native fades the two ready WebViews, then resets this hidden document.
+    // Native presents the two ready WebViews, then resets this hidden document.
     touchPaging = false;
     post('chapterTurn', { direction: direction < 0 ? 1 : -1, animated: true });
   }
 
-  function appendUnderlineRange(layer, range, color, mode) {
+  function appendUnderlineRange(layer, range, color, mode, geometry) {
     if (!range) return 0;
+    var g = annotationGeometry(geometry);
+    var patternScale = Math.max(1, g.underlineThickness);
     var layerRect = layer.getBoundingClientRect();
     var scaleX = layer.offsetWidth > 0 ? layerRect.width / layer.offsetWidth : 1;
     var scaleY = layer.offsetHeight > 0 ? layerRect.height / layer.offsetHeight : scaleX;
@@ -3674,8 +3991,9 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       svg.setAttribute('class', 'lumi-underline-block');
       svg.style.left = ((rect.left - layerRect.left) / scaleX) + 'px';
       svg.style.top = ((rect.top - layerRect.top) / scaleY) + 'px';
-      var svgWidth = vertical ? 8 : width;
-      var svgHeight = vertical ? height : 8;
+      var band = 8 * patternScale;
+      var svgWidth = vertical ? band : width;
+      var svgHeight = vertical ? height : band;
       svg.setAttribute('width', svgWidth);
       svg.setAttribute('height', svgHeight);
       svg.setAttribute('viewBox', '0 0 ' + svgWidth + ' ' + svgHeight);
@@ -3683,33 +4001,34 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
       svg.style.height = svgHeight + 'px';
       var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       var d = '';
-      var center = 4;
+      var center = band / 2;
       var length = vertical ? height : width;
       function point(along, across) {
         return vertical ? across.toFixed(2) + ' ' + along.toFixed(2) : along.toFixed(2) + ' ' + across.toFixed(2);
       }
       if (Number(mode) === 1 || Number(mode) === 2 || Number(mode) === 4) {
-        var first = Number(mode) === 2 ? center - 1.25 : center;
+        var doubleGap = 1.25 * patternScale;
+        var first = Number(mode) === 2 ? center - doubleGap : center;
         d = 'M' + point(0, first) + ' L' + point(length, first);
-        if (Number(mode) === 2) d += ' M' + point(0, center + 1.25) + ' L' + point(length, center + 1.25);
-        if (Number(mode) === 4) path.setAttribute('stroke-dasharray', '4 3');
+        if (Number(mode) === 2) d += ' M' + point(0, center + doubleGap) + ' L' + point(length, center + doubleGap);
+        if (Number(mode) === 4) path.setAttribute('stroke-dasharray', (4 * patternScale) + ' ' + (3 * patternScale));
       } else {
         for (var along = 0; along < length; along += 1) {
-          var across = center + Math.sin(along / 11 * Math.PI * 2) * 0.7;
+          var across = center + Math.sin(along / 11 * Math.PI * 2) * 0.7 * patternScale;
           d += (along === 0 ? 'M' : 'L') + point(along, across) + ' ';
         }
         d += ' L' + point(length, center);
       }
       if (vertical) {
-        // Keep both strokes inside the glyph column, including the page-edge column.
-        svg.style.left = (((rect.left - layerRect.left) / scaleX) - 2) + 'px';
+        // Put the entire stroke outside the glyph box, with room for double/wavy lines.
+        svg.style.left = (((rect.left - layerRect.left) / scaleX) - svgWidth - g.underlineOffset) + 'px';
       } else {
-        svg.style.top = (((rect.bottom - layerRect.top) / scaleY) - 6) + 'px';
+        svg.style.top = (((rect.bottom - layerRect.top) / scaleY) + g.underlineOffset) + 'px';
       }
       path.setAttribute('d', d);
       path.setAttribute('fill', 'none');
       path.setAttribute('stroke', color);
-      path.setAttribute('stroke-width', '1');
+      path.setAttribute('stroke-width', String(g.underlineThickness));
       path.setAttribute('stroke-linecap', 'round');
       svg.appendChild(path);
       layer.appendChild(svg);
@@ -3723,7 +4042,7 @@ html.lumi-paginated body[data-lumi-layout="reflowable"] [data-lumi-floated-media
 // 单个 Kotlin 字符串常量超过 64KB 会被编译器拒绝（UTF8 string too large），
 // 阅读脚本因此拆成多段，运行时再拼接。
 private const val READER_SCRIPT_PART_3 = """
-  function appendHighlightRange(layer, range, color, extraClass, outlineColor) {
+  function appendHighlightRange(layer, range, color, extraClass, outlineColor, geometry) {
     if (!range) return 0;
     var layerRect = layer.getBoundingClientRect();
     var scaleX = layer.offsetWidth > 0 ? layerRect.width / layer.offsetWidth : 1;
@@ -3739,7 +4058,7 @@ private const val READER_SCRIPT_PART_3 = """
       };
     });
     var vertical = state.writingMode.indexOf('vertical') === 0 || state.writingMode.indexOf('sideways') === 0;
-    var merged = shapeHighlightRects(mergeHighlightRects(rects, vertical), vertical);
+    var merged = shapeHighlightRects(mergeHighlightRects(rects, vertical), vertical, geometry);
     merged.forEach(function (rect) {
       if (rect.right <= rect.left || rect.bottom <= rect.top) return;
       var block = document.createElement('span');
@@ -3798,10 +4117,18 @@ private const val READER_SCRIPT_PART_3 = """
       if (segment.start > 0) target = target.splitText(segment.start);
       var span = document.createElement('span');
       span.setAttribute('data-lumi-rule-style', 'true');
-      if (Number(style.fontWeight) >= 600) span.style.fontWeight = '700';
-      if (style.italic === true) span.style.fontStyle = 'italic';
-      if (hasFontFamily) span.style.fontFamily = '"' + style.fontFamily + '"';
-      if (includePaint && hasColor) span.style.color = style.textColor;
+      if (hasFontFamily || Number(style.fontWeight) >= 600) span.setAttribute('data-lumi-rule-font', '');
+      if (style.fontUrl || Number(style.fontWeight) >= 600) {
+        var weight = Math.max(100, Math.min(900, Number(style.fontWeight) || 400));
+        span.style.setProperty('font-weight', String(weight), 'important');
+      }
+      if (style.italic === true) span.style.setProperty('font-style', 'italic', 'important');
+      if (hasFontFamily) {
+        var family = /^(serif|sans-serif|monospace)$/.test(style.fontFamily)
+          ? style.fontFamily : JSON.stringify(style.fontFamily);
+        span.style.setProperty('font-family', family, 'important');
+      }
+      if (includePaint && hasColor) span.style.setProperty('color', style.textColor, 'important');
       target.parentNode.insertBefore(span, target);
       span.appendChild(target);
     });
@@ -3815,22 +4142,28 @@ private const val READER_SCRIPT_PART_3 = """
     if (!ruleStylesDirty || !document.body) return;
     ruleStylesDirty = false;
     try {
-      var oldRuleFonts = document.getElementById('lumi-rule-fonts');
-      if (oldRuleFonts) oldRuleFonts.remove();
+      var fontStyleElement = document.getElementById('lumi-rule-fonts');
       var fontCss = [];
+      var registeredFamilies = new Set();
       (state.highlightItems || []).forEach(function (item) {
         var style = item && item.ruleStyle;
         if (!style || !style.fontFamily || !style.fontUrl) return;
-        var family = String(style.fontFamily).replace(/[^a-zA-Z0-9_-]/g, '_');
-        var url = String(style.fontUrl).replace(/['\\]/g, '');
-        fontCss.push('@font-face{font-family:"' + family + '";src:url("' + url + '");font-display:swap;}');
+        if (registeredFamilies.has(style.fontFamily)) return;
+        registeredFamilies.add(style.fontFamily);
+        var family = JSON.stringify(style.fontFamily);
+        var url = JSON.stringify(style.fontUrl);
+        var weight = readerFontWeightDescriptor(style.fontWeightDescriptor);
+        fontCss.push('@font-face{font-family:' + family + ';src:url(' + url + ');font-weight:' + weight + ';font-display:swap;}');
       });
       if (fontCss.length) {
-        var fontStyleElement = document.createElement('style');
-        fontStyleElement.id = 'lumi-rule-fonts';
-        fontStyleElement.textContent = fontCss.join('\n');
-        (document.head || document.documentElement).appendChild(fontStyleElement);
-      }
+        if (!fontStyleElement) {
+          fontStyleElement = document.createElement('style');
+          fontStyleElement.id = 'lumi-rule-fonts';
+          (document.head || document.documentElement).appendChild(fontStyleElement);
+        }
+        var nextFontCss = fontCss.join('\n');
+        if (fontStyleElement.textContent !== nextFontCss) fontStyleElement.textContent = nextFontCss;
+      } else if (fontStyleElement) fontStyleElement.remove();
       clearRuleInlineStyles();
       (state.highlightItems || []).forEach(function (item) {
         try {
@@ -3897,22 +4230,26 @@ private const val READER_SCRIPT_PART_3 = """
           }
           if (style.highlightMode !== 2) {
             appendHighlightRange(layer, range, markFillColor, null,
-              style.highlightMode === 1 ? markColor : null);
+              style.highlightMode === 1 ? markColor : null, state.annotationGeometry);
           }
-          if (item.type === 'underline') appendUnderlineRange(underlineLayer, range, markColor, style.underlineMode);
+          if (item.type === 'underline') {
+            appendUnderlineRange(underlineLayer, range, markColor, style.underlineMode, state.annotationGeometry);
+          }
         } else {
           if (style.highlightMode !== 2) {
             appendHighlightRange(layer, range, markFillColor, null,
-              style.highlightMode === 1 ? markColor : null);
+              style.highlightMode === 1 ? markColor : null, state.annotationGeometry);
           }
-          if (item.type === 'underline') appendUnderlineRange(underlineLayer, range, markColor, style.underlineMode);
+          if (item.type === 'underline') {
+            appendUnderlineRange(underlineLayer, range, markColor, style.underlineMode, state.annotationGeometry);
+          }
         }
         return;
       }
       if (item.type === 'underline') {
-        appendUnderlineRange(underlineLayer, range, color, 3);
+        appendUnderlineRange(underlineLayer, range, color, 3, state.annotationGeometry);
       } else {
-        appendHighlightRange(layer, range, color);
+        appendHighlightRange(layer, range, color, null, null, state.annotationGeometry);
       }
       } catch (_) { post('highlightDiagnostic', { stage: 'item', failed: true }); }
     });
@@ -3948,10 +4285,13 @@ private const val READER_SCRIPT_PART_3 = """
     return true;
   }
 
-  function setHighlights(items) {
+  function setHighlights(items, geometry) {
     items = Array.isArray(items) ? items : [];
-    var key = JSON.stringify(items);
+    // Geometry only repaints the highlight layer; it never joins the layout key below.
+    var nextGeometry = annotationGeometry(geometry);
+    var key = JSON.stringify([items, nextGeometry]);
     if (key === highlightItemsKey) return true;
+    state.annotationGeometry = nextGeometry;
     var locator = state.ready ? currentLocator() : null;
     var nextLayoutKey = JSON.stringify(items.filter(function (item) {
       return item && item.ruleStyle && (
@@ -3976,6 +4316,7 @@ private const val READER_SCRIPT_PART_3 = """
   // Highlight layers are pointer-transparent. Resolve a short tap back to the
   // saved annotation range so the native reader can open its annotation menu.
   function annotationAtPoint(x, y) {
+    if (!isScrollContentPoint(y)) return null;
     var items = state.highlightItems || [];
     if (!items.length) return null;
     var index = textIndex();
@@ -4051,7 +4392,8 @@ private const val READER_SCRIPT_PART_3 = """
   }
 
   function followTtsHighlight() {
-    if (state.flow !== 'scrolled' || state.fixed || !state.ttsHighlight || state.ttsFollowSuspended) return;
+    if (state.flow !== 'scrolled' || state.fixed || !state.ttsHighlight ||
+        state.ttsFollowSuspended || ttsManualScrollPending) return;
     var tts = state.ttsHighlight;
     var range = rangeAtOffsets(textIndex(), tts.start, tts.end);
     if (!range) return;
@@ -4066,6 +4408,38 @@ private const val READER_SCRIPT_PART_3 = """
       var targetBottom = last.bottom - first.top > bottom ? first.bottom : last.bottom;
       window.scrollBy(0, targetBottom - bottom);
     }
+  }
+
+  function isTtsRangeVisible(start, end) {
+    if (state.flow !== 'scrolled' || !state.configured || state.paginating ||
+        scrollChapterTurnPending) return null;
+    var index = textIndex();
+    if (start < 0 || end <= start || end > index.text.length) return null;
+    var range = rangeAtOffsets(index, start, end);
+    if (!range) return null;
+    var inset = scrollContentInsets();
+    var top = readerBox().top + inset.top;
+    var bottom = viewportHeight() - inset.bottom;
+    var right = viewportWidth();
+    return Array.prototype.some.call(range.getClientRects(), function (rect) {
+      return rect.width > 0 && rect.height > 0 && rect.bottom > top && rect.top < bottom &&
+        rect.right > 0 && rect.left < right;
+    });
+  }
+
+  function scheduleTtsScrollSettled() {
+    if (!ttsManualScrollPending || ttsManualScrollDragging) return;
+    clearTimeout(ttsScrollSettleTimer);
+    var y = window.scrollY;
+    ttsScrollSettleTimer = setTimeout(function () {
+      if (ttsManualScrollDragging || scrollChapterTurnPending) return;
+      if (window.scrollY !== y) {
+        scheduleTtsScrollSettled();
+        return;
+      }
+      ttsManualScrollPending = false;
+      post('manualScrollSettled', { characterOffset: currentLocator().textPosition });
+    }, 100);
   }
 
   function setTtsHighlight(start, end, color, follow) {
@@ -4149,6 +4523,8 @@ private const val READER_SCRIPT_PART_3 = """
   }
 
   function previewImageAt(target, x, y) {
+    if (!isScrollContentPoint(y) && !(target && target.closest &&
+        target.closest('[data-lumi-bleed="horizontal-top"]'))) return null;
     var image = previewImageFromTarget(target);
     if (image) {
       var bounds = image.getBoundingClientRect();
@@ -4219,7 +4595,7 @@ private const val READER_SCRIPT_PART_3 = """
 
   function beginImageLongPress(image) {
     cancelImageLongPress();
-    if (!image) return;
+    if (!image || duokanImageNote(image)) return;
     imageLongPressTarget = image;
     imageLongPressTimer = setTimeout(function () {
       var target = imageLongPressTarget;
@@ -4240,7 +4616,7 @@ private const val READER_SCRIPT_PART_3 = """
       epubType += ' ' + (element.getAttributeNS('http://www.idpf.org/2007/ops', 'type') || '');
     } catch (_) {}
     return (epubType + ' ' + (element.getAttribute('role') || '') + ' ' +
-      (element.getAttribute('rel') || '')).toLowerCase();
+      (element.getAttribute('rel') || '') + ' ' + (element.getAttribute('type') || '')).toLowerCase();
   }
 
   function hasFootnoteSemantics(element, reference) {
@@ -4302,6 +4678,14 @@ private const val READER_SCRIPT_PART_3 = """
     // Duokan footnote bodies link back to the source marker via *_start_*.
     if (isFootnoteBacklinkHint(fragment)) return false;
     if (/^jz_[a-z0-9_-]+$/i.test(anchor.id || '') && /^jzyy_[a-z0-9_-]+$/i.test(fragment)) return false;
+    // Match the numbered anchor pair without treating ordinary superscript links as notes.
+    var numberedNote = /^(wz|wzyy)_([0-9]+_[0-9]+)$/i.exec(anchor.id || '');
+    if (numberedNote) {
+      var prefix = numberedNote[1].toLowerCase();
+      var targetId = fragment.toLowerCase();
+      if (prefix === 'wz' && targetId === 'wzyy_' + numberedNote[2]) return true;
+      if (prefix === 'wzyy' && targetId === 'wz_' + numberedNote[2]) return false;
+    }
     if (hasFootnoteSemantics(anchor, true)) return true;
     if (hasFootnoteMarkerLabel(anchor)) return true;
     if (hasFootnoteHint(anchor.className) || hasFootnoteHint(anchor.id) ||
@@ -4318,8 +4702,19 @@ private const val READER_SCRIPT_PART_3 = """
    * 出版社把这些"注"字小图当普通插图（常见 72px），页面的块级图片规则会把它们推到单独
    * 一行并放大，表现为"注释图标位置不对"。
    */
+  function duokanImageNote(target) {
+    var image = target && target.closest ? target.closest('img.duokan-footnote') : null;
+    // A linked image uses the link's rich note body. Ordinary image alt labels
+    // are never promoted to notes, nor is alt interpreted as executable HTML.
+    return image && !image.closest('a[href]') && String(image.getAttribute('alt') || '').trim() ? image : null;
+  }
+
   function markFootnoteMarkers() {
     if (!document.body) return;
+    var notes = document.body.querySelectorAll('img.duokan-footnote');
+    for (var n = 0; n < notes.length; n++) {
+      if (duokanImageNote(notes[n])) notes[n].setAttribute('data-lumi-footnote-marker', 'true');
+    }
     var anchors = document.body.querySelectorAll('a[href]');
     for (var i = 0; i < anchors.length; i++) {
       var anchor = anchors[i];
@@ -4328,7 +4723,11 @@ private const val READER_SCRIPT_PART_3 = """
       anchor.setAttribute('data-lumi-footnote-ref', 'true');
       var images = anchor.querySelectorAll('img');
       for (var j = 0; j < images.length; j++) {
-        images[j].setAttribute('data-lumi-footnote-marker', 'true');
+        if (images[j].getAttribute('data-lumi-footnote-illustration') === 'true') {
+          images[j].removeAttribute('data-lumi-footnote-marker');
+        } else {
+          images[j].setAttribute('data-lumi-footnote-marker', 'true');
+        }
       }
     }
   }
@@ -4336,8 +4735,11 @@ private const val READER_SCRIPT_PART_3 = """
   function sameDocumentFootnoteUrl(anchor) {
     var url;
     try { url = new URL(anchor.href, document.baseURI); } catch (_) { return null; }
-    if (!isSameDocumentLink(anchor, url)) return null;
-    return url;
+    if (isSameDocumentLink(anchor, url)) return url;
+    // An explicit link to the physical chapter may already have its target in this TOC slice.
+    var base = new URL(document.baseURI);
+    return url.origin === base.origin && url.pathname === base.pathname && url.search === base.search &&
+      footnoteTarget(document, decodedFragment(url)) ? url : null;
   }
 
   /**
@@ -4390,13 +4792,17 @@ private const val READER_SCRIPT_PART_3 = """
       return String(node.textContent || '').length <= 16000;
     });
     if (!candidates.length) return pairs;
+    var resolvedBodies = references.map(function (anchor) {
+      var fragment = decodedFragment(sameDocumentFootnoteUrl(anchor));
+      return footnoteContentElement(footnoteTarget(document, fragment));
+    });
+    var reservedBodies = new Set(resolvedBodies);
     var used = [];
     for (var i = 0; i < references.length; i++) {
       var anchor = references[i];
       var fragment = decodedFragment(sameDocumentFootnoteUrl(anchor));
-      var target = fragment ? footnoteTarget(document, fragment) : null;
       // 注释正文可能是"段首行内锚点"所在的段落，先解析成气泡实际展示的那一块再配对
-      var resolved = footnoteContentElement(target);
+      var resolved = resolvedBodies[i];
       var body = null;
       if (resolved) {
         for (var c = 0; c < candidates.length; c++) {
@@ -4409,7 +4815,7 @@ private const val READER_SCRIPT_PART_3 = """
       }
       if (!body) {
         for (var n = 0; n < candidates.length; n++) {
-          if (used.indexOf(n) >= 0) continue;
+          if (used.indexOf(n) >= 0 || reservedBodies.has(candidates[n])) continue;
           body = candidates[n];
           used.push(n);
           break;
@@ -4434,6 +4840,25 @@ private const val READER_SCRIPT_PART_3 = """
     for (var i = 0; i < pairs.length; i++) {
       pairs[i].body.setAttribute('data-lumi-footnote-body', 'true');
     }
+    // Hiding note items alone leaves publisher list padding, borders and even
+    // glowing box-shadows at chapter end. Collapse only wrappers made entirely
+    // of hidden notes, preserving mixed prose, headings and illustrations.
+    for (var p = 0; p < pairs.length; p++) {
+      var wrapper = pairs[p].body.parentElement;
+      while (wrapper && wrapper !== document.body &&
+          /^(div|section|article|aside|blockquote|ol|ul|li|dl|dd|dt)$/.test(wrapper.localName)) {
+        var notesOnly = Array.from(wrapper.childNodes).every(function (node) {
+          if (node.nodeType === Node.COMMENT_NODE) return true;
+          if (node.nodeType === Node.TEXT_NODE) return !node.nodeValue.trim();
+          return node.nodeType === Node.ELEMENT_NODE &&
+            (node.getAttribute('data-lumi-footnote-body') === 'true' ||
+              /^(script|style)$/.test(node.localName));
+        });
+        if (!notesOnly) break;
+        wrapper.setAttribute('data-lumi-footnote-body', 'true');
+        wrapper = wrapper.parentElement;
+      }
+    }
   }
 
   function closeFootnotePopover(immediate) {
@@ -4442,6 +4867,8 @@ private const val READER_SCRIPT_PART_3 = """
     if (!existing) return;
     if (immediate) {
       existing.remove();
+      document.documentElement.classList.remove('lumi-footnote-open');
+      post('footnotePopover', { visible: false });
       return;
     }
     if (existing.getAttribute('data-state') === 'closing') return;
@@ -4451,7 +4878,11 @@ private const val READER_SCRIPT_PART_3 = """
       if (event && event.target !== existing) return;
       if (removed) return;
       removed = true;
-      if (existing.isConnected) existing.remove();
+      if (existing.isConnected) {
+        existing.remove();
+        document.documentElement.classList.remove('lumi-footnote-open');
+        post('footnotePopover', { visible: false });
+      }
     };
     existing.addEventListener('animationend', removePopover);
     window.setTimeout(removePopover, visualMillis(220));
@@ -4466,6 +4897,8 @@ private const val READER_SCRIPT_PART_3 = """
     popover.setAttribute('aria-label', String(anchor.getAttribute('title') || 'Note'));
     popover.innerHTML = '<div id="lumi-footnote-content"><span id="lumi-footnote-loading" aria-hidden="true"></span></div>';
     document.documentElement.appendChild(popover);
+    document.documentElement.classList.add('lumi-footnote-open');
+    post('footnotePopover', { visible: true });
     positionFootnotePopover(popover, anchor.getBoundingClientRect());
     window.requestAnimationFrame(function () {
       if (popover.isConnected && popover.getAttribute('data-state') !== 'closing') {
@@ -4574,6 +5007,12 @@ private const val READER_SCRIPT_PART_3B = """
     return /^[\s\[［【〔(（\]］】〕)）\d０-９*＊①-⑳※注:：.、，,；;]*$/.test(text);
   }
 
+  function showDuokanImageNote(image) {
+    var popover = createFootnotePopover(image);
+    popover.querySelector('#lumi-footnote-content').textContent = image.getAttribute('alt');
+    positionFootnotePopover(popover, image.getBoundingClientRect());
+  }
+
   function showFootnotePopover(anchor) {
     var url;
     try { url = new URL(anchor.href, document.baseURI); } catch (_) { return Promise.resolve(false); }
@@ -4601,14 +5040,28 @@ private const val READER_SCRIPT_PART_3B = """
     });
   }
 
+  var footnoteTouch = null;
   document.addEventListener('touchstart', function (event) {
+    if (event.touches.length === 1) footnoteTouch = null;
+    var popover = document.getElementById('lumi-footnote-popover');
+    if (popover && !footnoteTouch && event.touches.length === 1) {
+      var noteFinger = event.touches[0];
+      var insideNote = popover.contains(event.target);
+      var content = insideNote && event.target.closest('#lumi-footnote-content');
+      footnoteTouch = {
+        popover: popover, inside: insideNote, content: content,
+        x: noteFinger.clientX, y: noteFinger.clientY, lastY: noteFinger.clientY,
+        scrollTop: content ? content.scrollTop : 0, axis: null
+      };
+    }
+    if (footnoteTouch && event.touches.length > 1) footnoteTouch.axis = 'blocked';
     var existingSelection = window.getSelection();
     initialSelectionRangeApplied = !!(existingSelection && !existingSelection.isCollapsed);
     cancelImageLongPress();
     imageLongPressTriggered = false;
     touchPaging = false;
     pageStageDurationOverride = 0;
-    if (event.target && event.target.closest && event.target.closest('#lumi-footnote-popover')) return;
+    if (footnoteTouch || popover) return;
     touchVelocityX = 0;
     if (event.touches.length !== 1) return;
     var touch = event.touches[0];
@@ -4623,6 +5076,7 @@ private const val READER_SCRIPT_PART_3B = """
       scrollChapterStartedAtTop = boundary.atTop;
       scrollChapterStartedAtBottom = boundary.atBottom;
       scrollChapterDragStartY = touchStartY;
+      scrollBookEndPosted = false;
     }
     var initialAnchor = event.target && event.target.closest ?
       event.target.closest('a[href],area[href]') : null;
@@ -4639,7 +5093,29 @@ private const val READER_SCRIPT_PART_3B = """
   }, { passive: true, capture: true });
 
   document.addEventListener('touchmove', function (event) {
-    if (event.target && event.target.closest && event.target.closest('#lumi-footnote-popover')) return;
+    if (footnoteTouch) {
+      var note = footnoteTouch;
+      if (event.touches.length !== 1 || !note.inside || !note.popover.isConnected) {
+        event.preventDefault();
+        return;
+      }
+      var finger = event.touches[0];
+      var noteDx = Math.abs(finger.clientX - note.x);
+      var noteDy = Math.abs(finger.clientY - note.y);
+      if (!note.axis && Math.max(noteDx, noteDy) >= 6) {
+        note.axis = noteDy > noteDx ? 'vertical' : 'blocked';
+      }
+      if (!note.axis) return;
+      event.preventDefault();
+      if (note.axis === 'vertical' && note.content) {
+        var limit = note.content.scrollHeight - note.content.clientHeight;
+        note.scrollTop = Math.max(0, Math.min(limit, note.scrollTop + note.lastY - finger.clientY));
+        note.content.scrollTop = note.scrollTop;
+        note.lastY = finger.clientY;
+      }
+      return;
+    }
+    if (document.getElementById('lumi-footnote-popover')) { event.preventDefault(); return; }
     if (event.touches.length !== 1) { cancelImageLongPress(); return; }
     var touch = event.touches[0];
     var dx = touch.clientX - touchStartX;
@@ -4647,9 +5123,11 @@ private const val READER_SCRIPT_PART_3B = """
     if (state.flow === 'scrolled' && !state.fixed && Math.abs(dy) >= 12) {
       autoReadingResumeAfter = Date.now() + 700;
     }
-    if (state.flow === 'scrolled' && !state.fixed && !state.ttsFollowSuspended && Math.abs(dy) >= 12) {
-      // Stop locally before a queued highlight update or the native bridge can move the viewport.
-      state.ttsFollowSuspended = true;
+    if (state.flow === 'scrolled' && !state.fixed && !ttsManualScrollDragging && Math.abs(dy) >= 12) {
+      // Protect the gesture immediately, before the native follow state reaches this document.
+      clearTimeout(ttsScrollSettleTimer);
+      ttsManualScrollDragging = true;
+      ttsManualScrollPending = true;
       post('manualScroll', {});
     }
     if (Math.abs(dx) >= 12 || Math.abs(dy) >= 12) cancelImageLongPress();
@@ -4662,6 +5140,14 @@ private const val READER_SCRIPT_PART_3B = """
       var boundary = scrollBoundaryState();
       var canTurn = direction < 0 ? state.canTurnNext : state.canTurnPrevious;
       var atBoundary = direction < 0 ? boundary.atBottom : boundary.atTop;
+      // Last chapter: an upward pull that started at the very bottom opens the
+      // native "book finished" page instead of a chapter turn.
+      if (direction < 0 && !state.canTurnNext && !scrollBookEndPosted &&
+          scrollChapterStartedAtBottom && boundary.atBottom &&
+          -dy >= 72 && Math.abs(dy) > Math.abs(dx) * 1.5) {
+        scrollBookEndPosted = true;
+        post('bookEnd', {});
+      }
       if (!scrollChapterDragDirection && canTurn && atBoundary &&
           Math.abs(dy) >= 6 && Math.abs(dy) > Math.abs(dx)) {
         scrollChapterDragDirection = direction;
@@ -4724,6 +5210,10 @@ private const val READER_SCRIPT_PART_3B = """
   }, { passive: false });
 
   document.addEventListener('touchend', function (event) {
+    if (!event.touches.length) {
+      ttsManualScrollDragging = false;
+      scheduleTtsScrollSettled();
+    }
     var completedImageLongPress = imageLongPressTriggered;
     cancelImageLongPress();
     imageLongPressTriggered = false;
@@ -4733,14 +5223,19 @@ private const val READER_SCRIPT_PART_3B = """
       state.suppressClickUntil = Date.now() + 700;
       return;
     }
-    var activePopover = document.getElementById('lumi-footnote-popover');
-    var insidePopover = event.target && event.target.closest && event.target.closest('#lumi-footnote-popover');
-    if (insidePopover) { touchPaging = false; return; }
-    if (activePopover) {
-      event.preventDefault();
-      closeFootnotePopover();
+    if (footnoteTouch) {
+      var note = footnoteTouch;
+      if (!note.inside || note.axis) event.preventDefault();
+      if (!event.touches.length) {
+        footnoteTouch = null;
+        if (!note.inside && note.popover.isConnected) closeFootnotePopover();
+      }
       touchPaging = false;
-      state.suppressClickUntil = Date.now() + 450;
+      return;
+    }
+    if (document.getElementById('lumi-footnote-popover')) {
+      event.preventDefault();
+      touchPaging = false;
       return;
     }
     if (event.changedTouches.length !== 1) { touchPaging = false; return; }
@@ -4753,6 +5248,7 @@ private const val READER_SCRIPT_PART_3B = """
     var interactiveTarget = interactiveFromTarget(event.target);
     var tappedImage = imageFromTarget(event.target);
     var footnoteAnchor = anchor && isFootnoteReference(anchor);
+    if (duokanImageNote(event.target)) footnoteAnchor = true;
 
     if (state.flow === 'scrolled' && !state.fixed) {
       pageStageDurationOverride = 0;
@@ -4760,7 +5256,7 @@ private const val READER_SCRIPT_PART_3B = """
       var scrolledTap = !scrollChapterDragDirection && !touchPaging && elapsed < 520 &&
         Math.abs(dx) < 12 && Math.abs(dy) < 12 &&
         (!scrolledTapSelection || scrolledTapSelection.isCollapsed);
-      if (scrolledTap) {
+      if (scrolledTap && !footnoteAnchor) {
         var scrolledAnnotation = annotationAtPoint(touch.clientX, touch.clientY);
         if (scrolledAnnotation && postAnnotationSelection(scrolledAnnotation, touch.clientX, touch.clientY)) {
           event.preventDefault();
@@ -4841,6 +5337,8 @@ private const val READER_SCRIPT_PART_3B = """
     }
     if (isTap && (!window.getSelection || window.getSelection().isCollapsed)) {
       var ratio = tapRatio;
+      state.suppressClickUntil = Date.now() + 450;
+      if (state.flow === 'scrolled' && (ratio < 0.3 || ratio > 0.7)) return;
       if (ratio < 0.3) {
         if (state.nativePaging) post('tap', { zone: 'left' });
         else turnByDirection(state.edgeTapLeft, true);
@@ -4853,12 +5351,18 @@ private const val READER_SCRIPT_PART_3B = """
         pageStageDurationOverride = 0;
         post('tap', { zone: 'center' });
       }
-      state.suppressClickUntil = Date.now() + 450;
     }
     else pageStageDurationOverride = 0;
   }, { passive: false, capture: true });
 
-  document.addEventListener('touchcancel', function () {
+  document.addEventListener('touchcancel', function (event) {
+    if (footnoteTouch) {
+      if (!event.touches.length) footnoteTouch = null;
+      else footnoteTouch.axis = 'blocked';
+      return;
+    }
+    ttsManualScrollDragging = false;
+    scheduleTtsScrollSettled();
     cancelImageLongPress();
     imageLongPressTriggered = false;
     if (scrollChapterDragDirection) resetScrolledChapterDrag(true);
@@ -4870,6 +5374,7 @@ private const val READER_SCRIPT_PART_3B = """
   document.addEventListener('submit', function (event) { event.preventDefault(); }, true);
 
   document.addEventListener('contextmenu', function (event) {
+    if (duokanImageNote(event.target)) { event.preventDefault(); return; }
     var image = previewImageAt(event.target, event.clientX, event.clientY);
     if (!image) return;
     event.preventDefault();
@@ -4895,6 +5400,13 @@ private const val READER_SCRIPT_PART_3B = """
     }
     var anchor = event.target && event.target.closest ? event.target.closest('a[href],area[href]') : null;
     var tappedImage = imageFromTarget(event.target);
+    var imageNote = duokanImageNote(event.target);
+    if (imageNote) {
+      event.preventDefault();
+      event.stopPropagation();
+      showDuokanImageNote(imageNote);
+      return;
+    }
     if (anchor) {
       event.preventDefault();
       event.stopPropagation();
@@ -4923,6 +5435,7 @@ private const val READER_SCRIPT_PART_3B = """
       return;
     }
     var ratio = event.clientX / viewportWidth();
+    if (state.flow === 'scrolled' && (ratio < 0.3 || ratio > 0.7)) return;
     if (ratio < 0.3) {
       if (state.nativePaging) post('tap', { zone: 'left' });
       else turnByDirection(state.edgeTapLeft, true);
@@ -5086,6 +5599,12 @@ private const val READER_SCRIPT_PART_3B = """
   window.addEventListener('scroll', function () {
     if (state.fixed || state.scrollGuard) return;
     if (state.flow === 'scrolled') {
+      if (ttsManualScrollPending && state.ttsHighlight) {
+        var spoken = state.ttsHighlight;
+        var visible = isTtsRangeVisible(spoken.start, spoken.end);
+        if (visible !== null) post('ttsVisibility', { start: spoken.start, end: spoken.end, visible: visible });
+      }
+      scheduleTtsScrollSettled();
       clearTimeout(scrollNotifyTimer);
       scrollNotifyTimer = setTimeout(function () {
         var metrics = scrollMetrics();
@@ -5139,6 +5658,7 @@ private const val READER_SCRIPT_PART_3B = """
       }
     },
     moveSelectionHandle: moveSelectionHandle,
+    dismissFootnote: function () { closeFootnotePopover(); },
     configure: configure,
     reportLayoutStatus: reportLayoutStatus,
     next: function () { turnByDirection(1); },
@@ -5165,6 +5685,7 @@ private const val READER_SCRIPT_PART_3B = """
     setHighlights: setHighlights,
     setDictionarySelection: setDictionarySelection,
     setTtsHighlight: setTtsHighlight,
+    isTtsRangeVisible: isTtsRangeVisible,
     setTtsFollowEnabled: function (enabled) { state.ttsFollowSuspended = !enabled; },
     findText: findText,
     clearSearchHighlight: clearSearchHighlight,

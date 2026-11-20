@@ -31,8 +31,6 @@ import com.huangder.lumibooks.ui.reader.readerCoverEdgeColor
 import com.huangder.lumibooks.ui.reader.readerBreakStrategyForText
 import com.huangder.lumibooks.ui.reader.readerJustificationForText
 import com.huangder.lumibooks.ui.reader.readerHyphenationFrequency
-import com.huangder.lumibooks.ui.reader.readerBreakStrategy
-import com.huangder.lumibooks.ui.reader.readerJustificationMode
 import com.huangder.lumibooks.domain.model.ReaderWritingMode
 import com.huangder.lumibooks.util.ReaderBackgroundBlurTransformation
 import com.huangder.lumibooks.util.parser.EpubParser
@@ -41,7 +39,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 internal fun pageStartsMidParagraph(text: CharSequence, start: Int): Boolean {
-    return start > 0 && start <= text.length && text[start - 1] != '\n'
+    return start > 0 && start <= text.length && !isReaderParagraphBreakChar(text[start - 1])
 }
 
 private class PagedSelectableTextView(context: Context) : RoundedHighlightTextView(context) {
@@ -105,6 +103,8 @@ class PageContentView(context: Context) : FrameLayout(context) {
         internal const val READER_SELECTION_FLAG = 0xFD
         /** 瞬态选区固定使用的透明度（与系统选区 readerSelectionColor 一致）。 */
         private const val READER_SELECTION_ALPHA = 0x40
+        /** 透明哨兵色：表示该三元组是笔记末尾的消息图标，而不是高亮。 */
+        internal const val NOTE_MARKER_SENTINEL = 0x00C0FFEE
     }
 
     private val backgroundImageView = ImageView(context).apply {
@@ -282,8 +282,8 @@ class PageContentView(context: Context) : FrameLayout(context) {
     }
 
     /** 渐变动画结束 / abort 时恢复背景色；图片背景由下一次 setReaderBackground 完整恢复。 */
-    internal fun restoreBackgroundForFade(bgColor: Int) {
-        setBackgroundColor(bgColor)
+    internal fun restoreBackgroundForFade(@Suppress("UNUSED_PARAMETER") bgColor: Int) {
+        setBackgroundColor(currentBgColor)
         backgroundImageView.alpha = readerBackgroundImageOpacity
         textView.alpha = 1f
         justifiedView.alpha = 1f
@@ -382,12 +382,16 @@ class PageContentView(context: Context) : FrameLayout(context) {
         val justification = configuredTextAlignment.readerJustificationForText(text)
         if (textView.breakStrategy != strategy) textView.breakStrategy = strategy
         if (textView.hyphenationFrequency != hyphenation) textView.hyphenationFrequency = hyphenation
-        if (textView.justificationMode != justification) textView.justificationMode = justification
+        if (textView.justificationMode != Layout.JUSTIFICATION_MODE_NONE) {
+            textView.justificationMode = Layout.JUSTIFICATION_MODE_NONE
+        }
         (textView as? RoundedHighlightTextView)?.readerJustificationMode = justification
         justifiedView.readerBreakStrategy = strategy
         justifiedView.readerJustificationMode = justification
     }
     private var verticalGeometry: VerticalPageGeometry? = null
+    /** User switch: stretch full pages to the bottom margin. */
+    private var bottomAligned = false
     // Vertical placement is defined solely by the configured padding. The page
     // itself may still move during a page-turn animation, but its text layers
     // must not receive a page-specific offset.
@@ -421,10 +425,6 @@ class PageContentView(context: Context) : FrameLayout(context) {
             return
         }
 
-        // 追踪 LeadingMarginSpan：检查 fullText 中是否包含 span
-        val fullLms = if (fullText is Spannable) fullText.getSpans(0, fullText.length, android.text.style.LeadingMarginSpan::class.java) else emptyArray()
-        Log.d("PageSlotManager", "setPageContent: fullText type=${fullText.javaClass.simpleName} LeadingMarginSpans=${fullLms.size} start=$startChar end=$endChar")
-
         // 🔥 跳过页面开头的空行（段间距的空白行落在页面顶部时不需要显示）
         var actualStart = startChar
         while (actualStart < endChar && fullText[actualStart] == '\n') {
@@ -444,14 +444,11 @@ class PageContentView(context: Context) : FrameLayout(context) {
         }
 
         justifyLastLine = endChar < fullText.length &&
-            endChar > actualStart &&
-            fullText[endChar - 1] != '\n' &&
-            fullText[endChar - 1] != '\r'
+            !readerLineEndsParagraph(fullText, actualStart, endChar)
         (textView as? RoundedHighlightTextView)?.readerForceLastLineJustification = justifyLastLine
         justifiedView.justifyLastLine = justifyLastLine
 
         val subText = fullText.subSequence(actualStart, endChar)
-        Log.d(TAG, "setPageContent: subText type=${subText.javaClass.simpleName} isSpanned=${subText is android.text.Spanned}")
 
         // 简繁转换（在切片后、应用高亮前）
         // 🔥 使用 convertPreservingSpans 保留所有 span（ImageSpan/LeadingMarginSpan 等）
@@ -460,7 +457,6 @@ class PageContentView(context: Context) : FrameLayout(context) {
         } else {
             subText
         }
-        Log.d(TAG, "setPageContent: pageText type=${pageText.javaClass.simpleName} isSpanned=${pageText is android.text.Spanned}")
 
         // 🔥 保留 span：直接用 SpannableStringBuilder(Spanned) 保留所有 span（含 ImageSpan）
         // toString() 会把 ImageSpan 变成 U+FFFC "obj" 字符，图片丢失
@@ -513,12 +509,25 @@ class PageContentView(context: Context) : FrameLayout(context) {
                     spannable.setSpan(lh, start, end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
                 }
             }
-            Log.d(TAG, "setPageContent: restored ${lms.size} LeadingMarginSpans, ${lhs.size} ParagraphLineHeightSpans")
         }
 
         // 应用高亮（将全局偏移转换为页内偏移，基于 actualStart 而非 startChar）
         var ttsHighlightInfo: Triple<Int, Int, Int>? = null
         for ((hStart, hEnd, hColor) in highlights) {
+            if (hColor == NOTE_MARKER_SENTINEL) {
+                // 图标挂在笔记最后一个可见字上，且只在该字所在的页显示；
+                // 结尾的换行/空格可能被分页裁掉，不能作为锚点。
+                val visibleEnd = readerNoteMarkerEnd(fullText, hStart, hEnd)
+                val local = visibleEnd - actualStart
+                if (visibleEnd > hStart && local in 1..spannable.length) {
+                    spannable.setSpan(
+                        ReaderNoteMarkerSpan(chapterEnd = hEnd),
+                        local - 1, local,
+                        Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                    )
+                }
+                continue
+            }
             val localStart = (hStart - actualStart).coerceIn(0, spannable.length)
             val localEnd = (hEnd - actualStart).coerceIn(0, spannable.length)
             if (localStart < localEnd) {
@@ -565,11 +574,6 @@ class PageContentView(context: Context) : FrameLayout(context) {
             }
         }
 
-        // 验证 span 存活（调试用）
-        val lms = spannable.getSpans(0, spannable.length, android.text.style.LeadingMarginSpan::class.java)
-        val imgSpans = spannable.getSpans(0, spannable.length, android.text.style.ImageSpan::class.java)
-        Log.d(TAG, "setPageContent: start=$actualStart end=$endChar len=${spannable.length} LMS=${lms.size} ImageSpan=${imgSpans.size}")
-
         // 🔥 诊断：检测 U+FFFC 但没有 ImageSpan 的字符位置（图片加载失败）
         var orphanFFFC = 0
         for (i in 0 until spannable.length) {
@@ -583,11 +587,30 @@ class PageContentView(context: Context) : FrameLayout(context) {
 
         // One layout now owns visible glyphs, images, highlights, and selection geometry.
         val adjusted = adjustedReaderImages(spannable, imageSettings, imageScope) { invalidateRenderers(); coverImageView.invalidate() } as Spannable
+        if (justifyLastLine && configuredTextAlignment == ReaderTextAlignment.NATURAL && !writingMode.isVertical) {
+            val following = fullText.subSequence(endChar, minOf(endChar + 32, fullText.length))
+            adjusted.setReaderLineContinuation(if (chineseMode == "original") following else
+                com.huangder.lumibooks.util.ChineseConverter.convertPreservingSpans(following, chineseMode))
+        }
         if (endHyphenEdit != 0 && adjusted.isNotEmpty()) {
             adjusted.setSpan(ReaderPageEndHyphenSpan(endHyphenEdit), adjusted.length - 1, adjusted.length,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
         configureTextBreaking(adjusted)
+        // Full pages end on the same bottom edge; the chapter's last page keeps
+        // its natural length.
+        if (bottomAligned && !writingMode.isVertical && verticalGeometry == null && endChar < fullText.length) {
+            applyReaderPageBottomAlignment(adjusted, ReaderPageTextMetrics(
+                paint = textView.paint,
+                width = textView.width - textView.paddingLeft - textView.paddingRight,
+                height = textView.height - textView.paddingTop - textView.paddingBottom,
+                lineSpacingExtra = textView.lineSpacingExtra,
+                lineSpacingMultiplier = textView.lineSpacingMultiplier,
+                breakStrategy = textView.breakStrategy,
+                hyphenationFrequency = textView.hyphenationFrequency,
+                justificationMode = textView.justificationMode
+            ))
+        }
         textView.text = adjusted
         textView.scrollTo(0, 0)
         justifiedView.text = adjusted
@@ -598,20 +621,11 @@ class PageContentView(context: Context) : FrameLayout(context) {
         // setTextIsSelectable(true) 时 Android 内部通过 Editable.Factory.newEditable() 创建副本
         // 必须从 textView.text 取实际存储的 Spannable，否则 SpanWatcher 注册在死对象上
         val actualSpannable = textView.text as? Spannable ?: spannable
-        val requiresCustomTextDrawing =
-            actualSpannable.getSpans(0, actualSpannable.length, ReaderHighlightSpan::class.java).isNotEmpty() ||
-                actualSpannable.getSpans(0, actualSpannable.length, ReaderSearchHighlightSpan::class.java).isNotEmpty() ||
-                actualSpannable.getSpans(0, actualSpannable.length, ReaderSelectionHighlightSpan::class.java).isNotEmpty() ||
-                actualSpannable.getSpans(0, actualSpannable.length, TtsSentenceHighlightSpan::class.java).isNotEmpty() ||
-                actualSpannable.getSpans(0, actualSpannable.length, WaveUnderlineSpan::class.java).isNotEmpty()
-        val requiredLayerType = if (requiresCustomTextDrawing) {
-            View.LAYER_TYPE_SOFTWARE
-        } else {
-            View.LAYER_TYPE_NONE
-        }
-        if (textView.layerType != requiredLayerType) {
-            textView.setLayerType(requiredLayerType, null)
-        }
+        // The selectable layer used to paint highlights itself and needed a software layer for
+        // them. It is selection-only now (readerSelectionOnly): highlights, TTS and underlines are
+        // drawn by the visible renderers, and the selection uses the same hardware-safe painter.
+        // A software layer only cost a full-page CPU bitmap per slot and a re-upload per change.
+        ensureHardwareSelectionLayer()
         val tts = ttsHighlightInfo
         if (tts != null) {
             justifiedView.setTtsHighlight(tts.first, tts.second, tts.third)
@@ -652,9 +666,6 @@ class PageContentView(context: Context) : FrameLayout(context) {
             }
             justifiedView.setTtsHighlight(localStart, localEnd, color)
             verticalTextView.setTtsHighlight(localStart, localEnd, color)
-            if (textView.layerType != View.LAYER_TYPE_SOFTWARE) {
-                textView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-            }
         } else {
             justifiedView.clearTtsHighlight()
             verticalTextView.clearTtsHighlight()
@@ -702,9 +713,6 @@ class PageContentView(context: Context) : FrameLayout(context) {
                     localEnd.coerceAtMost(text.length),
                     Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
                 )
-            }
-            if (textView.layerType != View.LAYER_TYPE_SOFTWARE) {
-                textView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
             }
         }
         textView.invalidate()
@@ -795,6 +803,10 @@ class PageContentView(context: Context) : FrameLayout(context) {
         updateContentRendererVisibility()
     }
 
+    private fun ensureHardwareSelectionLayer() {
+        if (textView.layerType == View.LAYER_TYPE_SOFTWARE) textView.setLayerType(View.LAYER_TYPE_NONE, null)
+    }
+
     private fun updateContentRendererVisibility() {
         val vertical = writingMode.isVertical
         textView.visibility = if (showingCoverPage || vertical) View.INVISIBLE else View.VISIBLE
@@ -809,6 +821,13 @@ class PageContentView(context: Context) : FrameLayout(context) {
         textView.invalidate()
         justifiedView.invalidate()
         verticalTextView.invalidate()
+    }
+
+    /** 笔记高亮/划线的用户几何参数：只重绘，不重排。 */
+    fun setAnnotationStyle(style: ReaderAnnotationStyle) {
+        justifiedView.annotationStyle = style
+        verticalTextView.annotationStyle = style
+        (textView as? RoundedHighlightTextView)?.annotationStyle = style
     }
 
     /**
@@ -830,9 +849,11 @@ class PageContentView(context: Context) : FrameLayout(context) {
         accentColor: Int = 0xFF007AFF.toInt(),
         textAlignment: ReaderTextAlignment = ReaderTextAlignment.NATURAL,
         writingMode: ReaderWritingMode = ReaderWritingMode.HORIZONTAL,
-        boldText: Boolean = false
+        boldText: Boolean = false,
+        bottomAligned: Boolean = false
     ) {
         this.writingMode = writingMode
+        this.bottomAligned = bottomAligned
         configuredTextAlignment = textAlignment
         val spacingRatio = if (fontSizePx > 0) letterSpacingPx / fontSizePx else 0f
 
@@ -925,6 +946,17 @@ class PageContentView(context: Context) : FrameLayout(context) {
         ).map { it.copy(startOffset = it.startOffset + chapterStartOffset) }
     }
 
+    /** 返回页面坐标处的笔记消息图标（横排/竖排均支持）。 */
+    internal fun noteMarkerAt(x: Float, y: Float): ReaderNoteMarker? {
+        if (showingCoverPage) return null
+        val minTouch = 32f * resources.displayMetrics.density
+        return if (writingMode.isVertical) {
+            verticalTextView.noteMarkerAt(x - verticalTextView.left, y - verticalTextView.top, minTouch)
+        } else {
+            justifiedView.noteMarkerAt(x - justifiedView.left, y - justifiedView.top, minTouch)
+        }
+    }
+
     /** 返回指定页面坐标处的 EPUB 链接；未命中链接时返回 null。 */
     fun getLinkAt(x: Float, y: Float): String? = if (writingMode.isVertical) {
         verticalTextView.getLinkAt(x, y)
@@ -996,7 +1028,7 @@ class PageContentView(context: Context) : FrameLayout(context) {
         val images = spannable.getSpans(lineStart, lineEnd, ImageSpan::class.java)
         if (images.isEmpty()) return null
         val geometry = (textView as? RoundedHighlightTextView)?.let {
-            ReaderLineGeometry(textLayout, spannable, it.readerJustificationMode)
+            ReaderLineGeometry(textLayout, spannable, it.readerJustificationMode, justifyLastLine)
         }
 
         for (image in images) {

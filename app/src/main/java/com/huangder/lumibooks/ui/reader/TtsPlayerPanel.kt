@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -41,17 +42,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -71,6 +75,8 @@ import com.huangder.lumibooks.ui.components.LiquidGlassMenuSpec
 import com.huangder.lumibooks.ui.components.LocalLiquidGlassMenuHost
 import com.huangder.lumibooks.ui.components.liquidGlassMenuAnchor
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.huangder.lumibooks.R
 import com.huangder.lumibooks.tts.TtsPlaybackState
@@ -122,7 +128,7 @@ internal fun TtsPlayerPanel(
     usesAndroidTts: Boolean,
     sleepTimerRemainingMs: Long?,
     sleepTimerDurationMs: Long? = sleepTimerRemainingMs,
-    followUserPageTurns: Boolean = false,
+    autoPageTurn: Boolean = true,
     onPlayPause: () -> Unit,
     onStop: () -> Unit,
     onOpenFullscreen: () -> Unit = {},
@@ -134,9 +140,10 @@ internal fun TtsPlayerPanel(
     onPitchModeChange: (TtsProsodyMode) -> Unit,
     onSetSleepTimer: (Int) -> Unit,
     onCancelSleepTimer: () -> Unit,
-    onFollowUserPageTurnsChange: (Boolean) -> Unit = {},
+    onAutoPageTurnChange: (Boolean) -> Unit = {},
     onReturnToProgress: () -> Unit = {},
     onStartFromCurrentPage: () -> Unit = {},
+    showFromCurrentPage: Boolean = false,
     canReturnToProgress: Boolean = false,
     readerMenuVisible: Boolean = false,
     readerBackgroundColor: Color,
@@ -236,12 +243,13 @@ internal fun TtsPlayerPanel(
     }
     val returnLabel = stringResource(R.string.tts_return_to_progress)
     val fromPageLabel = stringResource(R.string.tts_from_this_page)
-    val followPageLabel = stringResource(R.string.tts_follow_page_turns)
+    val autoPageTurnLabel = stringResource(R.string.tts_auto_page_turn)
+    val currentAutoPageTurn by rememberUpdatedState(autoPageTurn)
+    val currentOnAutoPageTurnChange by rememberUpdatedState(onAutoPageTurnChange)
     val timerLabel = stringResource(R.string.tts_timer_label)
     val rateLabel = stringResource(R.string.tts_speech_rate)
     val pitchLabel = stringResource(R.string.tts_pitch_label)
     fun toggleControls() {
-        if (readerMenuVisible) return
         if (actionsExpanded) {
             menuHost?.dismiss()
             actionsExpanded = false
@@ -252,8 +260,8 @@ internal fun TtsPlayerPanel(
             items = listOf(
                 LiquidGlassMenuItem(returnLabel, enabled = canReturnToProgress, onClick = onReturnToProgress),
                 LiquidGlassMenuItem(fromPageLabel, onClick = onStartFromCurrentPage),
-                LiquidGlassMenuItem(followPageLabel, selected = followUserPageTurns,
-                    onClick = { onFollowUserPageTurnsChange(!followUserPageTurns) }),
+                LiquidGlassMenuItem(autoPageTurnLabel, selectedState = { currentAutoPageTurn },
+                    onClick = { currentOnAutoPageTurnChange(!currentAutoPageTurn) }),
                 LiquidGlassMenuItem(timerLabel, dividerBefore = true,
                     subtitle = sleepTimerRemainingMs?.let(::formatSleepTimer), submenuItems = choices(TtsMenuKind.Timer)),
                 LiquidGlassMenuItem(rateLabel, subtitle = if (usesAndroidTts && speechRateMode == TtsProsodyMode.FOLLOW_ENGINE)
@@ -291,7 +299,7 @@ internal fun TtsPlayerPanel(
                 .coerceAtMost(((availableWidth - 288.dp) / 2).coerceAtLeast(0.dp))
             val actionWidth = 48.dp
             val actionReach = actionWidth * 3 + 16.dp
-            val fittedX = if (!actionsExpanded || readerMenuVisible || dock != ReaderTtsDock.NONE) anchorX
+            val fittedX = if (!actionsExpanded || dock != ReaderTtsDock.NONE) anchorX
                 else if (expandLeft) anchorX.coerceAtLeast(inset + actionReach)
                 else anchorX.coerceAtMost((availableWidth - inset - 128.dp - actionReach).coerceAtLeast(0.dp))
             // Keep the menu handoff on one vector path.  A second anchor animation
@@ -299,8 +307,54 @@ internal fun TtsPlayerPanel(
             // the catalog or made room for the action buttons.
             val capsuleX = fittedX
             LaunchedEffect(capsuleX) { placement?.onAnchorChanged?.invoke(capsuleX) }
+            if (placement != null) {
+                val gap = 8.dp
+                val leftSpace = (capsuleX - gap).coerceAtLeast(0.dp)
+                val rightEdge = capsuleX + placement.capsuleWidth
+                val rightSpace = (availableWidth - rightEdge - gap).coerceAtLeast(0.dp)
+                val openLeft = when (dock) {
+                    ReaderTtsDock.RIGHT -> true
+                    ReaderTtsDock.LEFT -> false
+                    ReaderTtsDock.NONE -> if (expandLeft) leftSpace >= 112.dp || leftSpace >= rightSpace
+                        else rightSpace < 112.dp && leftSpace > rightSpace
+                }
+                val buttonWidth = minOf(112.dp, if (openLeft) leftSpace else rightSpace)
+                val show = showFromCurrentPage && !readerMenuVisible && !actionsExpanded && buttonWidth >= 48.dp
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = show,
+                    enter = when {
+                        eInkMode -> EnterTransition.None
+                        !motionEnabled -> fadeIn(tween(120))
+                        else -> fadeIn(tween(180)) + scaleIn(
+                            tween(180), initialScale = 0.8f,
+                            transformOrigin = TransformOrigin(if (openLeft) 1f else 0f, 0.5f)
+                        )
+                    },
+                    exit = if (eInkMode) ExitTransition.None else fadeOut(tween(140)),
+                    modifier = Modifier.absoluteOffset(x = if (openLeft) capsuleX - gap - buttonWidth else rightEdge + gap)
+                ) {
+                    val label = stringResource(R.string.tts_listen_from_this_page)
+                    LiquidGlassSurface(
+                        role = com.huangder.lumibooks.ui.theme.AppSurfaceRole.Control,
+                        controlEdge = true,
+                        shape = AppRoundedCornerShape(24.dp),
+                        fallbackColor = panelFallbackColor,
+                        contentScrimColor = glassScrim,
+                        forceFallback = forceSolidSurface,
+                        enabled = show,
+                        onClick = onStartFromCurrentPage,
+                        modifier = Modifier.size(buttonWidth, 48.dp).testTag("reader-tts-from-current-page")
+                            .semantics { contentDescription = label },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(label, Modifier.padding(horizontal = 8.dp), color = panelContentColor,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                            style = androidx.compose.material3.MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
             androidx.compose.animation.AnimatedVisibility(
-                visible = actionsExpanded && !readerMenuVisible && dock == ReaderTtsDock.NONE,
+                visible = actionsExpanded && dock == ReaderTtsDock.NONE,
                 enter = if (motionEnabled) fadeIn(tween(180)) + scaleIn(tween(180), initialScale = .9f) else EnterTransition.None,
                 exit = if (motionEnabled) fadeOut(tween(140)) else ExitTransition.None,
                 modifier = Modifier.offset(x = if (expandLeft) capsuleX - actionReach else capsuleX + 136.dp)

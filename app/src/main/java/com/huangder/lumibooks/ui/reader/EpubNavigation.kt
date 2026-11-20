@@ -91,10 +91,20 @@ internal data class EpubNavigationRequest(
     val sourcePageIndex: Int,
     val targetChapterIndex: Int,
     val destination: EpubNavigationDestination,
-    val showLoadingPage: Boolean = true
+    val showLoadingPage: Boolean = true,
+    val restoreSourceOnCancel: Boolean = true
 ) {
-    fun requiresStaging(activeChapterIndex: Int): Boolean =
-        targetChapterIndex != activeChapterIndex
+    fun coalescesPageTurn(
+        requestedOrigin: EpubNavigationOrigin,
+        sourceChapter: Int,
+        targetChapter: Int,
+        requestedDestination: EpubNavigationDestination
+    ): Boolean = origin == EpubNavigationOrigin.PAGE_TURN && requestedOrigin == origin &&
+        sourceChapterIndex == sourceChapter && targetChapterIndex == targetChapter &&
+        destination == requestedDestination
+
+    fun requiresStaging(activeChapterIndex: Int, activeDocumentReady: Boolean = true): Boolean =
+        targetChapterIndex != activeChapterIndex || !activeDocumentReady
 }
 
 internal enum class EpubNavigationStage {

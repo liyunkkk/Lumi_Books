@@ -135,6 +135,14 @@ class JustifiedTextView @JvmOverloads constructor(
         paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL },
         density = resources.displayMetrics.density
     )
+
+    /** 笔记高亮/划线的用户几何参数；只影响绘制，不触发重排。 */
+    var annotationStyle: ReaderAnnotationStyle = ReaderAnnotationStyle.DEFAULT
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidate()
+        }
     private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 56f
         color = 0xFF333333.toInt()
@@ -306,7 +314,6 @@ class JustifiedTextView @JvmOverloads constructor(
             .setIncludePad(false)
             .setBreakStrategy(readerBreakStrategy)
             .setHyphenationFrequency(com.huangder.lumibooks.ui.reader.readerHyphenationFrequency(spannable ?: ""))
-            .setJustificationMode(readerJustificationMode)
             .build()
     }
 
@@ -332,9 +339,10 @@ class JustifiedTextView @JvmOverloads constructor(
         val density = resources.displayMetrics.density
         val wavePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = 1.0f * density
+            strokeWidth = annotationStyle.underlineThicknessDp * density
             strokeCap = Paint.Cap.ROUND
         }
+        val underlineOffset = annotationStyle.underlineOffsetYDp * density
         val save = canvas.save()
         canvas.translate(paddingLeft.toFloat(), paddingTop.toFloat())
         s.getSpans(0, s.length, WaveUnderlineSpan::class.java).forEach { span ->
@@ -342,8 +350,6 @@ class JustifiedTextView @JvmOverloads constructor(
             val spanEnd = s.getSpanEnd(span).coerceIn(spanStart, s.length)
             if (spanStart >= spanEnd) return@forEach
             wavePaint.color = span.color
-            val amplitude = 0.8f * density
-            val wavelength = 11f * density
             val visible = readerVisibleLines(canvas, sl)
             if (visible.isEmpty()) return@forEach
             for (line in maxOf(visible.first, sl.getLineForOffset(spanStart))..
@@ -359,8 +365,12 @@ class JustifiedTextView @JvmOverloads constructor(
                 val x1 = range.second
                 if (x1 <= x0) continue
                 val baseline = sl.getLineBaseline(line).toFloat()
-                val underlineCenter = baseline + textPaint.fontMetrics.descent.coerceAtLeast(1f) + 1f * density
-                drawReaderUnderline(canvas, wavePaint, span.mode, x0, x1, underlineCenter, false, density)
+                val underlineCenter = baseline + textPaint.fontMetrics.descent.coerceAtLeast(1f) + 1f * density +
+                    underlineOffset
+                drawReaderUnderline(
+                    canvas, wavePaint, span.mode, x0, x1, underlineCenter, false, density,
+                    annotationStyle.underlinePatternScale
+                )
             }
         }
         canvas.restoreToCount(save)
@@ -444,7 +454,19 @@ class JustifiedTextView @JvmOverloads constructor(
 
         readerTextPainter.draw(canvas, sl, s, geometry)
 
+        noteMarkers = ReaderNoteMarkers.collect(sl, s, geometry)
+        noteMarkers.forEach { ReaderNoteMarkers.draw(canvas, it.rect, textPaint.color) }
+
         canvas.restoreToCount(saveCount)
+    }
+
+    /** 最近一次绘制的笔记图标（Layout 坐标）。 */
+    private var noteMarkers: List<ReaderNoteMarker> = emptyList()
+
+    /** [x]/[y] 为本 View 内坐标。 */
+    internal fun noteMarkerAt(x: Float, y: Float, minTouchPx: Float): ReaderNoteMarker? {
+        if (noteMarkers.isEmpty()) return null
+        return ReaderNoteMarkers.hit(noteMarkers, x - paddingLeft, y - paddingTop - translationY, minTouchPx)
     }
 
     /**
@@ -465,7 +487,8 @@ class JustifiedTextView @JvmOverloads constructor(
                 start = text.getSpanStart(span),
                 end = text.getSpanEnd(span),
                 color = span.color,
-                outline = span.outline
+                outline = span.outline,
+                style = annotationStyle
             )
         }
         text.getSpans(0, text.length, ReaderSearchHighlightSpan::class.java).forEach { span ->

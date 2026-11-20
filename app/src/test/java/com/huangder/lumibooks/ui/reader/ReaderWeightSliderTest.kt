@@ -188,7 +188,7 @@ class ReaderWeightSliderTest {
         fun slider(range: ClosedFloatingPointRange<Float>) = SemanticsMatcher("slider $range") {
             it.config.getOrNull(SemanticsProperties.ProgressBarRangeInfo)?.range == range
         }
-        val fontSlider = slider(12f..28f)
+        val fontSlider = slider(12f..33f)
         val weightSlider = slider(100f..900f)
         val brightnessSlider = slider(0f..100f)
         val maskSlider = slider(0f..80f)
@@ -203,15 +203,17 @@ class ReaderWeightSliderTest {
         val maskBounds = compose.onNode(maskSlider).fetchSemanticsNode().boundsInRoot
         compose.runOnIdle {
             assertEquals(fontBounds.top, weightBounds.top, 1f)
-            assertEquals(brightnessBounds.top, maskBounds.top, 1f)
-            assertTrue(brightnessBounds.top > fontBounds.top)
+            assertEquals(fontBounds.width, weightBounds.width, 1f)
+            assertEquals(brightnessBounds.left, fontBounds.left, 1f)
+            assertEquals(maskBounds.left, weightBounds.left, 1f)
+            assertTrue(brightnessBounds.top > fontBounds.bottom)
         }
 
-        compose.onNode(fontSlider).performSemanticsAction(SemanticsActions.SetProgress) { it(18.3f) }
+        compose.onNode(fontSlider).performSemanticsAction(SemanticsActions.SetProgress) { it(32.3f) }
         compose.onNode(weightSlider).performSemanticsAction(SemanticsActions.SetProgress) { it(425.7f) }
         compose.onNode(maskSlider).performSemanticsAction(SemanticsActions.SetProgress) { it(73f) }
         compose.runOnIdle {
-            assertEquals(18.3f, fontSize.value, 0f)
+            assertEquals(32.3f, fontSize.value, 0f)
             assertEquals(425.7f, weight.value, 0f)
             assertEquals(0.73f, mask.value, 0.0001f)
         }

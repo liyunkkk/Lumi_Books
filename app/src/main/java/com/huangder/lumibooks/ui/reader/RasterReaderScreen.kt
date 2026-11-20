@@ -195,6 +195,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.text.font.FontFamily
 import java.io.File
@@ -477,10 +478,12 @@ fun RasterReaderScreen(
     var readerViewportOrigin by remember { mutableStateOf(Offset.Zero) }
     var menuViewportCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val ttsCurrentPage by viewModel.ttsCurrentPage.collectAsState()
+    val ttsCurrentSentence by viewModel.ttsSentencePosition.collectAsState()
     val listeningResumePrompt by viewModel.listeningResumePrompt.collectAsState()
     val listeningResumeJumpRequest by viewModel.listeningResumeJumpRequest.collectAsState()
     val ttsStartPrompt by viewModel.ttsStartPrompt.collectAsState()
     val ttsReaderFollowEnabled by viewModel.ttsReaderFollowEnabled.collectAsState()
+    val manualListeningBrowse by viewModel.manualListeningBrowse.collectAsState()
     val storedBookmarks by viewModel.bookmarks.collectAsState()
     val bookmarks = remember(storedBookmarks, uiState.epubComicIndex) {
         val index = uiState.epubComicIndex
@@ -508,6 +511,7 @@ fun RasterReaderScreen(
     SideEffect {
         pdfText?.notes = notes
         pdfText?.range = uiState.longPressSelectionRange
+        pdfText?.annotationStyle = uiState.annotationStyle
     }
     val pageCount = comicIndex?.pages?.size ?: uiState.chapterCount
     val bookmarkedPages = remember(bookmarks) {
@@ -917,16 +921,27 @@ fun RasterReaderScreen(
     }
 
     var returnPage by remember(bookId) { mutableStateOf<Int?>(null) }
+    var manualRasterBrowseFrom by remember(bookId, pageMode, spreadEnabled) { mutableStateOf<Int?>(null) }
+    val trackListeningBrowse = pageMode != PdfPageMode.VERTICAL_PAGING
     var returnPageToken by remember(bookId) { mutableIntStateOf(0) }
     fun rememberRasterReturnPage() {
         returnPage = currentPage
         returnPageToken++
     }
     fun beginManualRasterNavigation() {
+        manualRasterBrowseFrom = null
         if (viewModel.listeningResumePrompt.value != null) rememberRasterReturnPage()
         viewModel.onListeningReaderManualNavigation()
     }
-    fun beginManualRasterBrowsing() = viewModel.onListeningReaderPageTurn()
+    fun beginManualRasterBrowsing() {
+        if (trackListeningBrowse && viewModel.isListeningToThisBook()) {
+            manualRasterBrowseFrom = if (pageMode == PdfPageMode.HORIZONTAL_PAGING) pagerState.settledPage
+                else listState.firstVisibleItemIndex
+            viewModel.onListeningReaderBrowseStarted()
+        } else {
+            viewModel.onListeningReaderPageTurn()
+        }
+    }
     suspend fun scrollToPdfPage(targetPage: Int, animate: Boolean = !eInkMode,
         manual: Boolean = true, pageTurn: Boolean = false) {
         // 页面还没准备好时（pageCount 为 0）不能做 coerceIn，否则会抛出空区间异常。
@@ -986,6 +1001,20 @@ fun RasterReaderScreen(
             if (interaction is DragInteraction.Start) beginManualRasterBrowsing()
         }
     }
+    LaunchedEffect(pagerState, listState, pageMode, manualRasterBrowseFrom, manualListeningBrowse?.generation) {
+        val from = manualRasterBrowseFrom ?: return@LaunchedEffect
+        fun scrolling() = if (pageMode == PdfPageMode.HORIZONTAL_PAGING) pagerState.isScrollInProgress
+            else listState.isScrollInProgress
+        androidx.compose.runtime.snapshotFlow { scrolling() }.collectLatest { inProgress ->
+            if (inProgress) return@collectLatest
+            androidx.compose.runtime.withFrameNanos { }
+            if (!scrolling() && manualRasterBrowseFrom == from) {
+                manualRasterBrowseFrom = null
+                viewModel.onListeningReaderBrowseSettled(canPrompt = pageMode == PdfPageMode.VERTICAL_SCROLL ||
+                    pagerState.settledPage != from)
+            }
+        }
+    }
     LaunchedEffect(
         bookId,
         pageCount,
@@ -1015,6 +1044,18 @@ fun RasterReaderScreen(
                 it.offset + it.size > viewport.viewportStartOffset }.map { it.index }.toSet()
         }
         else -> setOf(currentPage)
+    }
+    val canShowListeningBrowsePrompt = readerActive && !showMenu && !showPdfToc && !showPdfBookmarks &&
+        conversionSheet == null
+    val listeningPage = ttsCurrentSentence?.chapterIndex ?: ttsCurrentPage?.location?.chapterIndex
+    val listeningPageVisible = listeningPage?.let { it in visibleRasterPages }
+    LaunchedEffect(manualListeningBrowse?.generation, manualListeningBrowse?.settled, listeningPageVisible,
+        canShowListeningBrowsePrompt, readerActive, trackListeningBrowse, ttsState.activeBookId, ttsState.playbackState) {
+        val browse = manualListeningBrowse ?: return@LaunchedEffect
+        viewModel.updateManualListeningBrowse(browse.generation,
+            listeningPageVisible.takeIf { readerActive && trackListeningBrowse },
+            canShowListeningBrowsePrompt && trackListeningBrowse,
+            promptWhileBrowsing = pageMode == PdfPageMode.VERTICAL_SCROLL)
     }
     ObserveListeningResume(viewModel, firstPagePrepared && !uiState.isLoading,
         readerActive, currentPage, 0, visibleChapters = visibleRasterPages)
@@ -1116,7 +1157,16 @@ fun RasterReaderScreen(
             zoomPanDecayJob.value = null
         }
     }
-    val shouldHandleVolumeKeys =
+    val startTtsWithPermission = rememberTtsStartWithNotificationPermission(bookId) { restore ->
+        viewModel.startPdfTts(filePath, currentPage, pageCount, restoreSavedPosition = restore)
+    }
+    val requestTtsStart: () -> Unit = {
+        ttsRevealKey++
+        showMenu = false
+        viewModel.requestTtsStart(startTtsWithPermission)
+    }
+    val latestRequestTtsStart by rememberUpdatedState(requestTtsStart)
+    val shouldHandleVolumeKeys = readerActive &&
         (uiState.volumeKeyUpAction != ReaderVolumeKeyAction.SYSTEM_VOLUME ||
             uiState.volumeKeyDownAction != ReaderVolumeKeyAction.SYSTEM_VOLUME) &&
         !showMenu &&
@@ -1130,6 +1180,7 @@ fun RasterReaderScreen(
         shouldHandleVolumeKeys,
         uiState.volumeKeyUpAction,
         uiState.volumeKeyDownAction,
+        isComic,
         pageMode,
         currentPage,
         pageCount
@@ -1144,7 +1195,11 @@ fun RasterReaderScreen(
                 KeyEvent.KEYCODE_VOLUME_DOWN -> uiState.volumeKeyDownAction
                 else -> ReaderVolumeKeyAction.SYSTEM_VOLUME
             }
-            val effectiveAction = resolveReaderVolumeKeyAction(action, supportsFontSize = false)
+            val effectiveAction = resolveReaderVolumeKeyAction(
+                action,
+                supportsFontSize = false,
+                supportsListening = !isComic
+            )
             when {
                 effectiveAction == ReaderVolumeKeyAction.SYSTEM_VOLUME -> false
                 else -> {
@@ -1178,6 +1233,8 @@ fun RasterReaderScreen(
                                     }
                                 }
                             }
+                            ReaderVolumeKeyAction.TOGGLE_TTS_SESSION -> viewModel.toggleTtsSession(latestRequestTtsStart)
+                            ReaderVolumeKeyAction.TOGGLE_TTS_PLAY_PAUSE -> viewModel.toggleTtsPlayPause()
                             ReaderVolumeKeyAction.SYSTEM_VOLUME,
                             ReaderVolumeKeyAction.FONT_SIZE_DOWN,
                             ReaderVolumeKeyAction.FONT_SIZE_UP -> Unit
@@ -1232,9 +1289,6 @@ fun RasterReaderScreen(
 
     val pdfGlassBackdrop = rememberLayerBackdrop()
     val capturePdfBackdrop = isLiquidGlass && openingComplete
-    val startTtsWithPermission = rememberTtsStartWithNotificationPermission(bookId) { restore ->
-        viewModel.startPdfTts(filePath, currentPage, pageCount, restoreSavedPosition = restore)
-    }
     TtsStartDialog(
         position = ttsStartPrompt.takeIf { readerActive },
         chapterTitle = ttsStartPrompt?.let {
@@ -1764,11 +1818,7 @@ fun RasterReaderScreen(
                 onZoomLockToggle = {
                     viewModel.setRasterZoomLocked(!uiState.rasterZoomLocked, scale)
                 },
-                onTtsToggle = {
-                    ttsRevealKey++
-                    showMenu = false
-                    viewModel.requestTtsStart(startTtsWithPermission)
-                },
+                onTtsToggle = requestTtsStart,
                 onBookmarkToggle = {
                     if (isCurrentPageBookmarked) {
                         bookmarks.firstOrNull { it.chapterIndex == currentPage }
@@ -1962,7 +2012,9 @@ fun RasterReaderScreen(
             position = readerTtsPosition,
             onPositionChange = viewModel::saveReaderTtsPosition,
             catalogBoundsInWindow = ttsCatalogBounds,
-            revealKey = ttsRevealKey
+            revealKey = ttsRevealKey,
+            menuEnterMillis = 280,
+            menuExitMillis = 220
         ) { placement ->
             TtsPlayerPanel(
                 placement = placement,
@@ -1977,7 +2029,7 @@ fun RasterReaderScreen(
                 usesAndroidTts = ttsState.usesAndroidTts,
                 sleepTimerRemainingMs = ttsState.sleepTimerRemainingMs,
                 sleepTimerDurationMs = ttsState.sleepTimerDurationMs,
-                followUserPageTurns = ttsState.followUserPageTurns,
+                autoPageTurn = ttsState.autoPageTurn,
                 onPlayPause = viewModel::toggleTtsPlayPause,
                 onStop = viewModel::stopTts,
                 onOpenFullscreen = { viewModel.openFullScreenTts(context) },
@@ -1989,15 +2041,16 @@ fun RasterReaderScreen(
                 onPitchModeChange = viewModel::setTtsPitchMode,
                 onSetSleepTimer = viewModel::setSleepTimer,
                 onCancelSleepTimer = viewModel::cancelSleepTimer,
-                onFollowUserPageTurnsChange = viewModel::setTtsFollowUserPageTurns,
+                onAutoPageTurnChange = viewModel::setTtsAutoPageTurn,
                 onReturnToProgress = {
                     viewModel.enableListeningReaderFollow()
-                    ttsCurrentPage?.location?.chapterIndex?.let { targetPage ->
+                    listeningPage?.let { targetPage ->
                         rememberRasterReturnPage()
                         scope.launch { scrollToPdfPage(targetPage, manual = false) }
                     }
                 },
                 onStartFromCurrentPage = {
+                    viewModel.dismissManualListeningBrowsePrompt()
                     filePath?.let { path ->
                         viewModel.startPdfTts(
                             path,
@@ -2007,7 +2060,9 @@ fun RasterReaderScreen(
                         )
                     }
                 },
-                canReturnToProgress = ttsCurrentPage?.location?.let { it.chapterIndex != currentPage } == true,
+                showFromCurrentPage = canShowListeningBrowsePrompt && trackListeningBrowse &&
+                    manualListeningBrowse?.showPrompt == true,
+                canReturnToProgress = listeningPageVisible == false,
                 readerMenuVisible = showMenu,
                 readerBackgroundColor = rasterBackgroundColor,
                 readerContentColor = AppColors.TextPrimary
@@ -4881,7 +4936,7 @@ private fun PdfBookmarkEntries(
                                             color = AppColors.TextSecondary)
                                     }
                                     com.huangder.lumibooks.ui.components.AnnotationTagChips(
-                                        bookmark.tags, modifier = Modifier.padding(top = 4.dp)
+                                        bookmark.tags, modifier = Modifier.padding(top = 4.dp), bleedEnd = 16.dp
                                     )
                                 }
                             }
