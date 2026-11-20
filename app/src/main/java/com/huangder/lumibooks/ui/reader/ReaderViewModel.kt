@@ -5922,7 +5922,7 @@ class ReaderViewModel @Inject constructor(
         // 自有功能：TXT 净化规则（legado 兼容）在进入排版前生效，
         // 上游新架构下挂到 input 源上，保证标题判定/替换/格式化都基于净化后文本。
         val purifiedInput = if (isTxt && txtReplacement == null) {
-            PurifyEngine.purifyText(raw.toString(), state.bookTitle, "")
+            PurifyEngine.purifyText(raw.toString(), state.book?.title.orEmpty(), "")
         } else {
             null
         }

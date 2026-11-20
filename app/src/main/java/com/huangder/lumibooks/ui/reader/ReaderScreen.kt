@@ -2403,6 +2403,7 @@ private fun ReaderScreenContent(
     val isAnySheetOpen = excerptRequest != null || localDictionaryQuery != null || annotationTagState.editingTarget != null || showNotesList || showNoteInput || pendingBookmarkRemarkId != null || showToc || showThemeSheet || showHighlightRules || showReplacementRules ||
         showAdvancedSheet || showSearch || showWebSearch || showTxtEncodingDialog || showTxtTocDialog || showReplaceInput || showQuickPurifyDialog || showChangeSourceDialog
     val bookmarkPullSupported = (isBookLayout && !isBookLayoutContinuousScroll) ||
+        (uiState.useNewEngine && !renderedContinuousScrollMode && !isVerticalWriting)
     val canShowListeningBrowsePrompt = readerActive && !isAnySheetOpen && !uiState.isMenuVisible
     val spokenTextVisible = if (manualListeningBrowse != null) ttsCurrentSentence?.let { sentence ->
         when {
@@ -2431,7 +2432,7 @@ private fun ReaderScreenContent(
         viewModel.updateManualListeningBrowse(browse.generation, spokenTextVisible.takeIf { readerActive },
             canShowListeningBrowsePrompt, promptWhileBrowsing = isContinuousScrollMode || isBookLayoutContinuousScroll)
     }
-        (uiState.useNewEngine && !renderedContinuousScrollMode && !isVerticalWriting)
+ && !renderedContinuousScrollMode && !isVerticalWriting)
     val bookmarkPullEnabled = bookmarkPullSupported &&
         !uiState.isMenuVisible &&
         !isAnySheetOpen &&

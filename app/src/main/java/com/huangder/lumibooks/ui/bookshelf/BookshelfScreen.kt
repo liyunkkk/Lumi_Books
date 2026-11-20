@@ -2244,6 +2244,7 @@ internal fun BookshelfCollection(
                     ) {
                     PageEntranceItem(play = playEntranceAnimation, index = folders.size + index + 2) {
                         AnimatedBookGridItem(
+                            layoutMode = renderedMode,
                             book = book,
                             isDeleting = book.id in deletingBookIds,
                             isEditing = isEditing,
@@ -3043,6 +3044,7 @@ private data class BookshelfFilterTab(
 
 @Composable
 private fun AnimatedBookGridItem(
+    layoutMode: Int = 2,
     book: Book,
     isDeleting: Boolean,
     isEditing: Boolean,
@@ -3086,6 +3088,7 @@ private fun AnimatedBookGridItem(
             }
     ) {
         BookGridItem(
+            layoutMode = layoutMode,
             book = book,
             isEditing = isEditing,
             isSelected = isSelected,
@@ -3106,6 +3109,7 @@ private fun AnimatedBookGridItem(
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun BookGridItem(
+    layoutMode: Int = 2,
     book: Book,
     isEditing: Boolean,
     isSelected: Boolean,
