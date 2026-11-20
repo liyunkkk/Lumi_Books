@@ -2432,7 +2432,6 @@ private fun ReaderScreenContent(
         viewModel.updateManualListeningBrowse(browse.generation, spokenTextVisible.takeIf { readerActive },
             canShowListeningBrowsePrompt, promptWhileBrowsing = isContinuousScrollMode || isBookLayoutContinuousScroll)
     }
- && !renderedContinuousScrollMode && !isVerticalWriting)
     val bookmarkPullEnabled = bookmarkPullSupported &&
         !uiState.isMenuVisible &&
         !isAnySheetOpen &&
