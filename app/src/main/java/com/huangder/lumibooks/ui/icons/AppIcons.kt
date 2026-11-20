@@ -85,7 +85,7 @@ object AppIcons {
     val BookshelfTab = IconPair(FluentIcons.Filled.Library, FluentIcons.Filled.Library)
     val StatisticsTab = IconPair(FluentIcons.Filled.DataBarVertical, FluentIcons.Filled.DataBarVertical)
     // fork 自有：底部第三个 tab 是「发现」（书源发现页），统计移动到首页右上角
-    val DiscoverTab = IconPair(FluentIcons.Filled.Compass, FluentIcons.Filled.Compass)
+    val DiscoverTab = IconPair(outline(FluentIcons.Regular.Globe), outline(FluentIcons.Regular.Globe))
     val UserCircle = outline(FluentIcons.Regular.PersonCircle)
     val Book = outline(FluentIcons.Regular.Book)
     val BookOpen = outline(FluentIcons.Regular.BookOpen)

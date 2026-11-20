@@ -7425,15 +7425,11 @@ internal fun ReaderTopBar(
                     .padding(horizontal = 8.dp)
             )
             // Short landscape windows keep the header actions in one row.
-            // 竖屏手机（非 rail / 非横向）走纵向排列，容器宽度必须容纳按钮本体，
-            // 否则 >36dp 的按钮会被横向裁掉，表现为「顶部按钮消失」。
+            // 恢复上游原实现：容器宽度兜底 36dp，与 ReaderTopBarButton 的
+            // requiredSize(sideRailItemSize ?: DpSize(36.dp, 36.dp)) 完全一致。
+            // 之前误改成 56dp，与按钮实际尺寸不匹配。
             Box(
-                modifier = Modifier.width(
-                    when {
-                        horizontalActions -> 128.dp
-                        else -> sideRailItemSize?.width ?: 56.dp
-                    }
-                ),
+                modifier = Modifier.width(if (horizontalActions) 128.dp else sideRailItemSize?.width ?: 36.dp),
                 contentAlignment = Alignment.TopCenter
             ) {
                 val actions: @Composable () -> Unit = {
