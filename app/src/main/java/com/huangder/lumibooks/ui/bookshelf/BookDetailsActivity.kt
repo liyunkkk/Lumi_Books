@@ -2,6 +2,7 @@ package com.huangder.lumibooks.ui.bookshelf
 
 import com.huangder.lumibooks.ui.icons.ControlIcon
 
+import com.huangder.lumibooks.ui.components.CloudAwareBookDeleteDialog
 import com.huangder.lumibooks.ui.components.LocalCollapsingPageTopInset
 import com.huangder.lumibooks.ui.components.CollapsingPageScaffold
 

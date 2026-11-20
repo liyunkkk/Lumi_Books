@@ -1724,7 +1724,6 @@ fun BookshelfScreen(
     }
 }
 
-@Composable
 // ─── 书架封面统一比例 ───────────────────────────────────────────
 // 书籍封面、文件夹封面、添加书籍占位块必须用同一比例，
 // 否则紧凑布局下（列更窄）三者高度不一致，视觉上大小对不上。
@@ -1735,6 +1734,7 @@ private fun bookshelfCoverAspectRatio(compactLayout: Boolean): Float =
 private fun bookshelfCoverAspectRatio(layoutMode: Int): Float =
     bookshelfCoverAspectRatio(layoutMode == 3)
 
+@Composable
 internal fun BookshelfCollection(
     layoutMode: Int,
     books: List<Book>,

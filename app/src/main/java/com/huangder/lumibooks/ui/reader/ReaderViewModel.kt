@@ -5958,23 +5958,6 @@ class ReaderViewModel @Inject constructor(
                 } else {
                     value
                 }
-
-                val fullText = if (body.isNotEmpty()) "$parsedChapterTitle\n\n$body" else parsedChapterTitle
-                val spannable = SpannableString(fullText)
-                val titleEnd = parsedChapterTitle.length
-                spannable.setSpan(
-                    AbsoluteSizeSpan(txtChapterTitleFontSize(state.fontSize), true),
-                    0,
-                    titleEnd,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-                spannable.setSpan(
-                    StyleSpan(Typeface.BOLD),
-                    0,
-                    titleEnd,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-                spannable
             } else {
                 value
             }

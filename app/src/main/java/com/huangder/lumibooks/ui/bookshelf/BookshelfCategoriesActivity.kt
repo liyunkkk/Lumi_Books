@@ -4,6 +4,7 @@ import com.huangder.lumibooks.ui.animation.pagePushToolbarItem
 import com.huangder.lumibooks.ui.icons.ControlIcon
 
 import com.huangder.lumibooks.ui.theme.cardOutline
+import com.huangder.lumibooks.ui.components.CloudAwareBookDeleteDialog
 import com.huangder.lumibooks.ui.components.lumiCardSurface
 import androidx.compose.ui.draw.shadow
 import com.huangder.lumibooks.ui.animation.lumiPressable
@@ -915,6 +916,7 @@ private fun CategoryBooksPage(
     var isEditing by remember { mutableStateOf(false) }
     var selectedBookIds by remember { mutableStateOf(emptySet<String>()) }
     var expandedListBookId by remember { mutableStateOf<String?>(null) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
     var deletingBookIds by remember { mutableStateOf(emptySet<String>()) }
     var pendingDeleteBooks by remember { mutableStateOf(emptyList<Book>()) }
     var pendingDeleteMode by remember { mutableStateOf(BookDeleteMode.LOCAL_ONLY) }

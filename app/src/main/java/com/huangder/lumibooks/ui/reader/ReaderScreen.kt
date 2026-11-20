@@ -1553,6 +1553,13 @@ private fun ReaderScreenContent(
             finishPageVisible = true
         }
     }
+    val latestOpenFinishPage = rememberUpdatedState(openFinishPage)
+    val finishPull = remember(bookId) { BookFinishPullState() }
+    val onFinishPull: (Float) -> Unit = { distance ->
+        finishPull.update(distance)
+        if (!finishPageVisible) latestOpenFinishPage.value()
+    }
+    val onFinishPullEnd: (Boolean) -> Unit = { cancelled -> finishPull.release(cancelled) }
     var rendererBookPages by remember(bookId, isMarkdownNative, isBookLayout, uiState.chapterCount) {
         mutableStateOf(ReaderBookPages(chapterCounts = List(if (isMarkdownNative) 1 else uiState.chapterCount) { null }))
     }
@@ -2396,6 +2403,34 @@ private fun ReaderScreenContent(
     val isAnySheetOpen = excerptRequest != null || localDictionaryQuery != null || annotationTagState.editingTarget != null || showNotesList || showNoteInput || pendingBookmarkRemarkId != null || showToc || showThemeSheet || showHighlightRules || showReplacementRules ||
         showAdvancedSheet || showSearch || showWebSearch || showTxtEncodingDialog || showTxtTocDialog || showReplaceInput || showQuickPurifyDialog || showChangeSourceDialog
     val bookmarkPullSupported = (isBookLayout && !isBookLayoutContinuousScroll) ||
+    val canShowListeningBrowsePrompt = readerActive && !isAnySheetOpen && !uiState.isMenuVisible
+    val spokenTextVisible = if (manualListeningBrowse != null) ttsCurrentSentence?.let { sentence ->
+        when {
+            isBookLayoutContinuousScroll -> epubTtsVisibility?.takeIf { it.first == sentence }?.second
+            isContinuousScrollMode -> continuousVisibleCharacters.value.containsSpeech(sentence)
+            isBookLayout -> rendererVisibleCharacters.containsSpeech(sentence)
+            else -> {
+                val layoutEngine = viewModel.pageLayoutEngine
+                val visible = buildList {
+                    fun addPage(chapter: Int, page: Int) {
+                        layoutEngine.getPageLayout(chapter, page)?.let {
+                            add(ReaderVisibleCharacters(chapter, it.startCharOffset, it.endCharOffset))
+                        }
+                    }
+                    addPage(uiState.currentChapterIndex, uiState.currentPageIndex)
+                    uiState.rightPageIndex?.let { addPage(uiState.rightChapterIndex ?: uiState.currentChapterIndex, it) }
+                }
+                visible.containsSpeech(sentence)
+            }
+        }
+    } else null
+    LaunchedEffect(manualListeningBrowse?.generation, manualListeningBrowse?.settled, spokenTextVisible,
+        canShowListeningBrowsePrompt, readerActive, ttsCurrentSentence, ttsState.activeBookId, ttsState.playbackState) {
+        val browse = manualListeningBrowse ?: return@LaunchedEffect
+        if (viewModel.ttsSentencePosition.value != ttsCurrentSentence) return@LaunchedEffect
+        viewModel.updateManualListeningBrowse(browse.generation, spokenTextVisible.takeIf { readerActive },
+            canShowListeningBrowsePrompt, promptWhileBrowsing = isContinuousScrollMode || isBookLayoutContinuousScroll)
+    }
         (uiState.useNewEngine && !renderedContinuousScrollMode && !isVerticalWriting)
     val bookmarkPullEnabled = bookmarkPullSupported &&
         !uiState.isMenuVisible &&
