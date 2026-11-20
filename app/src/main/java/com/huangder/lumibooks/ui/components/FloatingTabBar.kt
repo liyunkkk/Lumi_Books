@@ -149,7 +149,7 @@ private val LiquidImportIconSize = 28.dp
 val tabs = listOf(
     TabItem(AppIcons.HomeTab, R.string.home_title, "home_tab"),
     TabItem(AppIcons.BookshelfTab, R.string.bookshelf_title, "bookshelf_tab"),
-    TabItem(AppIcons.StatisticsTab, R.string.statistics_title, "statistics_tab")
+    TabItem(AppIcons.DiscoverTab, R.string.discover_title, "discover_tab")
 )
 
 @Composable

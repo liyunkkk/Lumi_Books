@@ -1206,6 +1206,22 @@ fun MainNavGraph(
                                         viewModel = homeViewModel
                                     )
                                 }
+                                2 -> {
+                                    DiscoveryScreen(
+                                        initialSearchQuery = pendingDiscoverSearchQuery,
+                                        onInitialSearchQueryConsumed = { pendingDiscoverSearchQuery = null },
+                                        onNavigateToSearch = { initialQuery ->
+                                            navController.navigate(Screen.Search.createRoute(initialQuery))
+                                        },
+                                        onSearchInBookshelf = { query ->
+                                            selectTab(1)
+                                            pendingBookshelfSearchQuery = query
+                                        },
+                                        onOpenBook = { bookId, coverUrl, title ->
+                                            requestOpenBook(bookId, coverUrl, title)
+                                        }
+                                    )
+                                }
                                 else -> {
                                     StatisticsScreen(
                                         playEntranceAnimation = playEntranceAnimation,
@@ -1738,13 +1754,13 @@ fun MainNavGraph(
                                 )
                             }
                         }
-                        // 头像 / 设置入口（fork 自有）。上游合并时丢失，这里补回，
-                        // 与导入按钮同排，向右让开导入按钮的宽度。
+                        // 头像 / 设置入口（fork 自有）。上游合并时丢失，这里补回。
+                        // 与导入按钮并排：头像在左，导入在右（64dp 按钮 + 12dp 间隔）。
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
-                                .padding(end = 24.dp, bottom = 10.dp)
+                                .padding(end = if (showLiquidImport) 76.dp else 24.dp, bottom = 10.dp)
                         ) {
                             NavSettingsButton(
                                 onClick = {
