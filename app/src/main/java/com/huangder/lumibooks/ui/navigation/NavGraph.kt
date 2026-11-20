@@ -1744,10 +1744,7 @@ fun MainNavGraph(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
-                                .padding(
-                                    end = if (showLiquidImport) 100.dp else 24.dp,
-                                    bottom = 10.dp
-                                )
+                                .padding(end = 24.dp, bottom = 10.dp)
                         ) {
                             NavSettingsButton(
                                 onClick = {
@@ -1767,7 +1764,7 @@ fun MainNavGraph(
                             selectedIndex = selectedTab,
                             hazeState = hazeState,
                             liquidGlassBackdrop = liquidGlassBackdrop,
-                            reserveImportButtonSpace = showLiquidImport,
+                            reserveImportButtonSpace = true,
                             onTabSelected = selectTab
                         )
                     }
