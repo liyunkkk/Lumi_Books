@@ -6,6 +6,10 @@ on:
         description: Branch to build
         required: true
         default: main
+      release_tag:
+        description: Optional release tag (upload APK to Release instead of artifact)
+        required: false
+        default: '' 
   push:
     branches:
       - main
@@ -113,10 +117,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          name: Lumi Books ${{ github.ref_name }}
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          name: Lumi Books ${{ github.event.inputs.release_tag || github.ref_name }}
           draft: false
           prerelease: false
           generate_release_notes: true
