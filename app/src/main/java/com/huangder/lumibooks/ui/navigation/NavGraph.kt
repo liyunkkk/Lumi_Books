@@ -1683,6 +1683,19 @@ fun MainNavGraph(
                     } else {
                         LumiImportFab(onClick = requestImport)
                     }
+                    NavSettingsButton(
+                        onClick = {
+                            context.startActivity(
+                                android.content.Intent(
+                                    context,
+                                    com.huangder.lumibooks.ui.settings.SettingsActivity::class.java
+                                )
+                            )
+                        },
+                        avatarUri = homeUiState.avatarUri,
+                        isLiquidGlass = isLiquidGlass,
+                        liquidGlassBackdrop = liquidGlassBackdrop
+                    )
                     FloatingTabBar(
                         selectedIndex = selectedTab,
                         hazeState = hazeState,
@@ -1718,6 +1731,31 @@ fun MainNavGraph(
                                     liquidGlassBackdrop = liquidGlassBackdrop
                                 )
                             }
+                        }
+                        // 头像 / 设置入口（fork 自有）。上游合并时丢失，这里补回，
+                        // 与导入按钮同排，向右让开导入按钮的宽度。
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
+                                .padding(
+                                    end = if (showLiquidImport) 100.dp else 24.dp,
+                                    bottom = 10.dp
+                                )
+                        ) {
+                            NavSettingsButton(
+                                onClick = {
+                                    context.startActivity(
+                                        android.content.Intent(
+                                            context,
+                                            com.huangder.lumibooks.ui.settings.SettingsActivity::class.java
+                                        )
+                                    )
+                                },
+                                avatarUri = homeUiState.avatarUri,
+                                isLiquidGlass = isLiquidGlass,
+                                liquidGlassBackdrop = liquidGlassBackdrop
+                            )
                         }
                         FloatingTabBar(
                             selectedIndex = selectedTab,
