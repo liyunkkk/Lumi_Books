@@ -75,6 +75,7 @@ import com.huangder.lumibooks.ui.bookshelf.BookshelfScreen
 import com.huangder.lumibooks.ui.components.BookTransitionOverlay
 import com.huangder.lumibooks.ui.components.FloatingTabBar
 import com.huangder.lumibooks.ui.components.Material3BottomNavigationBar
+import com.huangder.lumibooks.ui.components.NavSettingsButton
 import com.huangder.lumibooks.ui.components.LiquidGlassImportButton
 import com.huangder.lumibooks.ui.components.LiquidGlassDialogHost
 import com.huangder.lumibooks.ui.components.ImmersiveMode
@@ -555,6 +556,11 @@ fun MainNavGraph(
         homeViewModel.uiState.map { it.forNavigation() }.distinctUntilChanged().flowOn(Dispatchers.Default)
     }
     val homeUiState by navigationState.collectAsStateWithLifecycle(initialValue = homeViewModel.uiState.value.forNavigation())
+    // HomeNavigationState 未包含头像（上游精简），单独收集，供底部/侧边栏的设置入口使用。
+    val avatarUri by homeViewModel.uiState
+        .map { it.avatarUri }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = homeViewModel.uiState.value.avatarUri)
     val folderBooksLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -1692,7 +1698,7 @@ fun MainNavGraph(
                                 )
                             )
                         },
-                        avatarUri = homeUiState.avatarUri,
+                        avatarUri = avatarUri,
                         isLiquidGlass = isLiquidGlass,
                         liquidGlassBackdrop = liquidGlassBackdrop
                     )
@@ -1752,7 +1758,7 @@ fun MainNavGraph(
                                         )
                                     )
                                 },
-                                avatarUri = homeUiState.avatarUri,
+                                avatarUri = avatarUri,
                                 isLiquidGlass = isLiquidGlass,
                                 liquidGlassBackdrop = liquidGlassBackdrop
                             )
