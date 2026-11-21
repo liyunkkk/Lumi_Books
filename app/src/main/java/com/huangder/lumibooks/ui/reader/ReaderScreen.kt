@@ -2526,6 +2526,7 @@ private fun ReaderScreenContent(
                         }
                         ReaderVolumeKeyAction.TOGGLE_BOOKMARK -> toggleBookmarkForCurrentPage(false)
                         ReaderVolumeKeyAction.SYSTEM_VOLUME -> Unit
+                        else -> Unit
                     }
                 }
                 true
@@ -3674,7 +3675,6 @@ private fun ReaderScreenContent(
                     comicModeEnabled = uiState.comicModeEnabled,
                     ttsFollowEnabled = ttsReaderFollowEnabled,
                     onManualScrollStarted = ::beginManualReaderBrowsing,
-                    ttsFollowUserPageTurns = ttsState.followUserPageTurns,
                     imageAdjustments = uiState.imageAdjustments.forDisplay(eInkMode),
                     bodyFontWeight = uiState.bodyFontWeight
                 )
@@ -4810,7 +4810,6 @@ private fun ReaderScreenContent(
                     usesAndroidTts = ttsState.usesAndroidTts,
                     sleepTimerRemainingMs = ttsState.sleepTimerRemainingMs,
                     sleepTimerDurationMs = ttsState.sleepTimerDurationMs,
-                    followUserPageTurns = ttsState.followUserPageTurns,
                     onPlayPause = viewModel::toggleTtsPlayPause,
                     onStop = viewModel::stopTts,
                     onOpenFullscreen = { viewModel.openFullScreenTts(context) },
@@ -4822,7 +4821,6 @@ private fun ReaderScreenContent(
                     onPitchModeChange = viewModel::setTtsPitchMode,
                     onSetSleepTimer = viewModel::setSleepTimer,
                     onCancelSleepTimer = viewModel::cancelSleepTimer,
-                    onFollowUserPageTurnsChange = viewModel::setTtsFollowUserPageTurns,
                     onReturnToProgress = returnToTtsProgress,
                     onStartFromCurrentPage = { startTtsFromCurrentPage(false) },
                     canReturnToProgress = ttsCurrentPage?.location?.let { location ->
@@ -5088,6 +5086,7 @@ private fun ReaderScreenContent(
                 onExportRules = viewModel::exportHighlightRules,
                 onImportFont = { uri, displayName ->
                     scope.launch { viewModel.importFont(context, uri, displayName) }
+                    null
                 },
                 onCancelScan = viewModel::cancelHighlightRuleScan,
                 onRebuild = viewModel::rebuildHighlightRuleNotes,
