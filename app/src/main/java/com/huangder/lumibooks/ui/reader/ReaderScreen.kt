@@ -5695,6 +5695,8 @@ private fun ReaderScreenContent(
                 readerRootSize.value = coordinates.size
             }
     ) {
+        // 诊断：确认 Compose 侧读到的 isMenuVisible 与会话状态
+        android.util.Log.d("ReaderMenuDbg", "compose enter isMenuVisible=${uiState.isMenuVisible} vm=${viewModel.hashCode()}")
         readerPage()
         readerOverlays()
 

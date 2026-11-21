@@ -6530,7 +6530,7 @@ class ReaderViewModel @Inject constructor(
 
     fun toggleMenu() {
         val next = !_uiState.value.isMenuVisible
-        android.util.Log.d("ReaderMenuDbg", "toggleMenu -> $next")
+        android.util.Log.d("ReaderMenuDbg", "toggleMenu -> $next vm=${hashCode()}")
         _uiState.value = _uiState.value.copy(
             isMenuVisible = next
         )
