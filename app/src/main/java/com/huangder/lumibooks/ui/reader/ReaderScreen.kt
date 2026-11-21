@@ -5044,23 +5044,11 @@ private fun ReaderScreenContent(
 
             // 顶部栏
             AnimatedVisibility(
+                // 顶部栏直接显隐：此前依赖 slide+fade 动画，一旦动画时钟不推进，
+                // 菜单会永远停在「已移出屏幕 + 全透明」的初始状态，表现为按钮全部消失。
                 visible = uiState.isMenuVisible,
-                enter = when {
-                    eInkMode -> EnterTransition.None
-                    !motionEnabled -> fadeIn(animationSpec = tween(120))
-                    else -> slideInVertically(
-                        initialOffsetY = { -it },
-                        animationSpec = tween(LumiMotion.MenuEnterMillis, easing = AppEasing.Smooth)
-                    ) + fadeIn(animationSpec = tween(LumiMotion.MenuEnterMillis))
-                },
-                exit = when {
-                    eInkMode -> ExitTransition.None
-                    !motionEnabled -> fadeOut(animationSpec = tween(100))
-                    else -> slideOutVertically(
-                        targetOffsetY = { -it },
-                        animationSpec = tween(LumiMotion.MenuExitMillis, easing = AppEasing.Accelerate)
-                    ) + fadeOut(animationSpec = tween(LumiMotion.MenuExitMillis))
-                },
+                enter = EnterTransition.None,
+                exit = ExitTransition.None,
                 modifier = Modifier.align(Alignment.TopCenter)
             ) {
                 val bookTitle = uiState.book?.title ?: ""
@@ -5219,7 +5207,7 @@ private fun ReaderScreenContent(
                             // 竖向工具栏布局底部只剩一行胶囊，遮罩随之变矮
                             .height(if (useSideReaderMenu) 132.dp else 220.dp)
                             .align(Alignment.BottomCenter)
-                            .graphicsLayer { alpha = menuAlpha.value }
+                            .graphicsLayer { alpha = if (uiState.isMenuVisible) 1f else menuAlpha.value }
                             .then(
                                 if (eInkMode) {
                                     Modifier.background(menuBgColor)
@@ -5243,7 +5231,7 @@ private fun ReaderScreenContent(
                 // 胶囊菜单
                 Box(modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer { alpha = menuAlpha.value; translationY = menuOffset.value }
+                    .graphicsLayer { alpha = if (uiState.isMenuVisible) 1f else menuAlpha.value; translationY = if (uiState.isMenuVisible) 0f else menuOffset.value }
                 ) {
                     FloatingReaderMenu(
                         visible = uiState.isMenuVisible,

@@ -1759,7 +1759,7 @@ fun MainNavGraph(
                             selectedIndex = selectedTab,
                             hazeState = hazeState,
                             liquidGlassBackdrop = liquidGlassBackdrop,
-                            reserveImportButtonSpace = false,
+                            reserveImportButtonSpace = true,
                             onTabSelected = selectTab
                         )
                     }
