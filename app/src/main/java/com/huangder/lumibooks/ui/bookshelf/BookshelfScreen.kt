@@ -916,10 +916,7 @@ fun BookshelfScreen(
                 .graphicsLayer { renderEffect = contentBlur.at(contentBlurRadius()) }
                 .background(AppColors.PageBg)
         ) {
-            val glowAccent = AppColors.Accent
-            com.huangder.lumibooks.ui.components.AmbientGlow(
-                remember(glowAccent) { listOf(glowAccent, glowAccent.shiftHue(32f), glowAccent.shiftHue(-28f)) },
-                intensity = .55f, height = 360.dp)
+            // 书库不再绘制强调色环境光晕，与主页/发现页背景保持一致
             if (isLiquidGlass) {
                 OverscrollBounce(
                     modifier = Modifier.fillMaxSize(),
@@ -2115,13 +2112,7 @@ internal fun BookshelfCollection(
                             )
                         }
                     }
-                    if (showAddBook && !isLoading && !isEditing) {
-                        item(key = "add_book_list") {
-                            Box(Modifier.mainTabEntrance()) {
-                                AddBookListItem(onClick = onAddBook)
-                            }
-                        }
-                    }
+                    // 导入图书统一走书库右上角「更多」菜单，列表不再放导入占位
                 }
             } else {
                 val gridSpacing = if (renderedMode == 3) 12.dp else AppSpace.lg
@@ -2261,16 +2252,7 @@ internal fun BookshelfCollection(
                     }
                     }
                 }
-                if (showAddBook && !isLoading && !isEditing) {
-                    item(key = "add_book_grid_$renderedMode") {
-                        PageEntranceItem(
-                            play = playEntranceAnimation,
-                            index = folders.size + books.size + 2
-                        ) {
-                            AddBookItem(layoutMode = renderedMode, onClick = onAddBook)
-                        }
-                    }
-                }
+                // 导入图书统一走书库右上角「更多」菜单，网格不再放导入占位
             }
         }
     }

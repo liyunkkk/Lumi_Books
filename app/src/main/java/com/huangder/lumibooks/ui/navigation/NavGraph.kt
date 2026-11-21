@@ -1697,14 +1697,7 @@ fun MainNavGraph(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (showLiquidImport) {
-                        LiquidGlassImportButton(
-                            onClick = requestImport,
-                            liquidGlassBackdrop = liquidGlassBackdrop
-                        )
-                    } else {
-                        LumiImportFab(onClick = requestImport)
-                    }
+                    // 导入图书已统一收到书库右上角「更多」菜单里，底部不再放导入按钮
                     NavSettingsButton(
                         onClick = {
                             context.startActivity(
@@ -1741,26 +1734,12 @@ fun MainNavGraph(
                             max = if (isLiquidGlass) 480.dp else 430.dp
                         )
                     ) {
-                        if (showLiquidImport) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
-                                    .padding(end = 24.dp, bottom = 10.dp)
-                            ) {
-                                LiquidGlassImportButton(
-                                    onClick = requestImport,
-                                    liquidGlassBackdrop = liquidGlassBackdrop
-                                )
-                            }
-                        }
-                        // 头像 / 设置入口（fork 自有）。上游合并时丢失，这里补回。
-                        // 与导入按钮并排：头像在左，导入在右（64dp 按钮 + 12dp 间隔）。
+                        // 头像 / 设置入口。导入图书已移到书库「更多」菜单，这里只保留头像。
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
                                 .windowInsetsPadding(WindowInsets.navigationBarsIgnoringVisibility)
-                                .padding(end = if (showLiquidImport) 76.dp else 24.dp, bottom = 10.dp)
+                                .padding(end = 24.dp, bottom = 10.dp)
                         ) {
                             NavSettingsButton(
                                 onClick = {
@@ -1780,7 +1759,7 @@ fun MainNavGraph(
                             selectedIndex = selectedTab,
                             hazeState = hazeState,
                             liquidGlassBackdrop = liquidGlassBackdrop,
-                            reserveImportButtonSpace = true,
+                            reserveImportButtonSpace = false,
                             onTabSelected = selectTab
                         )
                     }
