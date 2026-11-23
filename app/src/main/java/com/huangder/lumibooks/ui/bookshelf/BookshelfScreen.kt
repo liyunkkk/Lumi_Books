@@ -18,8 +18,22 @@ import com.huangder.lumibooks.ui.icons.AppIcons
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Surface
+import android.widget.Toast
+import com.huangder.lumibooks.ui.discover.BookDiscoveryRepository
+import com.huangder.lumibooks.util.parser.OnlineBookParser
+import io.legado.app.data.appDb
+import io.legado.app.data.entities.BookSource
+import io.legado.app.data.entities.SearchBook
+import io.legado.app.model.webBook.WebBook
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -275,6 +289,10 @@ fun BookshelfScreen(
     var deleteFolder by remember { mutableStateOf<LibraryFolder?>(null) }
     var relocateFolder by remember { mutableStateOf<LibraryFolder?>(null) }
     var folderCoverTarget by remember { mutableStateOf<LibraryFolder?>(null) }
+    var changeSourceTargetBook by remember { mutableStateOf<Book?>(null) }
+    var changeSourceResults by remember { mutableStateOf<List<SearchBook>>(emptyList()) }
+    var isSearchingChangeSources by remember { mutableStateOf(false) }
+    var isSwitchingChangeSource by remember { mutableStateOf(false) }
     // Hidden library: pull past the top for the passcode panel; hiding sets the passcode first.
     val hiddenPullState = com.huangder.lumibooks.ui.privacy.rememberHiddenLibraryPullState()
     val shelfBounceState = remember { com.huangder.lumibooks.ui.animation.OverscrollBounceState() }
@@ -1331,6 +1349,36 @@ fun BookshelfScreen(
                 booksPendingDeletion = listOf(book)
                 showBatchDeleteConfirm = true
             },
+            onChangeSource = { book ->
+                changeSourceTargetBook = book
+                changeSourceResults = emptyList()
+                isSearchingChangeSources = true
+                isSwitchingChangeSource = false
+                hideScope.launch {
+                    try {
+                        val title = book.title.trim()
+                        val allSources = withContext(Dispatchers.IO) {
+                            val enabled = runCatching { appDb.bookSourceDao.allEnabled() }.getOrDefault(emptyList())
+                            val all = runCatching { appDb.bookSourceDao.all() }.getOrDefault(emptyList())
+                            val candidates = (if (enabled.isNotEmpty()) enabled else all).filter { !it.searchUrl.isNullOrBlank() }
+                            candidates.distinctBy { it.bookSourceUrl }
+                        }
+                        BookDiscoveryRepository.searchStreaming(
+                            keyword = title,
+                            sources = allSources,
+                            maxConcurrency = 6,
+                            sourceTimeoutMs = 8000L
+                        ) { batch ->
+                            val matched = batch.filter { it.name.trim() == title }
+                            changeSourceResults = matched
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("BookshelfScreen", "换源搜索异常: ${e.message}")
+                    } finally {
+                        isSearchingChangeSources = false
+                    }
+                }
+            },
             onFavorite = { book ->
                 pendingContextMenuAction = PendingBookMenuAction(PendingBookMenuActionType.Favorite, book)
             },
@@ -1668,6 +1716,42 @@ fun BookshelfScreen(
                         role = AppDialogActionRole.Cancel
                     )
                 ))
+        }
+
+        if (changeSourceTargetBook != null) {
+            BookshelfChangeSourceDialog(
+                sources = changeSourceResults,
+                isSearching = isSearchingChangeSources,
+                isSwitching = isSwitchingChangeSource,
+                onSelectSource = { selectedSearchBook ->
+                    val target = changeSourceTargetBook
+                    if (target != null && !isSwitchingChangeSource) {
+                        isSwitchingChangeSource = true
+                        hideScope.launch {
+                            try {
+                                val updatedBook = prepareBookSourceSwitch(target, selectedSearchBook)
+                                viewModel.updateBook(updatedBook)
+                                Toast.makeText(
+                                    context,
+                                    "已换源至「${selectedSearchBook.originName.ifBlank { "新书源" }}」",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                changeSourceTargetBook = null
+                            } catch (e: Exception) {
+                                android.util.Log.w("BookshelfScreen", "换源失败: ${e.message}")
+                                Toast.makeText(context, "换源失败: ${e.message ?: "未知错误"}", Toast.LENGTH_SHORT).show()
+                            } finally {
+                                isSwitchingChangeSource = false
+                            }
+                        }
+                    }
+                },
+                onDismiss = {
+                    if (!isSwitchingChangeSource) {
+                        changeSourceTargetBook = null
+                    }
+                }
+            )
         }
 
         if (showBatchDeleteConfirm) {
@@ -3710,4 +3794,149 @@ private fun commitBookOrder(
     if (draft == null || onReorder == null) return
     val order = mergeDraftGroup(books, draft).map { it.id }
     if (order != books.map { it.id }) onReorder(order)
+}
+
+internal suspend fun prepareBookSourceSwitch(
+    target: Book,
+    selectedSearchBook: SearchBook
+): Book = withContext(Dispatchers.IO) {
+    val newEngineBookUrl = selectedSearchBook.bookUrl
+    val newFilePath = OnlineBookParser.SCHEME + newEngineBookUrl
+    val engineBook = appDb.bookDao.getBook(newEngineBookUrl)
+        ?: selectedSearchBook.toBook().also { appDb.bookDao.insert(it) }
+    val source = appDb.bookSourceDao.getBookSource(engineBook.origin)
+        ?: throw IllegalStateException("书源不存在或已删除")
+    if (engineBook.tocUrl.isNullOrBlank() || engineBook.tocUrl == engineBook.bookUrl) {
+        val detailed = withTimeoutOrNull(12_000L) {
+            runCatching {
+                engineBook.infoHtml = null
+                WebBook.getBookInfoAwait(source, engineBook)
+            }.getOrNull()
+        }
+        if (detailed != null) {
+            if (!detailed.tocUrl.isNullOrBlank()) engineBook.tocUrl = detailed.tocUrl
+            if (!detailed.coverUrl.isNullOrBlank() && engineBook.coverUrl.isNullOrBlank()) {
+                engineBook.coverUrl = detailed.coverUrl
+            }
+            if (!detailed.intro.isNullOrBlank() && engineBook.intro.isNullOrBlank()) {
+                engineBook.intro = detailed.intro
+            }
+            runCatching { appDb.bookDao.update(engineBook) }
+        }
+    }
+    target.copy(
+        filePath = newFilePath,
+        coverPath = engineBook.coverUrl?.takeIf { it.isNotBlank() } ?: target.coverPath
+    )
+}
+
+@Composable
+internal fun BookshelfChangeSourceDialog(
+    sources: List<SearchBook>,
+    isSearching: Boolean,
+    isSwitching: Boolean = false,
+    onSelectSource: (SearchBook) -> Unit,
+    onDismiss: () -> Unit
+) {
+    LiquidGlassAlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (isSwitching) "正在切换书源..." else "切换书源",
+                    color = AppColors.TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                if (isSearching || isSwitching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = AppColors.Accent
+                    )
+                }
+            }
+        },
+        text = {
+            if (sources.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isSearching) "正在检索可用书源..." else "未检索到同名书源书籍",
+                        color = AppColors.TextSecondary,
+                        fontSize = 14.sp
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 380.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    sources.forEach { book ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = AppColors.CardBg,
+                            border = BorderStroke(1.dp, AppColors.Divider.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !isSwitching) { onSelectSource(book) }
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = book.originName.ifBlank { "未知书源" },
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = AppColors.TextPrimary
+                                    )
+                                    if (book.author.isNotBlank()) {
+                                        Text(
+                                            text = book.author,
+                                            fontSize = 12.sp,
+                                            color = AppColors.TextSecondary
+                                        )
+                                    }
+                                }
+                                if (!book.latestChapterTitle.isNullOrBlank()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = "最新: ${book.latestChapterTitle}",
+                                        fontSize = 12.sp,
+                                        color = AppColors.TextSecondary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            LiquidGlassTextButton(
+                text = "关闭",
+                onClick = onDismiss
+            )
+        }
+    )
 }

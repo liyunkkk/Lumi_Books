@@ -6544,6 +6544,30 @@ class ReaderViewModel @Inject constructor(
      * 重新解析文件并刷新阅读状态（TXT编辑后调用）。
      * 会保留当前章节和页面的最佳匹配位置。
      */
+    private fun findBestMatchingChapterIndex(
+        oldChapterTitle: String,
+        oldChapterIndex: Int,
+        newChapterTitles: List<String>
+    ): Int {
+        if (newChapterTitles.isEmpty()) return 0
+        val fallback = oldChapterIndex.coerceIn(0, newChapterTitles.lastIndex)
+        val trimmed = oldChapterTitle.trim()
+        if (trimmed.isBlank()) return fallback
+        val exact = newChapterTitles.indexOfFirst { it.trim() == trimmed }
+        if (exact >= 0) return exact
+        val normalizedTarget = trimmed.replace(Regex("[\\s\\p{Punct}，。！？：；、“”‘’（）【】《》—…]+"), "")
+        if (normalizedTarget.isNotBlank()) {
+            val normalizedIdx = newChapterTitles.indexOfFirst { title ->
+                val norm = title.replace(Regex("[\\s\\p{Punct}，。！？：；、“”‘’（）【】《》—…]+"), "")
+                norm == normalizedTarget ||
+                    (norm.length >= 4 && normalizedTarget.length >= 4 &&
+                        (norm.contains(normalizedTarget) || normalizedTarget.contains(norm)))
+            }
+            if (normalizedIdx >= 0) return normalizedIdx
+        }
+        return fallback
+    }
+
     fun reloadContent() {
         viewModelScope.launch {
             val book = _uiState.value.book ?: return@launch
@@ -6551,20 +6575,25 @@ class ReaderViewModel @Inject constructor(
             val oldChapterIndex = _uiState.value.currentChapterIndex
             val oldChapterTitle = _uiState.value.chapterTitles.getOrNull(oldChapterIndex).orEmpty()
 
-            val newContent = withContext(Dispatchers.IO) {
-                p.parse(book.filePath)
+            val newContent = try {
+                withContext(Dispatchers.IO) {
+                    p.parse(book.filePath)
+                }
+            } catch (e: Exception) {
+                Log.w("ReaderViewModel", "reloadContent 失败: ${e.message}")
+                return@launch
             }
             val newChapterTitles = newContent.chapters.map { it.title }
             val newChapterCount = newContent.chapters.size
             preloadCache.clear()
             pageLayoutEngine.invalidateAll()
 
-            // 尝试通过标题匹配恢复章节位置，失败则回退到索引
-            val bestChapterIndex = if (oldChapterTitle.isNotBlank()) {
-                newChapterTitles.indexOf(oldChapterTitle).coerceAtLeast(0)
-            } else {
-                oldChapterIndex.coerceIn(0, (newChapterCount - 1).coerceAtLeast(0))
-            }
+            // 尝试通过标题匹配恢复章节位置，失败则回退到相近索引
+            val bestChapterIndex = findBestMatchingChapterIndex(
+                oldChapterTitle = oldChapterTitle,
+                oldChapterIndex = oldChapterIndex,
+                newChapterTitles = newChapterTitles
+            )
 
             _uiState.value = _uiState.value.copy(
                 chapterCount = newChapterCount,
@@ -7736,27 +7765,67 @@ class ReaderViewModel @Inject constructor(
 
     fun switchOnlineSource(targetSearchBook: SearchBook) {
         val currentBook = _uiState.value.book ?: return
+        val oldChapterIndex = _uiState.value.currentChapterIndex
+        val oldChapterTitle = _uiState.value.chapterTitles.getOrNull(oldChapterIndex).orEmpty()
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
             try {
                 val newEngineBookUrl = targetSearchBook.bookUrl
                 val newFilePath = OnlineBookParser.SCHEME + newEngineBookUrl
-                withContext(Dispatchers.IO) {
+                val (updatedBook, newParser, newContent) = withContext(Dispatchers.IO) {
                     val engineBook = appDb.bookDao.getBook(newEngineBookUrl)
                         ?: targetSearchBook.toBook().also { appDb.bookDao.insert(it) }
-                    val updatedBook = currentBook.copy(
+                    val candidateParser = OnlineBookParser(newEngineBookUrl)
+                    // 先验证新书源能拉到有效目录，失败时直接抛错，不破坏当前书源记录
+                    val parsedContent = candidateParser.parse(newFilePath)
+                    if (parsedContent.chapters.isEmpty()) {
+                        throw IllegalStateException("目标书源未返回任何章节")
+                    }
+                    val refreshedEngineBook = appDb.bookDao.getBook(newEngineBookUrl) ?: engineBook
+                    val nextBook = currentBook.copy(
                         filePath = newFilePath,
-                        coverPath = engineBook.coverUrl ?: currentBook.coverPath
+                        coverPath = refreshedEngineBook.coverUrl?.takeIf { it.isNotBlank() } ?: currentBook.coverPath
                     )
-                    bookRepository.updateBook(updatedBook)
-                    _uiState.value = _uiState.value.copy(book = updatedBook)
-                    parser = OnlineBookParser(newEngineBookUrl)
+                    bookRepository.updateBook(nextBook)
+                    Triple(nextBook, candidateParser, parsedContent)
                 }
-                reloadContent()
-                Toast.makeText(context, "已换源至「${targetSearchBook.originName}」", Toast.LENGTH_SHORT).show()
+
+                val newChapterTitles = newContent.chapters.map { it.title }
+                val newChapterCount = newContent.chapters.size
+                val bestChapterIndex = findBestMatchingChapterIndex(
+                    oldChapterTitle = oldChapterTitle,
+                    oldChapterIndex = oldChapterIndex,
+                    newChapterTitles = newChapterTitles
+                )
+
+                (parser as? OnlineBookParser)?.releaseCache()
+                parser = newParser
+                preloadCache.clear()
+                pageLayoutEngine.invalidateAll()
+
+                _uiState.value = _uiState.value.copy(
+                    book = updatedBook,
+                    chapterCount = newChapterCount,
+                    chapterTitles = newChapterTitles,
+                    tocEntries = newContent.tocEntries.ifEmpty {
+                        newChapterTitles.mapIndexed { i, t ->
+                            com.huangder.lumibooks.util.parser.TocEntry(t, 1, i)
+                        }
+                    },
+                    currentChapterIndex = bestChapterIndex,
+                    currentPageIndex = 0,
+                    contentRevision = _uiState.value.contentRevision + 1
+                )
+                preloadAdjacentChapters()
+                saveProgress()
+                Toast.makeText(
+                    context,
+                    "已换源至「${targetSearchBook.originName.ifBlank { "新书源" }}」",
+                    Toast.LENGTH_SHORT
+                ).show()
             } catch (e: Exception) {
-                Log.w("ReaderViewModel", "换源失败: ${e.message}")
-                Toast.makeText(context, "换源失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                Log.w("ReaderViewModel", "换源失败: ${e.message}", e)
+                Toast.makeText(context, "换源失败: ${e.message ?: "未知错误"}", Toast.LENGTH_SHORT).show()
             } finally {
                 _uiState.value = _uiState.value.copy(isLoading = false)
             }

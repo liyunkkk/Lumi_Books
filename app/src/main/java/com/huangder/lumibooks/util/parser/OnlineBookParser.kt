@@ -34,10 +34,6 @@ class OnlineBookParser(
 
     override fun parse(filePath: String): BookContent {
         val book = requireEngineBook()
-        if (book.tocUrl.isNullOrBlank()) {
-            book.tocUrl = book.bookUrl
-            try { appDb.bookDao.update(book) } catch (_: Exception) {}
-        }
 
         // 1. 优先读取本地数据库章节缓存（实现秒开，避免重复同步请求网络）
         var cachedChapters = appDb.bookChapterDao.getChapterList(engineBookUrl)
@@ -48,10 +44,29 @@ class OnlineBookParser(
         val list = if (cachedChapters.isNotEmpty()) {
             cachedChapters
         } else {
-            // 2. 本地无缓存时，发起网络请求拉取目录，带 15 秒超时熔断
+            // 2. 本地无缓存时，先补全书籍详情（获取真实 tocUrl），再发起网络请求拉取目录，带超时熔断
             val source = requireBookSource()
             val fetchedList = runBlocking {
                 withTimeoutOrNull(NETWORK_TIMEOUT_MS) {
+                    if (book.tocUrl.isNullOrBlank() || book.tocUrl == book.bookUrl) {
+                        val detailed = runCatching {
+                            book.infoHtml = null
+                            WebBook.getBookInfoAwait(source, book)
+                        }.getOrNull()
+                        if (detailed != null) {
+                            if (!detailed.tocUrl.isNullOrBlank()) book.tocUrl = detailed.tocUrl
+                            if (!detailed.coverUrl.isNullOrBlank() && book.coverUrl.isNullOrBlank()) {
+                                book.coverUrl = detailed.coverUrl
+                            }
+                            if (!detailed.intro.isNullOrBlank() && book.intro.isNullOrBlank()) {
+                                book.intro = detailed.intro
+                            }
+                        }
+                    }
+                    if (book.tocUrl.isNullOrBlank()) {
+                        book.tocUrl = book.bookUrl
+                    }
+                    try { appDb.bookDao.update(book) } catch (_: Exception) {}
                     WebBook.getChapterListAwait(source, book).getOrNull()
                 }
             } ?: throw IllegalStateException("加载目录超时或失败，请检查网络连接或更换书源")

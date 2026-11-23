@@ -27,6 +27,12 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import com.huangder.lumibooks.ui.discover.BookDiscoveryRepository
+import io.legado.app.data.appDb
+import io.legado.app.data.entities.SearchBook
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -938,6 +944,11 @@ private fun CategoryBooksPage(
     var moveTargetBook by remember { mutableStateOf<Book?>(null) }
     var pendingCrossStorageMove by remember { mutableStateOf<PendingCrossStorageBookMove?>(null) }
     var pendingArchiveBookId by remember { mutableStateOf<String?>(null) }
+    val changeSourceScope = androidx.compose.runtime.rememberCoroutineScope()
+    var changeSourceTargetBook by remember { mutableStateOf<Book?>(null) }
+    var changeSourceResults by remember { mutableStateOf<List<SearchBook>>(emptyList()) }
+    var isSearchingChangeSources by remember { mutableStateOf(false) }
+    var isSwitchingChangeSource by remember { mutableStateOf(false) }
     val operationState by viewModel.uiState.collectAsState()
     LaunchedEffect(operationState.importMessage, operationState.error) {
         val message = operationState.error ?: operationState.importMessage
@@ -1131,6 +1142,36 @@ private fun CategoryBooksPage(
                 onDelete = {
                     triggerDeleteCategoryBooks(listOf(it))
                 },
+                onChangeSource = { book ->
+                    changeSourceTargetBook = book
+                    changeSourceResults = emptyList()
+                    isSearchingChangeSources = true
+                    isSwitchingChangeSource = false
+                    changeSourceScope.launch {
+                        try {
+                            val title = book.title.trim()
+                            val allSources = withContext(Dispatchers.IO) {
+                                val enabled = runCatching { appDb.bookSourceDao.allEnabled() }.getOrDefault(emptyList())
+                                val all = runCatching { appDb.bookSourceDao.all() }.getOrDefault(emptyList())
+                                val candidates = (if (enabled.isNotEmpty()) enabled else all).filter { !it.searchUrl.isNullOrBlank() }
+                                candidates.distinctBy { it.bookSourceUrl }
+                            }
+                            BookDiscoveryRepository.searchStreaming(
+                                keyword = title,
+                                sources = allSources,
+                                maxConcurrency = 6,
+                                sourceTimeoutMs = 8000L
+                            ) { batch ->
+                                val matched = batch.filter { it.name.trim() == title }
+                                changeSourceResults = matched
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.w("BookshelfCategories", "换源搜索异常: ${e.message}")
+                        } finally {
+                            isSearchingChangeSources = false
+                        }
+                    }
+                },
                 onFavorite = { viewModel.updateBook(it.copy(isFavorite = !it.isFavorite)) },
                 onPin = { viewModel.updateBook(it.copy(isPinned = !it.isPinned)) },
                 onCustomCover = { coverSourceBook = it },
@@ -1149,6 +1190,42 @@ private fun CategoryBooksPage(
                 onMoveToFolder = { book -> moveTargetBook = book }
             )
         }
+    }
+
+    if (changeSourceTargetBook != null) {
+        BookshelfChangeSourceDialog(
+            sources = changeSourceResults,
+            isSearching = isSearchingChangeSources,
+            isSwitching = isSwitchingChangeSource,
+            onSelectSource = { selectedSearchBook ->
+                val target = changeSourceTargetBook
+                if (target != null && !isSwitchingChangeSource) {
+                    isSwitchingChangeSource = true
+                    changeSourceScope.launch {
+                        try {
+                            val updatedBook = prepareBookSourceSwitch(target, selectedSearchBook)
+                            viewModel.updateBook(updatedBook)
+                            Toast.makeText(
+                                context,
+                                "已换源至「${selectedSearchBook.originName.ifBlank { "新书源" }}」",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            changeSourceTargetBook = null
+                        } catch (e: Exception) {
+                            android.util.Log.w("BookshelfCategories", "换源失败: ${e.message}")
+                            Toast.makeText(context, "换源失败: ${e.message ?: "未知错误"}", Toast.LENGTH_SHORT).show()
+                        } finally {
+                            isSwitchingChangeSource = false
+                        }
+                    }
+                }
+            },
+            onDismiss = {
+                if (!isSwitchingChangeSource) {
+                    changeSourceTargetBook = null
+                }
+            }
+        )
     }
 
     // ── 自定义封面来源选择（选择图片 / 网络搜索） ──

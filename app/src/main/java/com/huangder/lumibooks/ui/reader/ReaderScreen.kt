@@ -4259,7 +4259,12 @@ private fun ReaderScreenContent(
 
             LaunchedEffect(uiState.contentRevision, readViewRef.value) {
                 if (uiState.contentRevision > 0L) {
-                    readViewRef.value?.forceRelayout()
+                    val targetChapter = uiState.currentChapterIndex.coerceIn(
+                        0,
+                        (uiState.chapterCount - 1).coerceAtLeast(0)
+                    )
+                    val targetPage = uiState.currentPageIndex.coerceAtLeast(0)
+                    readViewRef.value?.forceRelayout(targetChapter, targetPage)
                 }
             }
         }

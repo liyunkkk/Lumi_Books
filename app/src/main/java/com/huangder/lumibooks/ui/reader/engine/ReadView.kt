@@ -1335,19 +1335,24 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
         slotManager.refreshCurrent()
     }
 
-    fun forceRelayout() {
+    fun forceRelayout(targetChapterIndex: Int? = null, targetPageIndex: Int? = null) {
         if (!isConfigured) return
         clearRelayoutAnchor()
         val current = slotManager.getCurSlot()
-        if (current.isLoaded) {
+        if (targetChapterIndex == null && current.isLoaded) {
             val primaryOffset = slotManager.getPrimaryContentView().chapterStartOffset
             slotManager.pendingStartCharOffset =
                 primaryOffset.takeIf { it >= 0 } ?: current.contentView.chapterStartOffset
+        } else if (targetChapterIndex != null) {
+            slotManager.pendingStartCharOffset = -1
+            slotManager.pendingStartPageFraction = null
         }
         slotManager.clearContentCache()
         layoutEngine.refreshLayouts()
-        if (current.chapterIndex >= 0) {
-            slotManager.initialize(current.chapterIndex, current.pageIndex.coerceAtLeast(0))
+        val chapterToInit = targetChapterIndex ?: current.chapterIndex
+        val pageToInit = (targetPageIndex ?: current.pageIndex).coerceAtLeast(0)
+        if (chapterToInit >= 0) {
+            slotManager.initialize(chapterToInit, pageToInit)
         }
     }
 
