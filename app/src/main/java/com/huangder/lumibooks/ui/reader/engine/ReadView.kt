@@ -642,14 +642,9 @@ class ReadView(context: Context, externalLayoutEngine: PageLayoutEngine? = null)
         animationController.onTapCenter = centerTap@{
             // 滑动接管时旧触摸流会收到 CANCEL。即使某个动画控制器错误地把它
             // 当成点击，也不能让已认领的翻页手势再次打开中央菜单。
-            Log.d(TAG, "onTapCenter claimed=$rvSwipeTurnClaimed handling=$rvIsHandlingPageGesture cb=${callbacks != null}")
-            if (rvSwipeTurnClaimed || rvIsHandlingPageGesture) {
-                Log.d(TAG, "onTapCenter BLOCKED by guard")
-                return@centerTap
-            }
+            if (rvSwipeTurnClaimed || rvIsHandlingPageGesture) return@centerTap
             clearCurrentSelection()
             callbacks?.onMenuToggle()
-            Log.d(TAG, "onTapCenter -> onMenuToggle invoked")
         }
         animationController.onTapRight = {
             performEdgeTap(effectiveEdgeTapAction(currentEdgeTapMode.rightAction))
