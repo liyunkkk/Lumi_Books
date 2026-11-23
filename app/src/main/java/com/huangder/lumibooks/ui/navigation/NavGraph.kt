@@ -360,6 +360,7 @@ fun MainNavGraph(
     navController: NavHostController,
     startDestination: String = Screen.Home.route,
     initialBookshelfLayoutMode: Int? = null,
+    initialHomeScreenMode: String? = null,
     entranceAnimationsEnabled: Boolean = true,
     bookOpenUsesHeroTransition: Boolean = true,
     predictiveBackEnabled: Boolean = true,
@@ -378,14 +379,16 @@ fun MainNavGraph(
 ) {
     val mainStartDestination = when (startDestination) {
         Screen.Bookshelf.route -> Screen.Bookshelf.route
+        Screen.Discover.route -> Screen.Discover.route
         Screen.Statistics.route -> Screen.Statistics.route
         else -> Screen.Home.route
     }
+    val statisticsTabIndex = mainTabRoutes.indexOf(Screen.Statistics.route).coerceAtLeast(0)
     val mainPagerState = rememberPagerState(
         initialPage = when {
             requestedOpenBookshelf -> 1
-            requestedOpenStatistics -> 2
-            else -> mainTabRoutes.indexOf(mainStartDestination)
+            requestedOpenStatistics -> statisticsTabIndex
+            else -> mainTabRoutes.indexOf(mainStartDestination).coerceAtLeast(0)
         }
     ) { mainTabRoutes.size }
     val selectedTab by remember { derivedStateOf { mainPagerState.settledPage } }
@@ -888,7 +891,7 @@ fun MainNavGraph(
     LaunchedEffect(requestedOpenStatistics) {
         if (!requestedOpenStatistics) return@LaunchedEffect
         tabNavigationJob?.cancel()
-        mainPagerState.scrollToPage(2)
+        mainPagerState.scrollToPage(statisticsTabIndex)
         if (navController.currentDestination?.route != mainStartDestination) {
             navController.popBackStack(mainStartDestination, inclusive = false)
         }
@@ -1135,6 +1138,7 @@ fun MainNavGraph(
                             when (page) {
                                 0 -> {
                                     HomeScreen(
+                                        initialHomeScreenMode = initialHomeScreenMode,
                                         playEntranceAnimation = playEntranceAnimation,
                                         onNavigateToReader = { book, sourceBounds ->
                                             requestOpenBook(book, sourceBounds)

@@ -164,6 +164,7 @@ import com.huangder.lumibooks.ui.statistics.styledFigure
 
 @Composable
 fun HomeScreen(
+    initialHomeScreenMode: String? = null,
     playEntranceAnimation: Boolean = false,
     onNavigateToReader: (book: Book, sourceBounds: Rect?) -> Unit,
     onNavigateToStatistics: () -> Unit,
@@ -259,7 +260,12 @@ fun HomeScreen(
 
     // fork 自有：在读精选 3D 卡片流首页模式（上游无此功能，合并时被上游 HomeScreen 覆盖，
     // 此处按 91cd9335 的原始实现补回分发）。
-    if (uiState.homeScreenMode == com.huangder.lumibooks.data.local.DataStoreManager.HOME_SCREEN_MODE_CARD_FLOW) {
+    val effectiveHomeScreenMode = if (uiState.homeScreenModeLoaded) {
+        uiState.homeScreenMode
+    } else {
+        initialHomeScreenMode ?: uiState.homeScreenMode
+    }
+    if (effectiveHomeScreenMode == com.huangder.lumibooks.data.local.DataStoreManager.HOME_SCREEN_MODE_CARD_FLOW) {
         CompositionLocalProvider(
             LocalShowCoverProgress provides uiState.showCoverProgress,
             LocalShowFinishedBadge provides uiState.showFinishedBadge
@@ -268,6 +274,7 @@ fun HomeScreen(
                 // 3D 卡片流必须使用与经典首页同一份过滤结果，
                 // 否则「隐藏当前在读」的书/文件夹仍会出现在 3D 首页。
                 books = activeReadingBooks,
+                isLoading = uiState.isLoading,
                 todayReadingTime = uiState.todayReadingTime,
                 dailyGoal = uiState.dailyGoal,
                 streakDays = uiState.streakDays,

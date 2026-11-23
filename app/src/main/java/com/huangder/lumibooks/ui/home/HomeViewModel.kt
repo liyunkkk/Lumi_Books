@@ -129,6 +129,7 @@ data class HomeUiState(
     val spineRowBreaks: Map<String, Int> = emptyMap(),
     val isLoading: Boolean = true,
     val homeScreenMode: String = DataStoreManager.DEFAULT_HOME_SCREEN_MODE,
+    val homeScreenModeLoaded: Boolean = false,
     val bookshelfLayoutMode: Int = 2,
     val bookshelfLayoutModeLoaded: Boolean = false,
     val spineSharpCovers: Boolean = false,
@@ -557,7 +558,10 @@ class HomeViewModel @Inject constructor(
         }
         viewModelScope.launch {
             dataStoreManager.homeScreenMode.collectLatest { mode ->
-                _uiState.value = _uiState.value.copy(homeScreenMode = mode)
+                _uiState.value = _uiState.value.copy(
+                    homeScreenMode = mode,
+                    homeScreenModeLoaded = true
+                )
             }
         }
     }

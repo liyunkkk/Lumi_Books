@@ -808,6 +808,9 @@ class MainActivity : ComponentActivity() {
             val bookshelfLayoutMode by produceState<Int?>(initialValue = null, dataStoreManager) {
                 value = dataStoreManager.bookshelfLayoutMode.first()
             }
+            val homeScreenMode by produceState<String?>(initialValue = null, dataStoreManager) {
+                value = dataStoreManager.homeScreenMode.first()
+            }
             val appAccentColor by dataStoreManager.appAccentColor.collectAsState(initial = DEFAULT_APP_ACCENT_HEX)
             val appFontSize by dataStoreManager.appFontSize.collectAsState(initial = appFontLaunchSnapshot.appFontSize)
             val globalFontMode by dataStoreManager.globalFontMode.collectAsState(initial = "system")
@@ -979,16 +982,18 @@ class MainActivity : ComponentActivity() {
                         ) {
                             startupScreen?.let { configuredStartupScreen ->
                                 bookshelfLayoutMode?.let { configuredBookshelfLayoutMode ->
+                                homeScreenMode?.let { configuredHomeScreenMode ->
                                 val startupRoute = when (configuredStartupScreen) {
                                     DataStoreManager.STARTUP_SCREEN_BOOKSHELF -> Screen.Bookshelf.route
-                                    DataStoreManager.STARTUP_SCREEN_DISCOVER,
-                                    DataStoreManager.STARTUP_SCREEN_STATISTICS -> Screen.Discover.route
+                                    DataStoreManager.STARTUP_SCREEN_DISCOVER -> Screen.Discover.route
+                                    DataStoreManager.STARTUP_SCREEN_STATISTICS -> Screen.Statistics.route
                                     else -> Screen.Home.route
                                 }
                                 MainNavGraph(
                                     navController = navController,
                                     startDestination = startupRoute,
                                     initialBookshelfLayoutMode = configuredBookshelfLayoutMode,
+                                    initialHomeScreenMode = configuredHomeScreenMode,
                                     entranceAnimationsEnabled = entranceAnimationsEnabled &&
                                         motionPreferenceValue != "reduced" &&
                                         !showSplash && !eInkModeEnabled,
@@ -1014,6 +1019,7 @@ class MainActivity : ComponentActivity() {
                                         requestedOpenFolderId = null
                                     }
                                 )
+                                }
                                 }
                             }
                         }

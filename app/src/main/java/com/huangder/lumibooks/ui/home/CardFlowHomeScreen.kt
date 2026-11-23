@@ -56,6 +56,7 @@ import kotlin.math.absoluteValue
 @Composable
 fun CardFlowHomeScreen(
     books: List<Book>,
+    isLoading: Boolean = false,
     todayReadingTime: Long,
     dailyGoal: Int,
     streakDays: Int,
@@ -104,12 +105,20 @@ fun CardFlowHomeScreen(
 
             // 2. 中央 3D 景深卡片流（左右书籍大比例露出堆叠）
             if (displayBooks.isEmpty()) {
-                EmptyReadingCard(
-                    onImportClick = onImportClick,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 32.dp, vertical = 24.dp)
-                )
+                if (isLoading) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                    )
+                } else {
+                    EmptyReadingCard(
+                        onImportClick = onImportClick,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 32.dp, vertical = 24.dp)
+                    )
+                }
             } else {
                 BoxWithConstraints(
                     modifier = Modifier
